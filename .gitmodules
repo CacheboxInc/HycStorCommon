@@ -1,0 +1,4 @@
+[submodule "thirdparty/CRoaring"]
+	path = thirdparty/CRoaring
+	url = git@github.com:CacheboxInc/CRoaring.git
+	branch = add_stats
