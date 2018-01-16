@@ -1,0 +1,12 @@
+To build :
+...........
+
+Needs aerospike client library.
+gcc -DAS_USE_LIBEV -o filename filename.c -laerospike -lev -lssl -lcrypto -lpthread -lm -lz
+
+To run :
+.......
+
+Need aerospike server up and running.
+
+./filename
