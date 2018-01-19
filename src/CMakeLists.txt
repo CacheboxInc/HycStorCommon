@@ -22,6 +22,8 @@ add_library(StorageLayer SHARED
 	RequestHandler.cpp
 	UnalignedHandler.cpp
 	RamCacheHandler.cpp
+
+	ThreadPool.cpp
 )
 
 

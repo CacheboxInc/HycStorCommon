@@ -49,7 +49,7 @@ TEST(RequestTest, Constructor_Exception) {
 }
 
 TEST(RequestTest, ReadTest) {
-	for (auto blocks_size = 512; blocks_size <= 8192; blocks_size <<= 1) {
+	for (auto blocks_size = 512; blocks_size <= 4096; blocks_size <<= 1) {
 		ActiveVmdk vmdk(nullptr, "1", blocks_size);
 		for (auto nblocks = 2; nblocks <= 10; ++nblocks) {
 			size_t buffer_size = blocks_size * nblocks;
@@ -86,7 +86,7 @@ TEST(RequestTest, ReadTest) {
 }
 
 TEST(RequestTest, WriteTest) {
-	for (auto blocks_size = 512; blocks_size <= 8192; blocks_size <<= 1) {
+	for (auto blocks_size = 512; blocks_size <= 4096; blocks_size <<= 1) {
 		ActiveVmdk vmdk(nullptr, "1", blocks_size);
 		for (auto nblocks = 2; nblocks <= 10; ++nblocks) {
 			size_t buffer_size = blocks_size * nblocks;

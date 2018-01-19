@@ -9,8 +9,8 @@
 
 #include <roaring/roaring64map.hh>
 
-const static uint32_t kNumberOfBits = 1ul << 20;
-const static uint32_t kNumberOfTests = 1ul << 22;
+const static uint32_t kNumberOfBits = 1ul << 10;
+const static uint32_t kNumberOfTests = 1ul << 12;
 
 TEST(RoaringBitmapSpaceBenchmark, Benchmark) {
 	auto InitializeBitmap = [] (Roaring& bitmap, const uint32_t set, const uint32_t unset) {
@@ -23,8 +23,8 @@ TEST(RoaringBitmapSpaceBenchmark, Benchmark) {
 		}
 	};
 
-	for (auto set = 1; set <= 128; ++set) {
-		for (auto unset = 0; unset < 32; ++unset) {
+	for (auto set = 1; set <= 32; ++set) {
+		for (auto unset = 0; unset < 8; ++unset) {
 			Roaring bitmap;
 			InitializeBitmap(bitmap, set, unset);
 
