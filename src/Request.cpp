@@ -4,6 +4,7 @@
 
 #include <cstdint>
 
+#include "TgtTypes.h"
 #include "Request.h"
 #include "RequestHandler.h"
 #include "Vmdk.h"
@@ -27,9 +28,21 @@ int Request::GetResult() const {
 	return status_.return_value_;
 }
 
-Request::Request(RequestID id, ActiveVmdk *vmdkp, Request::Type type,
-		void *bufferp, size_t buffer_size, size_t transfer_size, Offset offset) :
-		vmdkp_(vmdkp), in_(id, type, bufferp, buffer_size, transfer_size, offset) {
+const void* Request::GetPrivateData() const noexcept {
+	return privatep_;
+}
+
+void Request::SetPrivateData(const void* privatep) noexcept {
+	privatep_ = privatep;
+}
+
+RequestID Request::GetID() const noexcept {
+	return in_.req_id_;
+}
+
+Request::Request(RequestID id, ActiveVmdk *vmdkp, Request::Type type, void *bufferp,
+		size_t buffer_size, size_t transfer_size, Offset offset) : vmdkp_(vmdkp),
+		in_(id, type, bufferp, buffer_size, transfer_size, offset) {
 	if (pio_unlikely(id == kInvalidRequestID)) {
 		throw std::invalid_argument("Invalid RequestID");
 	}
@@ -119,10 +132,14 @@ int Request::Complete() {
 	for (const auto& blockp : request_blocks_) {
 		auto rc = blockp->Complete();
 		if (pio_unlikely(not rc)) {
+			status_.failed_ = true;
+			status_.return_value_ = rc;
 			return rc;
 		}
 	}
 
+	status_.failed_ = false;
+	status_.return_value_ = 0;
 	return 0;
 }
 
@@ -251,7 +268,6 @@ size_t RequestBuffer::Size() const {
 char* RequestBuffer::Payload() {
 	return data_.get();
 }
-
 
 std::unique_ptr<RequestBuffer> NewRequestBuffer(size_t size) {
 	return std::make_unique<RequestBuffer>(size);

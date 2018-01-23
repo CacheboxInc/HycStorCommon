@@ -11,8 +11,10 @@ set(LIBRARY_LIST
 add_library(StorageLayer SHARED
 	Utils.cpp
 
-	Vmdk.cpp
+	TgtInterfaceImpl.cpp
+
 	VirtualMachine.cpp
+	Vmdk.cpp
 
 	RangeLock.cpp
 	Request.cpp

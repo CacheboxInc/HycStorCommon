@@ -10,7 +10,7 @@
 using namespace pio;
 
 TEST(RequestTest, Constructor_Exception) {
-	ActiveVmdk vmdk(nullptr, "1", kSectorSize);
+	ActiveVmdk vmdk(nullptr, 1, "1", kSectorSize);
 
 	/* RequestID == 0 */
 	EXPECT_THROW(
@@ -50,11 +50,11 @@ TEST(RequestTest, Constructor_Exception) {
 
 TEST(RequestTest, ReadTest) {
 	for (auto blocks_size = 512; blocks_size <= 4096; blocks_size <<= 1) {
-		ActiveVmdk vmdk(nullptr, "1", blocks_size);
+		ActiveVmdk vmdk(nullptr, 1, "1", blocks_size);
 		for (auto nblocks = 2; nblocks <= 10; ++nblocks) {
 			size_t buffer_size = blocks_size * nblocks;
 			auto bufferp = std::make_unique<RequestBuffer>(buffer_size);
-			for (auto i = pio::kInvalidRequestID + 1; i <= 3000; ++i) {
+			for (auto i = kInvalidRequestID + 1; i <= 3000; ++i) {
 				Offset offset = i * kSectorSize;
 				Request r(i, &vmdk, Request::Type::kRead, bufferp->Payload(),
 					buffer_size, buffer_size, offset);
@@ -87,14 +87,14 @@ TEST(RequestTest, ReadTest) {
 
 TEST(RequestTest, WriteTest) {
 	for (auto blocks_size = 512; blocks_size <= 4096; blocks_size <<= 1) {
-		ActiveVmdk vmdk(nullptr, "1", blocks_size);
+		ActiveVmdk vmdk(nullptr, 1, "1", blocks_size);
 		for (auto nblocks = 2; nblocks <= 10; ++nblocks) {
 			size_t buffer_size = blocks_size * nblocks;
 			auto bufferp = std::make_unique<RequestBuffer>(buffer_size);
 			auto payload = bufferp->Payload();
 			::memset(payload, 'A', bufferp->Size());
 
-			for (auto i = pio::kInvalidRequestID + 1; i <= 3000; ++i) {
+			for (auto i = kInvalidRequestID + 1; i <= 3000; ++i) {
 				Offset offset = i * kSectorSize;
 				Request r(i, &vmdk, Request::Type::kWrite, bufferp->Payload(),
 					buffer_size, buffer_size, offset);
@@ -140,7 +140,7 @@ TEST(RequestTest, WriteSameTest) {
 	auto buffer_size   = 512;
 	auto transfer_size = blocks_size * 2;
 
-	ActiveVmdk vmdk(nullptr, "1", blocks_size);
+	ActiveVmdk vmdk(nullptr, 1, "1", blocks_size);
 	auto bufferp = std::make_unique<RequestBuffer>(buffer_size);
 	auto payload = bufferp->Payload();
 	::memset(payload, 'A', bufferp->Size());

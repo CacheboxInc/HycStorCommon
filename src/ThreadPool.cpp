@@ -35,16 +35,16 @@ void ThreadPool::CreateThreads() {
 	}
 }
 
-bool ThreadPool::IsRunningInThreadPool() const {
+bool ThreadPool::IsRunningInThreadPool() const noexcept {
 	auto threadp = GetThread();
 	return threadp != nullptr;
 }
 
-Thread* ThreadPool::GetThread() const {
+Thread* ThreadPool::GetThread() const noexcept {
 	return this_threadp.load(std::memory_order_relaxed);
 }
 
-ThreadPoolStats ThreadPool::Stats() const {
+ThreadPoolStats ThreadPool::Stats() const noexcept {
 	ThreadPoolStats stats;
 	stats.nthreads_ = nthreads_;
 	stats.remote_task_scheduled_ = stats_.remote_task_scheduled_.load();
@@ -67,9 +67,8 @@ void Thread::Loop() {
 	SetFiberManager(&manager);
 	SetEventBase(&base);
 
-	auto& controller =
-		dynamic_cast<EventBaseLoopController&>(manager.loopController());
-	controller.attachEventBase(base);
+	dynamic_cast<EventBaseLoopController&>(manager.loopController())
+	.attachEventBase(base);
 
 	manager.addTask([&] () mutable {
 		this->stop_.baton_.wait();

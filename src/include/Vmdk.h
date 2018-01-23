@@ -39,42 +39,50 @@ private:
 
 class Vmdk {
 public:
-	Vmdk(VmdkID&& vmdk_id);
+	Vmdk(VmdkHandle handle, VmdkID&& vmdk_id);
 	virtual ~Vmdk();
-	const VmdkID& GetVmdkID() const;
+	const VmdkID& GetID() const noexcept;
+	VmdkHandle GetHandle() const noexcept;
 
 protected:
-	VmdkID vmdk_id_;
+	VmdkHandle handle_;
+	VmdkID     id_;
 };
 
 class ActiveVmdk : public Vmdk {
 public:
-	ActiveVmdk(VirtualMachine *vmp, VmdkID vmdk_id, uint32_t block_size);
+	ActiveVmdk(VirtualMachine *vmp, VmdkHandle handle, VmdkID id,
+		uint32_t block_size);
 	virtual ~ActiveVmdk();
 
-public:
 	void RegisterRequestHandler(std::unique_ptr<RequestHandler> handler);
+	void SetEventFd(int eventfd) noexcept;
 
-	folly::Future<int> Read(RequestID req_id, void* bufp, size_t buf_size,
-		Offset offset);
-	folly::Future<int> Write(RequestID req_id, CheckPointID ckpt_id, void* bufp,
-		size_t buf_size, Offset offset);
-	folly::Future<int> WriteSame(RequestID req_id, CheckPointID ckpt_id,
-		void* bufp, size_t buf_size, size_t transfer_size, Offset offset);
+	folly::Future<int> Read(std::unique_ptr<Request> reqp);
+	folly::Future<int> Write(std::unique_ptr<Request> reqp,
+		CheckPointID ckpt_id);
+	folly::Future<int> WriteSame(std::unique_ptr<Request> reqp,
+		CheckPointID ckpt_id);
 	folly::Future<int> TakeCheckPoint(CheckPointID check_point);
+
+	uint32_t GetRequestResult(RequestResult* resultsp, uint32_t nresults,
+		bool *has_morep);
+
 public:
 	size_t BlockSize() const;
 	size_t BlockShift() const;
 	size_t BlockMask() const;
+	VirtualMachine* GetVM() const noexcept;
 
 private:
-	folly::Future<int> WriteCommon(RequestID req_id, Request::Type type,
-		CheckPointID ckpt_id, void* bufp, size_t buf_size, size_t transfer_size,
-		Offset offset);
+	folly::Future<int> WriteCommon(std::unique_ptr<Request> reqp,
+		CheckPointID ckpt_id);
+	int RequestComplete(std::unique_ptr<Request> reqp);
 
 private:
 	VirtualMachine *vmp_{nullptr};
 	Vmdk           *parentp_{nullptr};
+	int            eventfd_{-1};
 
 	uint32_t block_shift_;
 
@@ -95,6 +103,11 @@ private:
 		std::atomic<uint64_t> writes_in_progress_;
 		std::atomic<uint64_t> reads_in_progress_;
 	} stats_;
+
+	struct {
+		std::mutex mutex_;
+		std::vector<std::unique_ptr<Request>> complete_;
+	} requests_;
 
 	std::unique_ptr<RequestHandler> headp_{nullptr};
 };

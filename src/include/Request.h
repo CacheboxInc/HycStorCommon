@@ -23,11 +23,17 @@ public:
 	Request(RequestID id, ActiveVmdk *vmdkp, Request::Type type, void *bufferp,
 		size_t buffer_size, size_t transfer_size, Offset offset);
 
+	int Complete();
+public:
 	std::pair<BlockID, BlockID> Blocks() const;
 	uint32_t NumberOfRequestBlocks() const;
 	bool IsFailed() const;
 	int GetResult() const;
-	int Complete();
+
+	RequestID GetID() const noexcept;
+
+	void SetPrivateData(const void* privatep) noexcept;
+	const void* GetPrivateData() const noexcept;
 public:
 	template <typename Lambda>
 	void ForEachRequestBlock(Lambda&& func) {
@@ -41,7 +47,8 @@ private:
 	void InitWriteSameBuffer();
 	void InitRequestBlocks();
 private:
-	ActiveVmdk *vmdkp_;
+	ActiveVmdk* vmdkp_;
+	const void* privatep_{nullptr};
 
 	struct Input {
 	public:

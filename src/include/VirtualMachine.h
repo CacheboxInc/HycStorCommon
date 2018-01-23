@@ -13,31 +13,38 @@
 namespace pio {
 class VirtualMachine {
 public:
-	VirtualMachine(VmID vm_id);
+	VirtualMachine(VmdkHandle handle, VmID vm_id);
 	~VirtualMachine();
 
-	ActiveVmdk* FindVmdk(const VmdkID& vmdk_id);
+	const VmID& GetID() const noexcept;
+	void AddVmdk(ActiveVmdk* vmdkp);
+	RequestID NextRequestID();
 
-	folly::Future<int> Write(const VmdkID& vmdk_id, RequestID req_id,
-		void *bufferp, size_t buf_size, Offset offset);
-	folly::Future<int> WriteSame(const VmdkID& vmdk_id, RequestID req_id,
-		void *bufp, size_t buf_size, size_t transfer_size, Offset offset);
-	folly::Future<int> Read(const VmdkID& vmdk_id, RequestID req_id, void *bufp,
-		size_t buf_size, Offset offset);
+	folly::Future<int> Write(ActiveVmdk* vmdkp, std::unique_ptr<Request> reqp);
+	folly::Future<int> WriteSame(ActiveVmdk* vmdkp, std::unique_ptr<Request> reqp);
+	folly::Future<int> Read(ActiveVmdk* vmdkp, std::unique_ptr<Request> reqp);
 	folly::Future<CheckPointID> TakeCheckPoint();
+
+	uint32_t GetRequestResult(ActiveVmdk* vmdkp, RequestResult* resultsp,
+		uint32_t nresults, bool *has_morep) const;
 private:
+	ActiveVmdk* FindVmdk(const VmdkID& vmdk_id) const;
+	ActiveVmdk* FindVmdk(VmdkHandle vmdk_handle) const;
 
 private:
+	VmdkHandle handle_;
 	VmID vm_id_;
+	std::atomic<RequestID> request_id_{0};
+
 	struct {
-		std::mutex mutex_;
+		mutable std::mutex mutex_;
 		std::atomic<CheckPointID> checkpoint_id_{kInvaluCheckPointID};
 		std::unordered_map<CheckPointID, std::atomic<uint64_t>> writes_per_checkpoint_;
 	} checkpoint_;
 
 	struct {
-		std::mutex mutex_;
-		std::vector<std::unique_ptr<ActiveVmdk>> list_;
+		mutable std::mutex mutex_;
+		std::vector<ActiveVmdk *> list_;
 	} vmdk_;
 
 	struct {

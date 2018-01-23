@@ -3,6 +3,7 @@
 #include <limits>
 
 #include "IDs.h"
+#include "TgtTypes.h"
 
 namespace pio {
 class Vmdk;
@@ -17,7 +18,6 @@ class CheckPoint;
 class ActiveVmdk;
 class SnapshotVmdk;
 
-static const RequestID    kInvalidRequestID   = 0;
 static const CheckPointID kInvaluCheckPointID = 0;
 static const SnapshotID   kInvalidSnapshotID  = 0;
 static const BlockID      kBlockIDMax         = std::numeric_limits<BlockID>::max();

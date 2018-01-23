@@ -29,13 +29,14 @@ public:
 	void Loop();
 	void StartThread();
 	folly::fibers::FiberManager *GetFiberManager() const noexcept;
-	folly::EventBase* GetEventBase() const noexcept;
 
 private:
 	void WaitUntilReady() const;
 	void SetFiberManager(folly::fibers::FiberManager *managerp) noexcept;
 	void SetEventBase(folly::EventBase* basep) noexcept;
 	void SetReady();
+	folly::EventBase* GetEventBase() const noexcept;
+
 private:
 	uint32_t id_;
 
@@ -80,7 +81,7 @@ public:
 	ThreadPool operator = (ThreadPool&&) = delete;
 
 	void CreateThreads();
-	ThreadPoolStats Stats() const;
+	ThreadPoolStats Stats() const noexcept;
 
 	template<typename Lambda>
 	void AddTask(Lambda&& func) {
@@ -101,8 +102,8 @@ public:
 	}
 
 private:
-	bool IsRunningInThreadPool() const;
-	Thread* GetThread() const;
+	bool IsRunningInThreadPool() const noexcept;
+	Thread* GetThread() const noexcept;
 private:
 	uint16_t nthreads_{0};
 	std::vector<std::unique_ptr<Thread>> threads_;

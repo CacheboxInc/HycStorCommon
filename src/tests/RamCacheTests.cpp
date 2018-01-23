@@ -12,7 +12,7 @@ using namespace pio;
 const size_t kVmdkBlockSize = 8192;
 
 TEST(RamCacheTest, DataVerify) {
-	ActiveVmdk vmdk(nullptr, "1", kVmdkBlockSize);
+	ActiveVmdk vmdk(nullptr, 1, "1", kVmdkBlockSize);
 	RamCache cache;
 
 	for (auto offset = 0, i = 0; i < 100; ++i, offset += vmdk.BlockSize()) {
@@ -41,7 +41,7 @@ TEST(RamCacheTest, DataVerify) {
 
 TEST(RamCacheTest, ReadMiss) {
 	const Offset offset = 0;
-	ActiveVmdk vmdk(nullptr, "1", kVmdkBlockSize);
+	ActiveVmdk vmdk(nullptr, 1, "1", kVmdkBlockSize);
 	RamCache cache;
 
 	auto zero_bufp = NewRequestBuffer(vmdk.BlockSize());
@@ -68,7 +68,7 @@ TEST(RamCacheTest, ReadMiss) {
 }
 
 TEST(RamCacheTest, OverWrite) {
-	ActiveVmdk vmdk(nullptr, "1", kVmdkBlockSize);
+	ActiveVmdk vmdk(nullptr, 1, "1", kVmdkBlockSize);
 	RamCache cache;
 
 	auto write_bufp = NewRequestBuffer(vmdk.BlockSize());

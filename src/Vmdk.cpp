@@ -1,29 +1,35 @@
 #include <string>
 #include <memory>
+#include <vector>
 
 #include <cstdint>
+#include <sys/eventfd.h>
 
 #include <roaring/roaring.hh>
 
 #include "IDs.h"
 #include "Utils.h"
+#include "TgtTypes.h"
 #include "RequestHandler.h"
 #include "Vmdk.h"
 #include "VirtualMachine.h"
 
 namespace pio {
-Vmdk::Vmdk(VmdkID&& vmdk_id) : vmdk_id_(std::move(vmdk_id)) {
-
+Vmdk::Vmdk(VmdkHandle handle, VmdkID&& id) : handle_(handle), id_(std::move(id)) {
 }
 
 Vmdk::~Vmdk() = default;
 
-const VmdkID& Vmdk::GetVmdkID() const {
-	return vmdk_id_;
+const VmdkID& Vmdk::GetID() const noexcept {
+	return id_;
 }
 
-ActiveVmdk::ActiveVmdk(VirtualMachine *vmp, VmdkID vmdk_id,
-		uint32_t block_size) : Vmdk(std::move(vmdk_id)), vmp_(vmp) {
+VmdkHandle Vmdk::GetHandle() const noexcept {
+	return handle_;
+}
+
+ActiveVmdk::ActiveVmdk(VirtualMachine *vmp, VmdkHandle handle, VmdkID id,
+		uint32_t block_size) : Vmdk(handle, std::move(id)), vmp_(vmp) {
 	if (block_size & (block_size - 1)) {
 		throw std::invalid_argument("Block Size is not power of 2.");
 	}
@@ -44,6 +50,14 @@ size_t ActiveVmdk::BlockMask() const {
 	return BlockSize() - 1;
 }
 
+void ActiveVmdk::SetEventFd(int eventfd) noexcept {
+	eventfd_ = eventfd;
+}
+
+VirtualMachine* ActiveVmdk::GetVM() const noexcept {
+	return vmp_;
+}
+
 void ActiveVmdk::RegisterRequestHandler(std::unique_ptr<RequestHandler> handler) {
 	if (not headp_) {
 		headp_ = std::move(handler);
@@ -53,15 +67,66 @@ void ActiveVmdk::RegisterRequestHandler(std::unique_ptr<RequestHandler> handler)
 	headp_->RegisterNextRequestHandler(std::move(handler));
 }
 
-folly::Future<int> ActiveVmdk::Read(RequestID req_id, void* bufp,
-		size_t buf_size, Offset offset) {
+int ActiveVmdk::RequestComplete(std::unique_ptr<Request> reqp) {
+	auto result = reqp->Complete();
+
+	{
+		std::lock_guard<std::mutex> lock(requests_.mutex_);
+		requests_.complete_.emplace_back(std::move(reqp));
+	}
+
+	if (pio_likely(eventfd_ >= 0)) {
+		auto rc = ::eventfd_write(eventfd_, 1);
+		if (pio_unlikely(rc < 0)) {
+			LOG(ERROR) << "Write to eventfd failed "
+				<< "VmdkID " << GetID()
+				<< "FD " << eventfd_;
+		}
+		/* ignore write failure */
+		(void) rc;
+	}
+	return result;
+}
+
+uint32_t ActiveVmdk::GetRequestResult(RequestResult* resultsp,
+		uint32_t nresults, bool *has_morep) {
+	std::vector<std::unique_ptr<Request>> dst;
+	*has_morep = false;
+
+	{
+		dst.reserve(nresults);
+		std::lock_guard<std::mutex> lock(requests_.mutex_);
+		auto move = requests_.complete_.size();
+		if (move > nresults) {
+			move = nresults;
+			*has_morep = true;
+		}
+
+		pio::MoveLastElements(dst, requests_.complete_, move);
+	}
+
+	auto i = 0;
+	RequestResult* resultp = resultsp;
+	for (const auto& reqp : dst) {
+		resultp->privatep   = reqp->GetPrivateData();
+		resultp->request_id = reqp->GetID();
+		resultp->result     = reqp->GetResult();
+
+		++i;
+		++resultp;
+	}
+
+	return dst.size();
+}
+
+folly::Future<int> ActiveVmdk::Read(std::unique_ptr<Request> reqp) {
+	assert(reqp);
+
 	if (pio_unlikely(not headp_)) {
 		return -ENXIO;
 	}
 
-	auto reqp = std::make_unique<Request>(req_id, this, Request::Type::kRead,
-		bufp, buf_size, buf_size, offset);
-
+	std::vector<RequestBlock*> failed;
 	std::vector<RequestBlock*> process;
 	process.reserve(reqp->NumberOfRequestBlocks());
 	reqp->ForEachRequestBlock([&process] (RequestBlock *blockp) mutable {
@@ -69,10 +134,10 @@ folly::Future<int> ActiveVmdk::Read(RequestID req_id, void* bufp,
 		return true;
 	});
 
-	std::vector<RequestBlock*> failed;
-	return headp_->Read(this, reqp.get(), process, failed)
-	.then([reqp = std::move(reqp), process = std::move(process),
-			failed = std::move(failed), bufp, buf_size, offset] (int rc) mutable {
+	auto p = reqp.get();
+	return headp_->Read(this, p, process, failed)
+	.then([this, reqp = std::move(reqp), process = std::move(process),
+			failed = std::move(failed)] (int rc) mutable {
 		if (pio_unlikely(rc < 0)) {
 			return rc;
 		} else if (pio_unlikely(not failed.empty())) {
@@ -81,32 +146,27 @@ folly::Future<int> ActiveVmdk::Read(RequestID req_id, void* bufp,
 			return blockp->GetResult();
 		}
 
-		return reqp->Complete();
+		return RequestComplete(std::move(reqp));
 	});
 }
 
-folly::Future<int> ActiveVmdk::Write(RequestID req_id, CheckPointID ckpt_id,
-		void* bufp, size_t buf_size, Offset offset) {
-	return WriteCommon(req_id, Request::Type::kWrite, ckpt_id, bufp, buf_size,
-		buf_size, offset);
+folly::Future<int> ActiveVmdk::Write(std::unique_ptr<Request> reqp,
+		CheckPointID ckpt_id) {
+	return WriteCommon(std::move(reqp), ckpt_id);
 }
 
-folly::Future<int> ActiveVmdk::WriteSame(RequestID req_id, CheckPointID ckpt_id,
-		void* bufp, size_t buf_size, size_t transfer_size, Offset offset) {
-	return WriteCommon(req_id, Request::Type::kWriteSame, ckpt_id, bufp,
-		buf_size, transfer_size, offset);
+folly::Future<int> ActiveVmdk::WriteSame(std::unique_ptr<Request> reqp,
+		CheckPointID ckpt_id) {
+	return WriteCommon(std::move(reqp), ckpt_id);
 }
 
-folly::Future<int> ActiveVmdk::WriteCommon(RequestID req_id, Request::Type type,
-		CheckPointID ckpt_id, void* bufp, size_t buf_size, size_t transfer_size,
-		Offset offset) {
+folly::Future<int> ActiveVmdk::WriteCommon(std::unique_ptr<Request> reqp,
+		CheckPointID ckpt_id) {
 	if (pio_unlikely(not headp_)) {
 		return -ENXIO;
 	}
 
-	auto reqp = std::make_unique<Request>(req_id, this, type, bufp, buf_size,
-		transfer_size, offset);
-
+	std::vector<RequestBlock*> failed;
 	std::vector<RequestBlock*> process;
 	process.reserve(reqp->NumberOfRequestBlocks());
 	reqp->ForEachRequestBlock([&process] (RequestBlock *blockp) mutable {
@@ -114,11 +174,10 @@ folly::Future<int> ActiveVmdk::WriteCommon(RequestID req_id, Request::Type type,
 		return true;
 	});
 
-	std::vector<RequestBlock*> failed;
-	return headp_->Write(this, reqp.get(), process, failed)
-	.then([reqp = std::move(reqp), process = std::move(process),
-			failed = std::move(failed), bufp, buf_size, transfer_size, offset]
-			(int rc) mutable {
+	auto p = reqp.get();
+	return headp_->Write(this, p, process, failed)
+	.then([this, reqp = std::move(reqp), process = std::move(process),
+			failed = std::move(failed)] (int rc) mutable {
 		if (pio_unlikely(rc < 0)) {
 			return rc;
 		} else if (pio_unlikely(not failed.empty())) {
@@ -127,7 +186,7 @@ folly::Future<int> ActiveVmdk::WriteCommon(RequestID req_id, Request::Type type,
 			return blockp->GetResult();
 		}
 
-		return reqp->Complete();
+		return RequestComplete(std::move(reqp));
 	});
 }
 
@@ -145,7 +204,7 @@ folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
 		blocks_.max_ = kBlockIDMin;
 	}
 
-	auto checkpoint = std::make_unique<CheckPoint>(vmdk_id_, ckpt_id);
+	auto checkpoint = std::make_unique<CheckPoint>(GetID(), ckpt_id);
 	auto ckptp = checkpoint.get();
 	ckptp->SetModifiedBlocks(std::move(blocks), start, end);
 

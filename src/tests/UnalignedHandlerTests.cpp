@@ -25,7 +25,7 @@ protected:
 		auto lock_handler = std::make_unique<LockHandler>();
 		auto ramcache_handler = std::make_unique<RamCacheHandler>();
 
-		vmdkp = std::make_unique<ActiveVmdk>(nullptr, "1", kVmdkBlockSize);
+		vmdkp = std::make_unique<ActiveVmdk>(nullptr, 1, "1", kVmdkBlockSize);
 
 		vmdkp->RegisterRequestHandler(std::move(lock_handler));
 		vmdkp->RegisterRequestHandler(std::move(unaligned_handler));
@@ -52,7 +52,11 @@ protected:
 		auto payload = bufferp->Payload();
 		::memset(payload, fillchar, bufferp->Size());
 
-		return vmdkp->Write(req_id, ckpt_id, payload, bufferp->Size(), offset);
+		auto reqp = std::make_unique<Request>(req_id, vmdkp.get(),
+			Request::Type::kWrite, payload, bufferp->Size(), bufferp->Size(),
+			offset);
+
+		return vmdkp->Write(std::move(reqp), ckpt_id);
 	}
 
 	folly::Future<std::unique_ptr<RequestBuffer>>
@@ -64,7 +68,11 @@ protected:
 		auto bufferp = NewRequestBuffer(size);
 		auto payload = bufferp->Payload();
 
-		return vmdkp->Read(req_id, payload, bufferp->Size(), offset)
+		auto reqp = std::make_unique<Request>(req_id, vmdkp.get(),
+			Request::Type::kRead, payload, bufferp->Size(), bufferp->Size(),
+			offset);
+
+		return vmdkp->Read(std::move(reqp))
 		.then([bufferp = std::move(bufferp)] (int rc) mutable {
 			EXPECT_EQ(rc, 0);
 			return std::move(bufferp);
