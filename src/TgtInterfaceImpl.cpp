@@ -52,16 +52,14 @@ static int InitializeLibrary() {
 	}
 }
 
-#if 0
 static VirtualMachine* VmFromVmID(const std::string& vmid) {
 	std::lock_guard<std::mutex> lock(g_vms.mutex_);
 	auto it = g_vms.ids_.find(vmid);
 	if (pio_unlikely(it == g_vms.ids_.end())) {
 		return kInvalidVmHandle;
 	}
-	return it.second;
+	return it->second.get();
 }
-#endif
 
 static VirtualMachine* VmFromVmHandle(VmHandle handle) {
 	std::lock_guard<std::mutex> lock(g_vms.mutex_);
@@ -81,16 +79,14 @@ static ActiveVmdk* VmdkFromVmdkHandle(VmdkHandle handle) {
 	return it->second;
 }
 
-#if 0
 static Vmdk* VmdkFromVmdkID(const std::string& vmdkid) {
 	std::lock_guard<std::mutex> lock(g_vmdks.mutex_);
 	auto it = g_vmdks.ids_.find(vmdkid);
 	if (pio_unlikely(it == g_vmdks.ids_.end())) {
 		return kInvalidVmHandle;
 	}
-	return it.second;
+	return it->second.get();
 }
-#endif
 
 static void RemoveVmHandleLocked(VmHandle handle) {
 	auto it1 = g_vms.handles_.find(handle);
@@ -305,9 +301,33 @@ VmHandle NewVm(const char* vmidp) {
 	}
 }
 
+VmHandle GetVmHandle(const char* vmidp) {
+	try {
+		auto vmp = pio::VmFromVmID(vmidp);
+		if (pio_unlikely(not vmp)) {
+			return kInvalidVmHandle;
+		}
+		return vmp->GetHandle();
+	} catch (const std::exception& e) {
+		return kInvalidVmHandle;
+	}
+}
+
 VmdkHandle NewActiveVmdk(VmHandle vm_handle, const char* vmdkid) {
 	try {
 		return pio::NewActiveVmdk(vm_handle, vmdkid);
+	} catch (const std::exception& e) {
+		return kInvalidVmdkHandle;
+	}
+}
+
+VmdkHandle GetVmdkHandle(const char* vmdkidp) {
+	try {
+		auto vmdkp = pio::VmdkFromVmdkID(vmdkidp);
+		if (pio_unlikely(not vmdkp)) {
+			return kInvalidVmdkHandle;
+		}
+		return vmdkp->GetHandle();
 	} catch (const std::exception& e) {
 		return kInvalidVmdkHandle;
 	}

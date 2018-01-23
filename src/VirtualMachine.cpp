@@ -17,6 +17,10 @@ const VmID& VirtualMachine::GetID() const noexcept {
 	return vm_id_;
 }
 
+VmHandle VirtualMachine::GetHandle() const noexcept {
+	return handle_;
+}
+
 RequestID VirtualMachine::NextRequestID() {
 	return ++request_id_;
 }

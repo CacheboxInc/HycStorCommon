@@ -16,7 +16,6 @@ public:
 	VirtualMachine(VmdkHandle handle, VmID vm_id);
 	~VirtualMachine();
 
-	const VmID& GetID() const noexcept;
 	void AddVmdk(ActiveVmdk* vmdkp);
 	RequestID NextRequestID();
 
@@ -27,6 +26,10 @@ public:
 
 	uint32_t GetRequestResult(ActiveVmdk* vmdkp, RequestResult* resultsp,
 		uint32_t nresults, bool *has_morep) const;
+public:
+	const VmID& GetID() const noexcept;
+	VmdkHandle GetHandle() const noexcept;
+
 private:
 	ActiveVmdk* FindVmdk(const VmdkID& vmdk_id) const;
 	ActiveVmdk* FindVmdk(VmdkHandle vmdk_handle) const;

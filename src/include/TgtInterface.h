@@ -9,7 +9,9 @@ extern "C"  {
 int InitializeLibrary();
 
 VmHandle NewVm(const char* vmidp);
+VmHandle GetVmHandle(const char* vmidp);
 VmdkHandle NewActiveVmdk(VmHandle vm_handle, const char* vmdkid);
+VmdkHandle GetVmdkHandle(const char* vmdkidp);
 int SetVmdkEventFd(VmdkHandle handle, int eventfd);
 
 RequestID ScheduleRead(VmdkHandle handle, const void* privatep,
