@@ -91,18 +91,12 @@ int ActiveVmdk::RequestComplete(std::unique_ptr<Request> reqp) {
 uint32_t ActiveVmdk::GetRequestResult(RequestResult* resultsp,
 		uint32_t nresults, bool *has_morep) {
 	std::vector<std::unique_ptr<Request>> dst;
-	*has_morep = false;
 
 	{
 		dst.reserve(nresults);
 		std::lock_guard<std::mutex> lock(requests_.mutex_);
-		auto move = requests_.complete_.size();
-		if (move > nresults) {
-			move = nresults;
-			*has_morep = true;
-		}
-
-		pio::MoveLastElements(dst, requests_.complete_, move);
+		*has_morep = requests_.complete_.size() > nresults;
+		pio::MoveLastElements(dst, requests_.complete_, nresults);
 	}
 
 	auto i = 0;
