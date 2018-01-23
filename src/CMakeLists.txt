@@ -30,3 +30,4 @@ add_library(StorageLayer SHARED
 
 
 add_subdirectory(tests)
+add_subdirectory(C-Client)
