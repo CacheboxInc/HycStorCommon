@@ -26,7 +26,7 @@ include(FindGFlags "${CMAKE_CURRENT_SOURCE_DIR}/install")
 # OPTION(<option_variable> "help string describing option" [initial_value])
 
 # CMAKE_BUILD_TYPE can be Release/Debug/RelWithDebInfo/MinSizeRel
-# For Sanitizer builds, set it to ASan/MSan/TSan.  
+# For Sanitizer builds, set it to ASan/MSan/TSan.
 # See the CMake directory for sanitizer cmake files
 if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   message(STATUS "No build type selected, default to Debug")
@@ -51,7 +51,6 @@ endif(${CMAKE_BINARY_DIR} STREQUAL ${CMAKE_SOURCE_DIR})
 #
 # all headers specified wrt the top-level src dir
 include_directories(src/include)
-include_directories(src/ioexec)
 include_directories(src/)
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/install/include)
@@ -70,7 +69,7 @@ set(CUSTOM_LIBRARY_PATH ${PROJECT_SOURCE_DIR}/lib)
 
 set (CXX_STANDARD "c++17")
 
-# separate out the C++ options which are not used in C 
+# separate out the C++ options which are not used in C
 # add boost logger macro
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=${CXX_STANDARD} -Wnon-virtual-dtor -Woverloaded-virtual -DBOOST_LOG_DYN_LINK")
 
@@ -117,7 +116,7 @@ enable_testing()
 add_subdirectory(src)
 
 # Install the header files
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include" 
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include"
   DESTINATION "${CMAKE_INSTALL_PREFIX}")
 
 # Set compiler options

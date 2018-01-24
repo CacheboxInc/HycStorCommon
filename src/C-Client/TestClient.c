@@ -6,8 +6,6 @@
 
 #include "TgtInterface.h"
 
-#define VMID "1"
-
 static void GenerateId(char* id, size_t size) {
 	(void) snprintf(id, size, "%lu", time(NULL));
 }
@@ -60,18 +58,13 @@ static void Test_AddVmdk() {
 		assert(GetVmdkHandle(vmdkid) == vmdks[i]);
 	}
 
-	for (int i = 0; i < kVmdks; ++i) {
-		RemoveVmdk(vmdks[i]);
-	}
-
-	for (int i = 0; i < kVmdks; ++i) {
-		RemoveVmdk(vmdks[i]);
-	}
-
-	for (int i = 0; i < kVmdks; ++i) {
-		char vmdkid[20];
-		snprintf(vmdkid, sizeof(vmdkid), "%d", i);
-		assert(GetVmdkHandle(vmdkid) == kInvalidVmdkHandle);
+	for (int j = 0; j < 2; ++j) {
+		for (int i = 0; i < kVmdks; ++i) {
+			char vmdkid[20];
+			snprintf(vmdkid, sizeof(vmdkid), "%d", i);
+			RemoveVmdk(vmdks[i]);
+			assert(GetVmdkHandle(vmdkid) == kInvalidVmdkHandle);
+		}
 	}
 
 	RemoveVm(vm);

@@ -8,10 +8,11 @@ set(LIBRARY_LIST
 	roaring
 )
 
-add_library(StorageLayer SHARED
-	Utils.cpp
-
-	TgtInterfaceImpl.cpp
+set(StorageLayerFiles
+	"${CMAKE_SOURCE_DIR}/src/Common/JsonConfig.cpp"
+	"${CMAKE_SOURCE_DIR}/src/Common/TgtInterfaceImpl.cpp"
+	"${CMAKE_SOURCE_DIR}/src/Common/ThreadPool.cpp"
+	"${CMAKE_SOURCE_DIR}/src/Common/Utils.cpp"
 
 	VirtualMachine.cpp
 	Vmdk.cpp
@@ -24,10 +25,11 @@ add_library(StorageLayer SHARED
 	RequestHandler.cpp
 	UnalignedHandler.cpp
 	RamCacheHandler.cpp
-
-	ThreadPool.cpp
 )
 
+add_library(StorageLayer SHARED
+	${StorageLayerFiles}
+)
 
 add_subdirectory(tests)
 add_subdirectory(C-Client)
