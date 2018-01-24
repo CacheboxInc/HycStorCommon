@@ -10,10 +10,7 @@ set(LIBRARY_LIST
 )
 
 set(StorageLayerFiles
-	"${CMAKE_SOURCE_DIR}/src/Common/JsonConfig.cpp"
-	"${CMAKE_SOURCE_DIR}/src/Common/TgtInterfaceImpl.cpp"
-	"${CMAKE_SOURCE_DIR}/src/Common/ThreadPool.cpp"
-	"${CMAKE_SOURCE_DIR}/src/Common/Utils.cpp"
+	TgtInterfaceImpl.cpp
 
 	VirtualMachine.cpp
 	Vmdk.cpp
@@ -26,11 +23,18 @@ set(StorageLayerFiles
 	RequestHandler.cpp
 	UnalignedHandler.cpp
 	RamCacheHandler.cpp
+	BlockTraceHandler.cpp
 )
 
 add_library(StorageLayer SHARED
 	${StorageLayerFiles}
 )
 
+target_link_libraries(StorageLayer
+	CommonLib
+	${LIBRARY_LIST}
+)
+
+add_subdirectory(Common)
 add_subdirectory(tests)
 add_subdirectory(C-Client)

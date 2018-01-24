@@ -169,7 +169,7 @@ folly::Future<int> ActiveVmdk::WriteCommon(std::unique_ptr<Request> reqp,
 	});
 
 	auto p = reqp.get();
-	return headp_->Write(this, p, process, failed)
+	return headp_->Write(this, p, ckpt_id, process, failed)
 	.then([this, reqp = std::move(reqp), process = std::move(process),
 			failed = std::move(failed)] (int rc) mutable {
 		if (pio_unlikely(rc < 0)) {

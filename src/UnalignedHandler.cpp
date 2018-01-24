@@ -49,7 +49,7 @@ void UnalignedHandler::ReadModify(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> UnalignedHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	if (pio_unlikely(not nextp_)) {
 		return 0;
@@ -78,18 +78,38 @@ folly::Future<int> UnalignedHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 	}
 
 	if (read_blocks.empty()) {
-		return nextp_->Write(vmdkp, reqp, process, failed);
+		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
 	}
 
 	return this->Read(vmdkp, reqp, read_blocks, failed)
-	.then([this, vmdkp, reqp, &process, &failed,
+	.then([this, vmdkp, reqp, &process, &failed, ckpt,
 			read_blocks = std::move(read_blocks)] (int rc) mutable {
 		if (pio_unlikely(not failed.empty() || rc < 0)) {
 			return folly::makeFuture(rc);
 		}
 		this->ReadModify(vmdkp, reqp, read_blocks);
-		return this->nextp_->Write(vmdkp, reqp, process, failed);
+		return this->nextp_->Write(vmdkp, reqp, ckpt, process, failed);
 	});
 }
+
+folly::Future<int> UnalignedHandler::ReadPopulate(ActiveVmdk *vmdkp,
+		Request *reqp, CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed) {
+	if (pio_unlikely(not nextp_)) {
+		return 0;
+	} else if (pio_unlikely(not failed.empty() || process.empty())) {
+		return -EINVAL;
+	}
+
+	auto blockp = process.front();
+	log_assert(blockp != nullptr and not blockp->IsPartial());
+	if (process.size() > 2) {
+		blockp = process.back();
+		log_assert(blockp != nullptr and not blockp->IsPartial());
+	}
+
+	return this->ReadPopulate(vmdkp, reqp, ckpt, process, failed);
+}
+
 
 }

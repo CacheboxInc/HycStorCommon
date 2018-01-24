@@ -1,11 +1,13 @@
 #pragma once
 
+#include "RequestHandler.h"
+
 namespace pio {
 
-class UnalignedHandler : public RequestHandler {
+class BlockTraceHandler : public RequestHandler {
 public:
-	UnalignedHandler();
-	virtual ~UnalignedHandler();
+	BlockTraceHandler();
+	~BlockTraceHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
@@ -15,9 +17,6 @@ public:
 	virtual folly::Future<int> ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		CheckPointID ckpt, std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
-private:
-	void ReadModify(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process);
 };
 
 }
