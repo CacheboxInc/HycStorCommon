@@ -19,11 +19,11 @@ set(StorageLayerFiles
 	Request.cpp
 	RamCache.cpp
 
-	LockHandler.cpp
-	RequestHandler.cpp
-	UnalignedHandler.cpp
-	RamCacheHandler.cpp
-	BlockTraceHandler.cpp
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/LockHandler.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/RequestHandler.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/UnalignedHandler.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/RamCacheHandler.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/BlockTraceHandler.cpp"
 )
 
 add_library(StorageLayer SHARED
