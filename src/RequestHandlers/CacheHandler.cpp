@@ -72,7 +72,7 @@ folly::Future<int> CacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 			log_assert(failed.empty());
 
 			/* now read populate */
-			return headp_->ReadPopulate(vmdkp, reqp, process, failed);
+			return this->ReadPopulate(vmdkp, reqp, process, failed);
 		});
 	});
 }
