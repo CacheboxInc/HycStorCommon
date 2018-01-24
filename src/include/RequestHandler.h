@@ -19,7 +19,7 @@ public:
 		CheckPointID ckpt, std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) = 0;
 	virtual folly::Future<int> ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) = 0;
 protected:
 	void *udatap_;

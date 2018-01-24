@@ -11,6 +11,12 @@
 
 namespace pio {
 
+enum class RequestStatus {
+	kSuccess,
+	kMiss,
+	kFailed,
+};
+
 class Request {
 public:
 	enum class Type {
@@ -23,17 +29,22 @@ public:
 	Request(RequestID id, ActiveVmdk *vmdkp, Request::Type type, void *bufferp,
 		size_t buffer_size, size_t transfer_size, Offset offset);
 
+	bool IsAllReadMissed(const std::vector<RequestBlock *> blocks) const noexcept;
+
 	int Complete();
 public:
 	std::pair<BlockID, BlockID> Blocks() const;
 	uint32_t NumberOfRequestBlocks() const;
-	bool IsFailed() const;
-	int GetResult() const;
 
 	RequestID GetID() const noexcept;
 
 	void SetPrivateData(const void* privatep) noexcept;
 	const void* GetPrivateData() const noexcept;
+
+	bool IsSuccess() const noexcept;
+	bool IsFailed() const noexcept;
+	int GetResult() const noexcept;
+
 public:
 	template <typename Lambda>
 	void ForEachRequestBlock(Lambda&& func) {
@@ -74,8 +85,8 @@ private:
 	} block_;
 
 	struct {
-		bool failed_{0};
-		int  return_value_{0};
+		RequestStatus status_{RequestStatus::kSuccess};
+		int return_value_{0};
 	} status_;
 
 	std::vector<std::unique_ptr<RequestBlock>> request_blocks_;
@@ -95,8 +106,11 @@ public:
 	Offset GetOffset() const;
 	Offset GetAlignedOffset() const;
 
-	bool IsFailed() const;
-	int GetResult() const;
+	int GetResult() const noexcept;
+	RequestStatus GetStatus() const noexcept;
+	bool IsSuccess() const noexcept;
+	bool IsReadMissed() const noexcept;
+	bool IsFailed() const noexcept;
 
 	size_t GetRequestBufferCount() const;
 	RequestBuffer* GetRequestBufferAtBack();
@@ -135,8 +149,8 @@ private:
 	Offset aligned_offset_;
 
 	struct {
-		bool failed_{false};
-		int  return_value_{0};
+		RequestStatus status_{RequestStatus::kSuccess};
+		int return_value_{0};
 	} status_;
 
 	std::vector<std::unique_ptr<RequestBuffer>> request_buffers_;

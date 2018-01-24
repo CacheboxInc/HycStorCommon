@@ -12,6 +12,8 @@
 #include "ThreadPool.h"
 #include "VirtualMachine.h"
 #include "Vmdk.h"
+#include "BlockTraceHandler.h"
+#include "CacheHandler.h"
 
 namespace pio {
 using namespace folly;
@@ -163,6 +165,9 @@ static VmdkHandle NewActiveVmdk(VmHandle vm_handle, std::string vmdkid) {
 		auto p = vmdkp.get();
 		g_vmdks.handles_.insert(std::make_pair(handle, p));
 		g_vmdks.ids_.insert(std::make_pair(std::move(vmdkid), std::move(vmdkp)));
+
+		p->RegisterRequestHandler(std::make_unique<BlockTraceHandler>());
+		p->RegisterRequestHandler(std::make_unique<CacheHandler>());
 
 		vmp->AddVmdk(p);
 		return handle;

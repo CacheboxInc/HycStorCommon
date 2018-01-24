@@ -41,7 +41,7 @@ folly::Future<int> BlockTraceHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> BlockTraceHandler::ReadPopulate(ActiveVmdk *vmdkp,
-		Request *reqp, CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		Request *reqp, std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	failed.clear();
 	if (pio_unlikely(not nextp_)) {
@@ -50,7 +50,7 @@ folly::Future<int> BlockTraceHandler::ReadPopulate(ActiveVmdk *vmdkp,
 		return -ENODEV;
 	}
 
-	return nextp_->ReadPopulate(vmdkp, reqp, ckpt, process, failed);
+	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
 }

@@ -40,7 +40,7 @@ folly::Future<int> EncryptHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> EncryptHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	failed.clear();
 	if (pio_unlikely(not nextp_)) {
@@ -49,7 +49,7 @@ folly::Future<int> EncryptHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp
 		return -ENODEV;
 	}
 
-	return nextp_->ReadPopulate(vmdkp, reqp, ckpt, process, failed);
+	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
 }

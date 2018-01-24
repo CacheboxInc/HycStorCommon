@@ -93,7 +93,7 @@ folly::Future<int> UnalignedHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> UnalignedHandler::ReadPopulate(ActiveVmdk *vmdkp,
-		Request *reqp, CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		Request *reqp, std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	if (pio_unlikely(not nextp_)) {
 		return 0;
@@ -108,7 +108,7 @@ folly::Future<int> UnalignedHandler::ReadPopulate(ActiveVmdk *vmdkp,
 		log_assert(blockp != nullptr and not blockp->IsPartial());
 	}
 
-	return this->ReadPopulate(vmdkp, reqp, ckpt, process, failed);
+	return this->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
 

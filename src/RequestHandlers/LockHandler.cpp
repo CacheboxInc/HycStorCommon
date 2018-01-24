@@ -50,18 +50,18 @@ folly::Future<int> LockHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> LockHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	auto[start, end] = reqp->Blocks();
 
 	RangeLock::LockGuard g(&range_lock_, start, end);
 	return g.Lock()
-	.then([g = std::move(g), vmdkp, reqp, &process, &failed, this, ckpt]
+	.then([g = std::move(g), vmdkp, reqp, &process, &failed, this]
 			() mutable {
 		if (not nextp_) {
 			return folly::makeFuture(0);
 		}
-		return nextp_->ReadPopulate(vmdkp, reqp, ckpt, process, failed);
+		return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 	});
 }
 

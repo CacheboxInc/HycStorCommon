@@ -40,7 +40,7 @@ folly::Future<int> CompressHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> CompressHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	failed.clear();
 	if (pio_unlikely(not nextp_)) {
@@ -49,7 +49,7 @@ folly::Future<int> CompressHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *req
 		return -ENODEV;
 	}
 
-	return nextp_->ReadPopulate(vmdkp, reqp, ckpt, process, failed);
+	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
 }

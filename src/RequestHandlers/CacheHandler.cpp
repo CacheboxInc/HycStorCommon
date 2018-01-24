@@ -10,6 +10,8 @@
 #include "EncryptHandler.h"
 #include "DirtyHandler.h"
 #include "CleanHandler.h"
+#include "Request.h"
+#include "Utils.h"
 
 namespace pio {
 CacheHandler::CacheHandler() : RequestHandler(nullptr) {
@@ -40,7 +42,39 @@ folly::Future<int> CacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	assert(headp_);
-	return headp_->Read(vmdkp, reqp, process, failed);
+	return headp_->Read(vmdkp, reqp, process, failed)
+	.then([&] (int rc) mutable -> folly::Future<int> {
+		/* Read from CacheLayer complete */
+		if (pio_likely(rc == 0)) {
+			/* Success */
+			assert(failed.empty());
+			return 0;
+		}
+
+		assert(not failed.empty());
+		if (pio_unlikely(not reqp->IsAllReadMissed(failed))) {
+			/* failure */
+			return rc;
+		}
+
+		/* Read Miss */
+		process.clear();
+		MoveLastElements(process, failed, failed.size());
+		assert(failed.empty());
+
+		/* Read from next StorageLayer - probably Network or File */
+		return nextp_->Read(vmdkp, reqp, process, failed)
+		.then([&] (int rc) mutable -> folly::Future<int> {
+			if (pio_unlikely(rc != 0)) {
+				assert(not failed.empty());
+				return rc;
+			}
+			assert(failed.empty());
+
+			/* now read populate */
+			return headp_->ReadPopulate(vmdkp, reqp, process, failed);
+		});
+	});
 }
 
 folly::Future<int> CacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
@@ -51,10 +85,10 @@ folly::Future<int> CacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> CacheHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	assert(headp_);
-	return headp_->ReadPopulate(vmdkp, reqp, ckpt, process, failed);
+	return headp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
 }

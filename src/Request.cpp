@@ -20,11 +20,15 @@ uint32_t Request::NumberOfRequestBlocks() const {
 	return block_.nblocks_;
 }
 
-bool Request::IsFailed() const {
-	return status_.failed_;
+bool Request::IsSuccess() const noexcept {
+	return status_.status_ == RequestStatus::kSuccess and GetResult() == 0;
 }
 
-int Request::GetResult() const {
+bool Request::IsFailed() const noexcept {
+	return not IsSuccess();
+}
+
+int Request::GetResult() const noexcept {
 	return status_.return_value_;
 }
 
@@ -124,23 +128,34 @@ void Request::InitRequestBlocks() {
 }
 
 int Request::Complete() {
-	if (pio_unlikely(IsFailed() || GetResult() != 0)) {
+	if (pio_unlikely(IsFailed())) {
 		log_assert(GetResult() != 0);
 		return GetResult();
 	}
 
 	for (const auto& blockp : request_blocks_) {
 		auto rc = blockp->Complete();
-		if (pio_unlikely(not rc)) {
-			status_.failed_ = true;
-			status_.return_value_ = rc;
-			return rc;
+		if (pio_unlikely(blockp->IsFailed())) {
+			log_assert(blockp->GetResult() != 0);
+			status_.status_ = blockp->GetStatus();
+			status_.return_value_ = blockp->GetResult();
+			return blockp->GetResult();
 		}
+		log_assert(rc == 0);
 	}
 
-	status_.failed_ = false;
-	status_.return_value_ = 0;
+	log_assert(IsSuccess());
 	return 0;
+}
+
+bool Request::IsAllReadMissed(const std::vector<RequestBlock *> blocks)
+		const noexcept {
+	for (const auto blockp : blocks) {
+		if (not blockp->IsReadMissed()) {
+			return false;
+		}
+	}
+	return true;
 }
 
 RequestBlock::RequestBlock(ActiveVmdk *vmdkp, Request *requestp, BlockID block_id,
@@ -170,33 +185,28 @@ void RequestBlock::InitRequestBuffer() {
 	}}
 }
 
-int RequestBlock::Complete() {
-	if (pio_unlikely(IsFailed() || GetResult() != 0)) {
-		log_assert(GetResult() != 0);
-		return GetResult();
-	}
-
-	switch (in_.type_) {
-	default:
-		break;
-	case Request::Type::kWriteSame:
-	case Request::Type::kWrite: {
-		return 0;
-	}}
-
-	return ReadResultPrepare();
-}
-
 void RequestBlock::PushRequestBuffer(std::unique_ptr<RequestBuffer> bufferp) {
 	request_buffers_.emplace_back(std::move(bufferp));
 }
 
-bool RequestBlock::IsFailed() const {
-	return status_.failed_;
+RequestStatus RequestBlock::GetStatus() const noexcept {
+	return status_.status_;
 }
 
-int RequestBlock::GetResult() const {
+int RequestBlock::GetResult() const noexcept {
 	return status_.return_value_;
+}
+
+bool RequestBlock::IsSuccess() const noexcept {
+	return GetStatus() == RequestStatus::kSuccess and GetResult() == 0;
+}
+
+bool RequestBlock::IsFailed() const noexcept {
+	return not IsSuccess();
+}
+
+bool RequestBlock::IsReadMissed() const noexcept {
+	return GetStatus() == RequestStatus::kMiss;
 }
 
 size_t RequestBlock::GetRequestBufferCount() const {
@@ -236,17 +246,37 @@ bool RequestBlock::IsPartial() const {
 }
 
 int RequestBlock::ReadResultPrepare() {
-	log_assert(GetResult() == 0 && not IsFailed());
+	log_assert(not IsFailed());
 
 	auto bufferp = GetRequestBufferAtBack();
 	if (pio_unlikely(not bufferp)) {
+		status_.status_ = RequestStatus::kFailed;
+		status_.return_value_ = -EIO;
 		return -EIO;
 	}
 
 	auto srcp = bufferp->Payload();
 	auto gap  = GetOffset() - GetAlignedOffset();
 	::memcpy(in_.bufferp_, srcp + gap, in_.size_);
+	log_assert(not IsFailed());
 	return 0;
+}
+
+int RequestBlock::Complete() {
+	if (pio_unlikely(IsFailed())) {
+		log_assert(GetResult() != 0);
+		return GetResult();
+	}
+
+	switch (in_.type_) {
+	default:
+		break;
+	case Request::Type::kWriteSame:
+	case Request::Type::kWrite: {
+		return 0;
+	}}
+
+	return ReadResultPrepare();
 }
 
 RequestBuffer::RequestBuffer(size_t size) : size_(size) {
