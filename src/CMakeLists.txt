@@ -24,6 +24,11 @@ set(StorageLayerFiles
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/UnalignedHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/RamCacheHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/BlockTraceHandler.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/CacheHandler.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/DirtyHandler.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/CleanHandler.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/EncryptHandler.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/CompressHandler.cpp"
 )
 
 add_library(StorageLayer SHARED

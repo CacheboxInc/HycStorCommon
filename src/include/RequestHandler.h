@@ -26,24 +26,6 @@ protected:
 	std::unique_ptr<RequestHandler> nextp_;
 };
 
-class CompressionHandler : public RequestHandler {
-public:
-	CompressionHandler();
-	~CompressionHandler();
-};
-
-class EncryptionHandler : public RequestHandler {
-public:
-	EncryptionHandler();
-	~EncryptionHandler();
-};
-
-class CacheHandler : public RequestHandler {
-public:
-	CacheHandler();
-	~CacheHandler();
-};
-
 class NetworkHandler : public RequestHandler {
 public:
 	NetworkHandler();
