@@ -48,7 +48,7 @@ static const size_t kPageSize    = 1u << kPageShift;
 #define log_assert(expr) do { \
 	if (pio_unlikely(!(expr))) { \
 		LOG_DUMP(#expr); \
-		assert(0); \
+		assert(expr); \
 	} \
 } while(0)
 #endif

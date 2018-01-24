@@ -109,7 +109,7 @@ void Thread::WaitUntilReady() const {
 		start_.cv_.wait(lock);
 	}
 	auto basep = GetEventBase();
-	assert(basep != nullptr);
+	log_assert(basep != nullptr);
 
 	basep->waitUntilRunning();
 }

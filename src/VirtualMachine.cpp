@@ -52,7 +52,7 @@ ActiveVmdk* VirtualMachine::FindVmdk(VmdkHandle vmdk_handle) const {
 }
 
 void VirtualMachine::AddVmdk(ActiveVmdk* vmdkp) {
-	assert(vmdkp);
+	log_assert(vmdkp);
 	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
 	vmdk_.list_.emplace_back(vmdkp);
 }
@@ -141,7 +141,7 @@ folly::Future<int> VirtualMachine::WriteSame(ActiveVmdk* vmdkp,
 
 uint32_t VirtualMachine::GetRequestResult(ActiveVmdk* vmdkp,
 		RequestResult* resultsp, uint32_t nresults, bool *has_morep) const {
-	assert(vmdkp && resultsp && has_morep);
+	log_assert(vmdkp && resultsp && has_morep);
 
 	*has_morep = false;
 	if (pio_unlikely(not FindVmdk(vmdkp->GetHandle()))) {
