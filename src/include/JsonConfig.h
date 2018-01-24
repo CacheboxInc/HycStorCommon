@@ -14,8 +14,13 @@ public:
 	void Deserialize(const std::string& from);
 
 	template <typename V>
-	V GetKey(const std::string& key) const {
-		return tree_.get<V>(key);
+	bool GetKey(const std::string& key, V& value) const {
+		try {
+			value = tree_.get<V>(key);
+		} catch (const boost::property_tree::ptree_error& e) {
+			return false;
+		}
+		return true;
 	}
 
 	template <typename V>

@@ -8,6 +8,7 @@ add_executable(StorageLayerTests
 	RoaringBitmapTest.cpp
 	SystemTests.cpp
 	UtilsTests.cpp
+	JsonConfigTests.cpp
 )
 
 target_link_libraries(StorageLayerTests

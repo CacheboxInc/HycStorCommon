@@ -6,6 +6,7 @@ set(LIBRARY_LIST
 	folly
 	pthread
 	roaring
+	boost_system
 )
 
 set(StorageLayerFiles
