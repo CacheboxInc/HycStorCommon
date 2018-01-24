@@ -1,8 +1,10 @@
 #pragma once
 
-#include "RangeLock.h"
-
 namespace pio {
+
+namespace RangeLock {
+class RangeLock;
+}
 
 class LockHandler : public RequestHandler {
 public:
@@ -18,7 +20,7 @@ public:
 		std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 private:
-	RangeLock::RangeLock range_lock_;
+	const std::unique_ptr<RangeLock::RangeLock> range_lock_;
 };
 
 }

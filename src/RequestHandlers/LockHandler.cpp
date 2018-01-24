@@ -6,12 +6,13 @@
 #include "IDs.h"
 #include "Request.h"
 #include "RequestHandler.h"
+#include "RangeLock.h"
 #include "LockHandler.h"
 
 namespace pio {
 
-LockHandler::LockHandler() : RequestHandler(nullptr) {
-
+LockHandler::LockHandler() : RequestHandler(nullptr),
+		range_lock_(std::make_unique<RangeLock::RangeLock>()) {
 }
 
 LockHandler::~LockHandler() {
@@ -23,7 +24,7 @@ folly::Future<int> LockHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock *>& failed) {
 	auto[start, end] = reqp->Blocks();
 
-	RangeLock::LockGuard g(&range_lock_, start, end);
+	RangeLock::LockGuard g(range_lock_.get(), start, end);
 	return g.Lock()
 	.then([g = std::move(g), vmdkp, reqp, &process, &failed, this] () mutable {
 		if (not nextp_) {
@@ -38,7 +39,7 @@ folly::Future<int> LockHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock *>& failed) {
 	auto[start, end] = reqp->Blocks();
 
-	RangeLock::LockGuard g(&range_lock_, start, end);
+	RangeLock::LockGuard g(range_lock_.get(), start, end);
 	return g.Lock()
 	.then([g = std::move(g), vmdkp, reqp, &process, &failed, this, ckpt]
 			() mutable {
@@ -54,7 +55,7 @@ folly::Future<int> LockHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock *>& failed) {
 	auto[start, end] = reqp->Blocks();
 
-	RangeLock::LockGuard g(&range_lock_, start, end);
+	RangeLock::LockGuard g(range_lock_.get(), start, end);
 	return g.Lock()
 	.then([g = std::move(g), vmdkp, reqp, &process, &failed, this]
 			() mutable {
