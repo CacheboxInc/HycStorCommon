@@ -89,6 +89,14 @@ static void Test_MultiplInitialize() {
 	}
 
 	int threads_after = FindNumberOfActiveThreads();
+	for (int i = 0; i < 1024 &&
+			((threads_after - get_nprocs()) != threads_before); ++i) {
+		/* give some chance to terminate threads */
+		printf("threads_after = %d\n", threads_after);
+		usleep(1);
+		threads_after = FindNumberOfActiveThreads();
+	}
+
 	assert(threads_after > threads_before);
 	assert(threads_after - get_nprocs() == threads_before);
 
