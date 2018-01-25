@@ -8,8 +8,8 @@ class JsonConfig {
 public:
 	JsonConfig();
 
-	void Serialize(std::ostringstream& to) const;
-	std::string Serialize() const;
+	void Serialize(std::ostringstream& to, bool pretty = false) const;
+	std::string Serialize(bool pretty = false) const;
 	void Deserialize(std::istringstream& from);
 	void Deserialize(const std::string& from);
 

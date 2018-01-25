@@ -8,13 +8,13 @@ JsonConfig::JsonConfig() {
 	tree_.clear();
 }
 
-void JsonConfig::Serialize(std::ostringstream& to) const {
-	pt::write_json(to, tree_);
+void JsonConfig::Serialize(std::ostringstream& to, bool pretty) const {
+	pt::write_json(to, tree_, pretty);
 }
 
-std::string JsonConfig::Serialize() const {
+std::string JsonConfig::Serialize(bool pretty) const {
 	std::ostringstream os;
-	Serialize(os);
+	Serialize(os, pretty);
 	return os.str();
 }
 

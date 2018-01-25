@@ -41,5 +41,6 @@ target_link_libraries(StorageLayer
 )
 
 add_subdirectory(Common)
+add_subdirectory(Commands)
 add_subdirectory(tests)
 add_subdirectory(C-Client)
