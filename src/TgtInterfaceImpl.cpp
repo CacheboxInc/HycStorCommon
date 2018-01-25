@@ -112,7 +112,7 @@ static void RemoveVm(VmHandle handle) {
 	RemoveVmHandleLocked(handle);
 }
 
-static VmHandle NewVm(std::string vmid) {
+static VmHandle NewVm(const VmID& vmid, const std::string& config) {
 	std::lock_guard<std::mutex> lock(g_vms.mutex_);
 
 	auto handle = ++g_vms.handle_;
@@ -149,7 +149,8 @@ static void RemoveVmdk(VmdkHandle handle) {
 	RemoveVmdkHandleLocked(handle);
 }
 
-static VmdkHandle NewActiveVmdk(VmHandle vm_handle, std::string vmdkid) {
+static VmdkHandle NewActiveVmdk(VmHandle vm_handle, const VmdkID& vmdkid,
+		const std::string& config) {
 	{
 		/* VMDK already present */
 		auto vmdkp = VmdkFromVmdkID(vmdkid);
@@ -314,10 +315,11 @@ int InitializeLibrary() {
 	}
 }
 
-VmHandle NewVm(const char* vmidp) {
+VmHandle NewVm(const char* vmidp, const char* const configp) {
 	try {
-		return pio::NewVm(vmidp);
+		return pio::NewVm(vmidp, configp);
 	} catch (const std::exception& e) {
+		LOG(ERROR) << __func__ << " Failed ";
 		return kInvalidVmHandle;
 	}
 }
@@ -343,10 +345,12 @@ void RemoveVm(VmHandle handle) {
 	}
 }
 
-VmdkHandle NewActiveVmdk(VmHandle vm_handle, const char* vmdkid) {
+VmdkHandle NewActiveVmdk(VmHandle vm_handle, const char* vmdkid,
+		const char* const configp) {
 	try {
-		return pio::NewActiveVmdk(vm_handle, vmdkid);
+		return pio::NewActiveVmdk(vm_handle, vmdkid, configp);
 	} catch (const std::exception& e) {
+		LOG(ERROR) << __func__ << " Failed ";
 		return kInvalidVmdkHandle;
 	}
 }

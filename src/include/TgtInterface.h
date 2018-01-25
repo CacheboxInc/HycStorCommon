@@ -8,11 +8,12 @@ extern "C"  {
 
 int InitializeLibrary();
 
-VmHandle NewVm(const char* vmidp);
+VmHandle NewVm(const char* vmidp, const char* const configp);
 VmHandle GetVmHandle(const char* vmidp);
 void RemoveVm(VmdkHandle vm_handle);
 
-VmdkHandle NewActiveVmdk(VmHandle vm_handle, const char* vmdkid);
+VmdkHandle NewActiveVmdk(VmHandle vm_handle, const char* vmdkid,
+	const char* const configp);
 VmdkHandle GetVmdkHandle(const char* vmdkidp);
 void RemoveVmdk(VmdkHandle handle);
 int SetVmdkEventFd(VmdkHandle handle, int eventfd);

@@ -12,6 +12,10 @@
 
 #include "TgtInterface.h"
 
+const char kVmConfig[] = "{\"VmID\":\"1\"}";
+const char kVmdkConfig[] = "{\"VmID\":\"1\",\"VmdkID\":\"1\",\"BlockSize\":"
+	"\"4096\",\"Compreesion\":\"snappy\",\"EncryptionKey\":\"abcd\"}";
+
 static void GenerateId(char* id, size_t size) {
 	(void) snprintf(id, size, "%lu", time(NULL));
 }
@@ -100,9 +104,9 @@ static void Test_AddVmWithSameID() {
 
 	char vmid[20];
 	GenerateId(vmid, sizeof(vmid));
-	VmHandle vm = NewVm(vmid);
+	VmHandle vm = NewVm(vmid, kVmConfig);
 	assert(vm != kInvalidVmHandle);
-	assert(NewVm(vmid) == kInvalidVmHandle);
+	assert(NewVm(vmid, kVmConfig) == kInvalidVmHandle);
 	assert(GetVmHandle(vmid) == vm);
 
 	RemoveVm(vm);
@@ -111,7 +115,7 @@ static void Test_AddVmWithSameID() {
 	/* try to add VMDK to removed VM */
 	char vmdkid[20];
 	GenerateId(vmdkid, sizeof(vmdkid));
-	assert(NewActiveVmdk(vm, vmdkid) == kInvalidVmdkHandle);
+	assert(NewActiveVmdk(vm, vmdkid, kVmdkConfig) == kInvalidVmdkHandle);
 }
 
 static void Test_AddVmdkWithInvalidVmHandle() {
@@ -122,7 +126,7 @@ static void Test_AddVmdkWithInvalidVmHandle() {
 
 	/* Adding VMDK to invalid VmHandle fails */
 	VmHandle vm = kInvalidVmHandle;
-	assert(NewActiveVmdk(vm, vmdkid) == kInvalidVmdkHandle);
+	assert(NewActiveVmdk(vm, vmdkid, kVmdkConfig) == kInvalidVmdkHandle);
 }
 
 static void Test_AddVmdk() {
@@ -130,9 +134,9 @@ static void Test_AddVmdk() {
 
 	char vmid[20];
 	GenerateId(vmid, sizeof(vmid));
-	VmHandle vm = NewVm(vmid);
+	VmHandle vm = NewVm(vmid, kVmConfig);
 	assert(vm != kInvalidVmHandle);
-	assert(NewVm(vmid) == kInvalidVmHandle);
+	assert(NewVm(vmid, kVmConfig) == kInvalidVmHandle);
 	assert(GetVmHandle(vmid) == vm);
 
 	const int kVmdks = 4;
@@ -141,11 +145,11 @@ static void Test_AddVmdk() {
 		char vmdkid[20];
 		snprintf(vmdkid, sizeof(vmdkid), "%d", i);
 
-		vmdks[i] = NewActiveVmdk(vm, vmdkid);
+		vmdks[i] = NewActiveVmdk(vm, vmdkid, kVmdkConfig);
 		assert(vmdks[i] != kInvalidVmdkHandle);
 
-		assert(NewActiveVmdk(kInvalidVmHandle, vmdkid) == kInvalidVmdkHandle);
-		assert(NewActiveVmdk(vm, vmdkid) == kInvalidVmdkHandle);
+		assert(NewActiveVmdk(kInvalidVmHandle, vmdkid, kVmdkConfig) == kInvalidVmdkHandle);
+		assert(NewActiveVmdk(vm, vmdkid, kVmdkConfig) == kInvalidVmdkHandle);
 		assert(GetVmdkHandle(vmdkid) == vmdks[i]);
 	}
 
