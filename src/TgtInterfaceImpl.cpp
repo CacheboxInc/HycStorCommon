@@ -34,24 +34,30 @@ struct {
 } g_vmdks;
 
 struct {
-	bool initialized_{false};
+	std::once_flag initialized_;
 	std::unique_ptr<ThreadPool> pool_;
 } g_thread_;
 
 static int InitializeLibrary() {
-	if (pio_unlikely(g_thread_.initialized_)) {
-		return -1;
-	}
+	auto cores = std::thread::hardware_concurrency();
 
 	try {
-		auto cores = std::thread::hardware_concurrency();
-		g_thread_.pool_ = std::make_unique<ThreadPool>(cores);
-		g_thread_.pool_->CreateThreads();
-		g_thread_.initialized_ = true;
-		return 0;
-	} catch (const std::bad_alloc& e) {
+		std::call_once(g_thread_.initialized_, [=] () mutable {
+			google::InitGoogleLogging("TGTD-StorageLibrary");
+			g_thread_.pool_ = std::make_unique<ThreadPool>(cores);
+			g_thread_.pool_->CreateThreads();
+
+			VLOG(1) << "library initialized "
+				<< "Cores = " << cores
+				<< "Threads = " << g_thread_.pool_->Stats().nthreads_;
+		});
+	} catch (const std::exception& e) {
+		g_thread_.pool_.release();
 		return -ENOMEM;
 	}
+
+	log_assert(g_thread_.pool_);
+	return 0;
 }
 
 static VirtualMachine* VmFromVmID(const std::string& vmid) {
