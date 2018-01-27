@@ -85,10 +85,10 @@ folly::Future<int> VirtualMachine::Write(ActiveVmdk* vmdkp,
 		return checkpoint_.checkpoint_id_;
 	} ();
 
-	++stats_.writes_in_progress_;
+	stats_.writes_in_progress_.fetch_add(std::memory_order_relaxed);
 	return vmdkp->Write(std::move(reqp), ckpt_id)
 	.then([this, ckpt_id] (int rc) mutable {
-		--stats_.writes_in_progress_;
+		stats_.writes_in_progress_.fetch_sub(std::memory_order_relaxed);
 
 		std::lock_guard<std::mutex> guard(checkpoint_.mutex_);
 		auto c = --checkpoint_.writes_per_checkpoint_[ckpt_id];

@@ -4,6 +4,7 @@ set(CommonLibFiles
 	JsonConfig.cpp
 	ThreadPool.cpp
 	Utils.cpp
+	SpinLock.cpp
 )
 
 add_library(CommonLib SHARED

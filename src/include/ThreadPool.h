@@ -90,11 +90,12 @@ public:
 		}
 
 		if (not IsRunningInThreadPool()) {
-			auto t = ++stats_.remote_task_scheduled_ % nthreads_;
+			auto t = stats_.remote_task_scheduled_
+				.fetch_add(1,std::memory_order_relaxed) % nthreads_;
 			auto managerp = threads_[t]->GetFiberManager();
 			managerp->addTaskRemote(std::forward<Lambda>(func));
 		} else {
-			++stats_.local_task_scheduled_;
+			stats_.local_task_scheduled_.fetch_add(1, std::memory_order_relaxed);
 			auto threadp = GetThread();
 			auto managerp = threadp->GetFiberManager();
 			managerp->addTask(std::forward<Lambda>(func));

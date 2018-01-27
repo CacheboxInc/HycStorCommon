@@ -3,6 +3,7 @@ add_executable(CommonTests
 	SystemTests.cpp
 	UtilsTests.cpp
 	JsonConfigTests.cpp
+	SpinLockTests.cpp
 )
 
 target_link_libraries(CommonTests

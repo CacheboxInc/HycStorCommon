@@ -47,8 +47,10 @@ Thread* ThreadPool::GetThread() const noexcept {
 ThreadPoolStats ThreadPool::Stats() const noexcept {
 	ThreadPoolStats stats;
 	stats.nthreads_ = nthreads_;
-	stats.remote_task_scheduled_ = stats_.remote_task_scheduled_.load();
-	stats.local_task_scheduled_ = stats_.local_task_scheduled_.load();
+	stats.remote_task_scheduled_ = stats_.remote_task_scheduled_
+		.load(std::memory_order_relaxed);
+	stats.local_task_scheduled_ = stats_.local_task_scheduled_
+		.load(std::memory_order_relaxed);
 	return stats;
 }
 
@@ -81,7 +83,7 @@ void Thread::Loop() {
 
 void Thread::StartThread() {
 	handle_ = std::thread([&] () mutable {
-		this_threadp.store(this, std::memory_order_release);
+		this_threadp.store(this, std::memory_order_relaxed);
 		this->Loop();
 	});
 	WaitUntilReady();
