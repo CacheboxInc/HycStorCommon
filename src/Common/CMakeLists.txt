@@ -5,6 +5,7 @@ set(CommonLibFiles
 	ThreadPool.cpp
 	Utils.cpp
 	SpinLock.cpp
+	QLock.cpp
 )
 
 add_library(CommonLib SHARED

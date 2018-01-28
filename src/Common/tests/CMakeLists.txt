@@ -4,6 +4,7 @@ add_executable(CommonTests
 	UtilsTests.cpp
 	JsonConfigTests.cpp
 	SpinLockTests.cpp
+	QLockTests.cpp
 )
 
 target_link_libraries(CommonTests
