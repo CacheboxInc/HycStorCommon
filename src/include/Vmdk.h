@@ -20,6 +20,11 @@ class Roaring;
 
 namespace pio {
 
+/* forward declaration for Pimpl */
+namespace config {
+	class JsonConfig;
+}
+
 class CheckPoint {
 public:
 	CheckPoint(VmdkID vmdk_id, CheckPointID id);
@@ -52,7 +57,7 @@ protected:
 class ActiveVmdk : public Vmdk {
 public:
 	ActiveVmdk(VirtualMachine *vmp, VmdkHandle handle, VmdkID id,
-		uint32_t block_size);
+		std::unique_ptr<config::JsonConfig> config);
 	virtual ~ActiveVmdk();
 
 	void RegisterRequestHandler(std::unique_ptr<RequestHandler> handler);
@@ -85,6 +90,7 @@ private:
 	int            eventfd_{-1};
 
 	uint32_t block_shift_;
+	std::unique_ptr<config::JsonConfig> config_;
 
 	struct {
 		std::mutex mutex_;

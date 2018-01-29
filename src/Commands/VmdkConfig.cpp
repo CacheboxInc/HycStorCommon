@@ -1,13 +1,9 @@
 #include <iostream>
 
 #include "JsonConfig.h"
+#include "ConfigConsts.h"
 
 using namespace pio;
-
-static const std::vector<std::string> compress_algos = {
-	"snappy",
-	"lzw",
-};
 
 int main(int argc, char* argv[]) {
 	std::string vmid;
@@ -33,7 +29,7 @@ int main(int argc, char* argv[]) {
 	if (enable_compression == "y") {
 		std::cout << "Select compression algorithm";
 		auto i = 0;
-		for (const auto& a : compress_algos) {
+		for (const auto& a : VmdkConfig::kCompressAlgos) {
 			std::cout << std::endl << i+1 << " " << a;
 			++i;
 		}
@@ -52,16 +48,18 @@ int main(int argc, char* argv[]) {
 	}
 
 	config::JsonConfig config;
-	config.SetKey("VmID", vmid);
-	config.SetKey("VmdkID", vmdkid);
-	config.SetKey("BlockSize", block_size);
+	config.SetKey(VmConfig::kVmID, vmid);
+	config.SetKey(VmdkConfig::kVmdkID, vmdkid);
+	config.SetKey(VmdkConfig::kBlockSize, block_size);
 	if (enable_compression == "y") {
 		std::cout << compression << std::endl;
-		std::cout << "Selected " << compress_algos[compression] << std::endl;
-		config.SetKey("Compreesion", compress_algos[compression]);
+		std::cout << "Selected "
+			<< VmdkConfig::kCompressAlgos[compression] << std::endl;
+		config.SetKey(VmdkConfig::kCompression,
+			VmdkConfig::kCompressAlgos[compression]);
 	}
 	if (enable_encryption == "y") {
-		config.SetKey("EncryptionKey", encryption_key);
+		config.SetKey(VmdkConfig::kEncryptionKey, encryption_key);
 	}
 
 	std::cout << "VMDK Configuration\n\n"

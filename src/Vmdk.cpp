@@ -10,9 +10,11 @@
 #include "IDs.h"
 #include "Utils.h"
 #include "TgtTypes.h"
+#include "JsonConfig.h"
 #include "RequestHandler.h"
 #include "Vmdk.h"
 #include "VirtualMachine.h"
+#include "ConfigConsts.h"
 
 namespace pio {
 Vmdk::Vmdk(VmdkHandle handle, VmdkID&& id) : handle_(handle), id_(std::move(id)) {
@@ -29,7 +31,11 @@ VmdkHandle Vmdk::GetHandle() const noexcept {
 }
 
 ActiveVmdk::ActiveVmdk(VirtualMachine *vmp, VmdkHandle handle, VmdkID id,
-		uint32_t block_size) : Vmdk(handle, std::move(id)), vmp_(vmp) {
+		std::unique_ptr<config::JsonConfig> config) : Vmdk(handle,
+		std::move(id)), vmp_(vmp), config_(std::move(config)) {
+	uint32_t block_size{4096};
+	config_->GetKey(VmdkConfig::kBlockSize, block_size);
+
 	if (block_size & (block_size - 1)) {
 		throw std::invalid_argument("Block Size is not power of 2.");
 	}

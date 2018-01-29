@@ -1,6 +1,7 @@
 #include <iostream>
 
 #include "JsonConfig.h"
+#include "ConfigConsts.h"
 
 using namespace pio;
 
@@ -12,7 +13,7 @@ int main(int argc, char* argv[]) {
 	std::cout << "Enter VmID: ";
 	std::cin >> vmid;
 
-	config.SetKey("VmID", vmid);
+	config.SetKey(VmConfig::kVmID, vmid);
 
 	std::cout << "VM Configuration\n\n"
 		<< config.Serialize() << std::endl;

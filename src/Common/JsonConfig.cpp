@@ -8,6 +8,10 @@ JsonConfig::JsonConfig() {
 	tree_.clear();
 }
 
+JsonConfig::JsonConfig(const std::string& from) {
+	this->Deserialize(from);
+}
+
 void JsonConfig::Serialize(std::ostringstream& to, bool pretty) const {
 	pt::write_json(to, tree_, pretty);
 }

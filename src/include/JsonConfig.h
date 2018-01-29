@@ -7,6 +7,12 @@ namespace pio { namespace config {
 class JsonConfig {
 public:
 	JsonConfig();
+	JsonConfig(const std::string& config);
+
+	JsonConfig(const JsonConfig& rhs) = delete;
+	JsonConfig(JsonConfig&& rhs) = delete;
+	JsonConfig& operator = (const JsonConfig& rhs) = delete;
+	JsonConfig& operator = (JsonConfig&& rhs) = delete;
 
 	void Serialize(std::ostringstream& to, bool pretty = false) const;
 	std::string Serialize(bool pretty = false) const;

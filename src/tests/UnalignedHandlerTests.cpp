@@ -9,6 +9,8 @@
 #include "LockHandler.h"
 #include "RamCacheHandler.h"
 #include "Utils.h"
+#include "JsonConfig.h"
+#include "ConfigConsts.h"
 
 using namespace pio;
 
@@ -20,12 +22,21 @@ protected:
 	std::unique_ptr<ActiveVmdk> vmdkp;
 	std::atomic<RequestID> req_id_;
 
+	void DefaultVmdkConfig(config::JsonConfig& config, uint64_t block_size) {
+		config.SetKey(VmConfig::kVmID, "vmid");
+		config.SetKey(VmdkConfig::kVmdkID, "vmdkid");
+		config.SetKey(VmdkConfig::kBlockSize, block_size);
+	}
+
 	virtual void SetUp() {
 		auto unaligned_handler = std::make_unique<UnalignedHandler>();
 		auto lock_handler = std::make_unique<LockHandler>();
 		auto ramcache_handler = std::make_unique<RamCacheHandler>();
 
-		vmdkp = std::make_unique<ActiveVmdk>(nullptr, 1, "1", kVmdkBlockSize);
+		auto config = std::make_unique<config::JsonConfig>();
+		DefaultVmdkConfig(*config, kVmdkBlockSize);
+
+		vmdkp = std::make_unique<ActiveVmdk>(nullptr, 1, "1", std::move(config));
 
 		vmdkp->RegisterRequestHandler(std::move(lock_handler));
 		vmdkp->RegisterRequestHandler(std::move(unaligned_handler));

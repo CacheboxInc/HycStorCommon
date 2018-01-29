@@ -7,6 +7,7 @@
 #include <folly/futures/Future.h>
 #include <glog/logging.h>
 
+#include "JsonConfig.h"
 #include "TgtInterface.h"
 #include "Request.h"
 #include "ThreadPool.h"
@@ -168,7 +169,9 @@ static VmdkHandle NewActiveVmdk(VmHandle vm_handle, const VmdkID& vmdkid,
 	auto handle = ++g_vmdks.handle_;
 
 	try {
-		auto vmdkp = std::make_unique<ActiveVmdk>(vmp, handle, vmdkid, 4096);
+		auto conf = std::make_unique<config::JsonConfig>(config);
+
+		auto vmdkp = std::make_unique<ActiveVmdk>(vmp, handle, vmdkid, std::move(conf));
 		auto p = vmdkp.get();
 		g_vmdks.handles_.insert(std::make_pair(handle, p));
 		g_vmdks.ids_.insert(std::make_pair(std::move(vmdkid), std::move(vmdkp)));
@@ -180,6 +183,10 @@ static VmdkHandle NewActiveVmdk(VmHandle vm_handle, const VmdkID& vmdkid,
 		return handle;
 	} catch (const std::bad_alloc& e) {
 		RemoveVmdkHandleLocked(handle);
+		return kInvalidVmdkHandle;
+	} catch (const boost::property_tree::ptree_error& e) {
+		RemoveVmdkHandleLocked(handle);
+		LOG(ERROR) << "Invalid configuration.";
 		return kInvalidVmdkHandle;
 	}
 }

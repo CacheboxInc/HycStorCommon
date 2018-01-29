@@ -6,13 +6,23 @@
 #include "RamCache.h"
 #include "Request.h"
 #include "Vmdk.h"
+#include "JsonConfig.h"
+#include "ConfigConsts.h"
 
 using namespace pio;
 
 const size_t kVmdkBlockSize = 8192;
 
+static void DefaultVmdkConfig(config::JsonConfig& config, uint64_t block_size) {
+	config.SetKey(VmConfig::kVmID, "vmid");
+	config.SetKey(VmdkConfig::kVmdkID, "vmdkid");
+	config.SetKey(VmdkConfig::kBlockSize, block_size);
+}
+
 TEST(RamCacheTest, DataVerify) {
-	ActiveVmdk vmdk(nullptr, 1, "1", kVmdkBlockSize);
+	auto config = std::make_unique<config::JsonConfig>();
+	DefaultVmdkConfig(*config, kVmdkBlockSize);
+	ActiveVmdk vmdk(nullptr, 1, "1", std::move(config));
 	RamCache cache;
 
 	for (auto offset = 0, i = 0; i < 100; ++i, offset += vmdk.BlockSize()) {
@@ -41,7 +51,9 @@ TEST(RamCacheTest, DataVerify) {
 
 TEST(RamCacheTest, ReadMiss) {
 	const Offset offset = 0;
-	ActiveVmdk vmdk(nullptr, 1, "1", kVmdkBlockSize);
+	auto config = std::make_unique<config::JsonConfig>();
+	DefaultVmdkConfig(*config, kVmdkBlockSize);
+	ActiveVmdk vmdk(nullptr, 1, "1", std::move(config));
 	RamCache cache;
 
 	auto zero_bufp = NewRequestBuffer(vmdk.BlockSize());
@@ -68,7 +80,9 @@ TEST(RamCacheTest, ReadMiss) {
 }
 
 TEST(RamCacheTest, OverWrite) {
-	ActiveVmdk vmdk(nullptr, 1, "1", kVmdkBlockSize);
+	auto config = std::make_unique<config::JsonConfig>();
+	DefaultVmdkConfig(*config, kVmdkBlockSize);
+	ActiveVmdk vmdk(nullptr, 1, "1", std::move(config));
 	RamCache cache;
 
 	auto write_bufp = NewRequestBuffer(vmdk.BlockSize());
