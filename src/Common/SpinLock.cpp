@@ -4,7 +4,7 @@
 #include "SpinLock.h"
 
 namespace pio {
-SpinLock::SpinLock() : flag_(ATOMIC_FLAG_INIT) {
+SpinLock::SpinLock() {
 }
 
 void SpinLock::lock() {

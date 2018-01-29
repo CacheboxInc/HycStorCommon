@@ -4,7 +4,7 @@
 #include "QLock.h"
 
 namespace pio {
-QLock::QLock() : lock_flag_(ATOMIC_FLAG_INIT) {
+QLock::QLock() {
 
 }
 
