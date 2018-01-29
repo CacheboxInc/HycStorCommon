@@ -37,4 +37,22 @@ uint32_t PopCount(uint32_t x) {
 	return x & 0x0000003F;
 }
 
+void StringDelimAppend(std::string& result, const char delim,
+		const std::initializer_list<std::string>& input) {
+	size_t size = input.size();
+	for (const auto& e : input) {
+		size += e.size();
+	}
+
+	result.clear();
+	result.reserve(size);
+	for (const auto& e : input) {
+		if (result.empty()) {
+			result.append(e);
+		} else {
+			result.append(1, delim).append(e);
+		}
+	}
+}
+
 }
