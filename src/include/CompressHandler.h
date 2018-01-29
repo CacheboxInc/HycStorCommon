@@ -1,11 +1,12 @@
 #pragma once
 
 #include "RequestHandler.h"
+#include "JsonConfig.h"
 
 namespace pio {
 class CompressHandler : public RequestHandler {
 public:
-	CompressHandler();
+	CompressHandler(config::JsonConfig* configp);
 	~CompressHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock*>& process,

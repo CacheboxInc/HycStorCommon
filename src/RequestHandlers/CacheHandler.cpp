@@ -14,17 +14,18 @@
 #include "Utils.h"
 
 namespace pio {
-CacheHandler::CacheHandler() : RequestHandler(nullptr) {
-	InitializeRequestHandlers();
+CacheHandler::CacheHandler(config::JsonConfig* configp) :
+		RequestHandler(nullptr) {
+	InitializeRequestHandlers(configp);
 }
 
-void CacheHandler::InitializeRequestHandlers() {
+void CacheHandler::InitializeRequestHandlers(config::JsonConfig* configp) {
 	auto lock = std::make_unique<LockHandler>();
 	auto unalingned = std::make_unique<UnalignedHandler>();
-	auto compress = std::make_unique<CompressHandler>();
-	auto encrypt = std::make_unique<EncryptHandler>();
-	auto dirty = std::make_unique<DirtyHandler>();
-	auto clean = std::make_unique<CleanHandler>();
+	auto compress = std::make_unique<CompressHandler>(configp);
+	auto encrypt = std::make_unique<EncryptHandler>(configp);
+	auto dirty = std::make_unique<DirtyHandler>(configp);
+	auto clean = std::make_unique<CleanHandler>(configp);
 
 	headp_ = std::move(lock);
 	headp_->RegisterNextRequestHandler(std::move(unalingned));

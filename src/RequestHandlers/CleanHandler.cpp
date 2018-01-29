@@ -6,7 +6,8 @@
 #include "CleanHandler.h"
 
 namespace pio {
-CleanHandler::CleanHandler() : RequestHandler(nullptr) {
+CleanHandler::CleanHandler(config::JsonConfig* configp) :
+		RequestHandler(nullptr) {
 }
 
 CleanHandler::~CleanHandler() {

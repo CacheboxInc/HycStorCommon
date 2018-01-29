@@ -6,7 +6,8 @@
 #include "DirtyHandler.h"
 
 namespace pio {
-DirtyHandler::DirtyHandler() : RequestHandler(nullptr) {
+DirtyHandler::DirtyHandler(config::JsonConfig* configp) :
+		RequestHandler(nullptr) {
 }
 
 DirtyHandler::~DirtyHandler() {

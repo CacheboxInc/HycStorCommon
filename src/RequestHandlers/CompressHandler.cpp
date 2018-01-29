@@ -6,7 +6,8 @@
 #include "CompressHandler.h"
 
 namespace pio {
-CompressHandler::CompressHandler() : RequestHandler(nullptr) {
+CompressHandler::CompressHandler(config::JsonConfig* configp) :
+		RequestHandler(nullptr) {
 }
 
 CompressHandler::~CompressHandler() {

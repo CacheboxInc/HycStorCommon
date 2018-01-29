@@ -4,9 +4,11 @@
 #include <vector>
 
 #include "EncryptHandler.h"
+#include "JsonConfig.h"
 
 namespace pio {
-EncryptHandler::EncryptHandler() : RequestHandler(nullptr) {
+EncryptHandler::EncryptHandler(config::JsonConfig* configp) :
+		RequestHandler(nullptr) {
 }
 
 EncryptHandler::~EncryptHandler() {

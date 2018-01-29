@@ -170,6 +170,7 @@ static VmdkHandle NewActiveVmdk(VmHandle vm_handle, const VmdkID& vmdkid,
 
 	try {
 		auto conf = std::make_unique<config::JsonConfig>(config);
+		auto confp = conf.get();
 
 		auto vmdkp = std::make_unique<ActiveVmdk>(vmp, handle, vmdkid, std::move(conf));
 		auto p = vmdkp.get();
@@ -177,7 +178,7 @@ static VmdkHandle NewActiveVmdk(VmHandle vm_handle, const VmdkID& vmdkid,
 		g_vmdks.ids_.insert(std::make_pair(std::move(vmdkid), std::move(vmdkp)));
 
 		p->RegisterRequestHandler(std::make_unique<BlockTraceHandler>());
-		p->RegisterRequestHandler(std::make_unique<CacheHandler>());
+		p->RegisterRequestHandler(std::make_unique<CacheHandler>(confp));
 
 		vmp->AddVmdk(p);
 		return handle;

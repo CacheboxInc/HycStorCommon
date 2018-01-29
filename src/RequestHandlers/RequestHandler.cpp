@@ -16,7 +16,8 @@ RequestHandler::~RequestHandler() {
 
 }
 
-void RequestHandler::RegisterNextRequestHandler(std::unique_ptr<RequestHandler> handlerp) {
+void RequestHandler::RegisterNextRequestHandler(
+		std::unique_ptr<RequestHandler> handlerp) {
 	if (nextp_ == nullptr) {
 		nextp_ = std::move(handlerp);
 		return;
