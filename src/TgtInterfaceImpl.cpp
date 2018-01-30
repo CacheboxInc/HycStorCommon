@@ -7,7 +7,6 @@
 #include <folly/futures/Future.h>
 #include <glog/logging.h>
 
-#include "JsonConfig.h"
 #include "TgtInterface.h"
 #include "Request.h"
 #include "ThreadPool.h"
@@ -15,6 +14,7 @@
 #include "Vmdk.h"
 #include "BlockTraceHandler.h"
 #include "CacheHandler.h"
+#include "VmdkConfig.h"
 
 namespace pio {
 using namespace folly;
@@ -169,16 +169,13 @@ static VmdkHandle NewActiveVmdk(VmHandle vm_handle, const VmdkID& vmdkid,
 	auto handle = ++g_vmdks.handle_;
 
 	try {
-		auto conf = std::make_unique<config::JsonConfig>(config);
-		auto confp = conf.get();
-
-		auto vmdkp = std::make_unique<ActiveVmdk>(vmp, handle, vmdkid, std::move(conf));
+		auto vmdkp = std::make_unique<ActiveVmdk>(vmp, handle, vmdkid, config);
 		auto p = vmdkp.get();
 		g_vmdks.handles_.insert(std::make_pair(handle, p));
 		g_vmdks.ids_.insert(std::make_pair(std::move(vmdkid), std::move(vmdkp)));
 
 		p->RegisterRequestHandler(std::make_unique<BlockTraceHandler>());
-		p->RegisterRequestHandler(std::make_unique<CacheHandler>(confp));
+		p->RegisterRequestHandler(std::make_unique<CacheHandler>(p->GetJsonConfig()));
 
 		vmp->AddVmdk(p);
 		return handle;

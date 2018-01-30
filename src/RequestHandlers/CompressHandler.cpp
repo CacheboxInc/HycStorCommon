@@ -3,10 +3,11 @@
 #include <iterator>
 #include <vector>
 
+#include "VmdkConfig.h"
 #include "CompressHandler.h"
 
 namespace pio {
-CompressHandler::CompressHandler(config::JsonConfig* configp) :
+CompressHandler::CompressHandler(const config::VmdkConfig* configp) :
 		RequestHandler(nullptr) {
 }
 

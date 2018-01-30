@@ -3,11 +3,11 @@
 #include <iterator>
 #include <vector>
 
+#include "VmdkConfig.h"
 #include "EncryptHandler.h"
-#include "JsonConfig.h"
 
 namespace pio {
-EncryptHandler::EncryptHandler(config::JsonConfig* configp) :
+EncryptHandler::EncryptHandler(const config::VmdkConfig* configp) :
 		RequestHandler(nullptr) {
 }
 

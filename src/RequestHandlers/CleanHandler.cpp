@@ -3,10 +3,11 @@
 #include <iterator>
 #include <vector>
 
+#include "VmdkConfig.h"
 #include "CleanHandler.h"
 
 namespace pio {
-CleanHandler::CleanHandler(config::JsonConfig* configp) :
+CleanHandler::CleanHandler(const config::VmdkConfig* configp) :
 		RequestHandler(nullptr) {
 }
 

@@ -6,22 +6,22 @@
 #include "Request.h"
 #include "Vmdk.h"
 #include "IDs.h"
-#include "JsonConfig.h"
+#include "VmdkConfig.h"
 #include "ConfigConsts.h"
 
 using namespace pio;
 
-static void DefaultVmdkConfig(config::JsonConfig& config, uint64_t block_size) {
-	config.SetKey(VmConfig::kVmID, "vmid");
-	config.SetKey(VmdkConfig::kVmdkID, "vmdkid");
-	config.SetKey(VmdkConfig::kBlockSize, block_size);
+static void DefaultVmdkConfig(config::VmdkConfig& config, uint64_t block_size) {
+	config.SetVmId("vmid");
+	config.SetVmdkId("vmdkid");
+	config.SetBlockSize(block_size);
 }
 
 TEST(RequestTest, Constructor_Exception) {
-	auto config = std::make_unique<config::JsonConfig>();
-	DefaultVmdkConfig(*config, 4096);
+	config::VmdkConfig config;
+	DefaultVmdkConfig(config, 4096);
 
-	ActiveVmdk vmdk(nullptr, 1, "1", std::move(config));
+	ActiveVmdk vmdk(nullptr, 1, "1", config.Serialize());
 
 	/* RequestID == 0 */
 	EXPECT_THROW(
@@ -61,9 +61,9 @@ TEST(RequestTest, Constructor_Exception) {
 
 TEST(RequestTest, ReadTest) {
 	for (auto blocks_size = 512; blocks_size <= 4096; blocks_size <<= 1) {
-		auto config = std::make_unique<config::JsonConfig>();
-		DefaultVmdkConfig(*config, blocks_size);
-		ActiveVmdk vmdk(nullptr, 1, "1", std::move(config));
+		config::VmdkConfig config;
+		DefaultVmdkConfig(config, blocks_size);
+		ActiveVmdk vmdk(nullptr, 1, "1", config.Serialize());
 		for (auto nblocks = 2; nblocks <= 10; ++nblocks) {
 			size_t buffer_size = blocks_size * nblocks;
 			auto bufferp = std::make_unique<RequestBuffer>(buffer_size);
@@ -100,9 +100,9 @@ TEST(RequestTest, ReadTest) {
 
 TEST(RequestTest, WriteTest) {
 	for (auto blocks_size = 512; blocks_size <= 4096; blocks_size <<= 1) {
-		auto config = std::make_unique<config::JsonConfig>();
-		DefaultVmdkConfig(*config, blocks_size);
-		ActiveVmdk vmdk(nullptr, 1, "1", std::move(config));
+		config::VmdkConfig config;
+		DefaultVmdkConfig(config, blocks_size);
+		ActiveVmdk vmdk(nullptr, 1, "1", config.Serialize());
 		for (auto nblocks = 2; nblocks <= 10; ++nblocks) {
 			size_t buffer_size = blocks_size * nblocks;
 			auto bufferp = std::make_unique<RequestBuffer>(buffer_size);
@@ -155,9 +155,9 @@ TEST(RequestTest, WriteSameTest) {
 	auto buffer_size   = 512;
 	auto transfer_size = blocks_size * 2;
 
-	auto config = std::make_unique<config::JsonConfig>();
-	DefaultVmdkConfig(*config, blocks_size);
-	ActiveVmdk vmdk(nullptr, 1, "1", std::move(config));
+	config::VmdkConfig config;
+	DefaultVmdkConfig(config, blocks_size);
+	ActiveVmdk vmdk(nullptr, 1, "1", config.Serialize());
 	auto bufferp = std::make_unique<RequestBuffer>(buffer_size);
 	auto payload = bufferp->Payload();
 	::memset(payload, 'A', bufferp->Size());

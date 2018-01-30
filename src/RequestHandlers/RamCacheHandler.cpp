@@ -10,11 +10,20 @@
 #include "RequestHandler.h"
 #include "RamCache.h"
 #include "RamCacheHandler.h"
+#include "VmdkConfig.h"
 
 namespace pio {
 
-RamCacheHandler::RamCacheHandler() : RequestHandler(nullptr) {
-
+RamCacheHandler::RamCacheHandler(const config::VmdkConfig* configp) :
+		RequestHandler(nullptr), cache_(std::make_unique<RamCache>()) {
+	enabled_ = configp->IsRamCacheEnabled();
+	if (enabled_) {
+		memory_mb_ = configp->GetRamCacheMemoryLimit();
+		if (memory_mb_ <= 0) {
+			VLOG(1) << "RamCache is enabled. However memory limit is 0.";
+			enabled_ = false;
+		}
+	}
 }
 
 RamCacheHandler::~RamCacheHandler() {
@@ -33,7 +42,7 @@ folly::Future<int> RamCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		auto payload = destp->Payload();
 		blockp->PushRequestBuffer(std::move(destp));
 
-		cache_.Read(vmdkp, payload, blockp->GetAlignedOffset());
+		cache_->Read(vmdkp, payload, blockp->GetAlignedOffset());
 	}
 	return 0;
 }
@@ -51,7 +60,7 @@ folly::Future<int> RamCacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		auto srcp = blockp->GetRequestBufferAtBack();
 		log_assert(srcp->Size() == vmdkp->BlockSize());
 
-		cache_.Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset());
+		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset());
 	}
 
 	return 0;
@@ -70,7 +79,7 @@ folly::Future<int> RamCacheHandler::ReadPopulate(ActiveVmdk *vmdkp,
 		auto srcp = blockp->GetRequestBufferAtBack();
 		log_assert(srcp->Size() == vmdkp->BlockSize());
 
-		cache_.Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset());
+		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset());
 	}
 
 	return 0;

@@ -1,12 +1,11 @@
 #pragma once
 
 #include "RequestHandler.h"
-#include "JsonConfig.h"
 
 namespace pio {
 class CleanHandler : public RequestHandler {
 public:
-	CleanHandler(config::JsonConfig* configp);
+	CleanHandler(const config::VmdkConfig* configp);
 	~CleanHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock*>& process,

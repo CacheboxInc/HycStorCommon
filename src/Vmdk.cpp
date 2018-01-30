@@ -10,7 +10,7 @@
 #include "IDs.h"
 #include "Utils.h"
 #include "TgtTypes.h"
-#include "JsonConfig.h"
+#include "VmdkConfig.h"
 #include "RequestHandler.h"
 #include "Vmdk.h"
 #include "VirtualMachine.h"
@@ -31,11 +31,13 @@ VmdkHandle Vmdk::GetHandle() const noexcept {
 }
 
 ActiveVmdk::ActiveVmdk(VirtualMachine *vmp, VmdkHandle handle, VmdkID id,
-		std::unique_ptr<config::JsonConfig> config) : Vmdk(handle,
-		std::move(id)), vmp_(vmp), config_(std::move(config)) {
-	uint32_t block_size{4096};
-	config_->GetKey(VmdkConfig::kBlockSize, block_size);
-
+		const std::string& config) : Vmdk(handle,
+		std::move(id)), vmp_(vmp),
+		config_(std::make_unique<config::VmdkConfig>(config)) {
+	uint32_t block_size;
+	if (not config_->GetBlockSize(block_size)) {
+		block_size = kDefaultBlockSize;
+	}
 	if (block_size & (block_size - 1)) {
 		throw std::invalid_argument("Block Size is not power of 2.");
 	}
@@ -62,6 +64,10 @@ void ActiveVmdk::SetEventFd(int eventfd) noexcept {
 
 VirtualMachine* ActiveVmdk::GetVM() const noexcept {
 	return vmp_;
+}
+
+const config::VmdkConfig* ActiveVmdk::GetJsonConfig() const noexcept {
+	return config_.get();
 }
 
 void ActiveVmdk::RegisterRequestHandler(std::unique_ptr<RequestHandler> handler) {

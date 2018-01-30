@@ -10,19 +10,21 @@
 #include "EncryptHandler.h"
 #include "DirtyHandler.h"
 #include "CleanHandler.h"
+#include "RamCacheHandler.h"
 #include "Request.h"
 #include "Utils.h"
 
 namespace pio {
-CacheHandler::CacheHandler(config::JsonConfig* configp) :
+CacheHandler::CacheHandler(const config::VmdkConfig* configp) :
 		RequestHandler(nullptr) {
 	InitializeRequestHandlers(configp);
 }
 
-void CacheHandler::InitializeRequestHandlers(config::JsonConfig* configp) {
+void CacheHandler::InitializeRequestHandlers(const config::VmdkConfig* configp) {
 	auto lock = std::make_unique<LockHandler>();
 	auto unalingned = std::make_unique<UnalignedHandler>();
 	auto compress = std::make_unique<CompressHandler>(configp);
+	auto ram_cache = std::make_unique<RamCacheHandler>(configp);
 	auto encrypt = std::make_unique<EncryptHandler>(configp);
 	auto dirty = std::make_unique<DirtyHandler>(configp);
 	auto clean = std::make_unique<CleanHandler>(configp);
@@ -30,6 +32,7 @@ void CacheHandler::InitializeRequestHandlers(config::JsonConfig* configp) {
 	headp_ = std::move(lock);
 	headp_->RegisterNextRequestHandler(std::move(unalingned));
 	headp_->RegisterNextRequestHandler(std::move(compress));
+	headp_->RegisterNextRequestHandler(std::move(ram_cache));
 	headp_->RegisterNextRequestHandler(std::move(encrypt));
 	headp_->RegisterNextRequestHandler(std::move(dirty));
 	headp_->RegisterNextRequestHandler(std::move(clean));

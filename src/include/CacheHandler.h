@@ -1,12 +1,16 @@
 #pragma once
 
 #include "RequestHandler.h"
-#include "JsonConfig.h"
 
 namespace pio {
+/* forward declaration for pimpl */
+namespace config {
+	class VmdkConfig;
+}
+
 class CacheHandler : public RequestHandler {
 public:
-	CacheHandler(config::JsonConfig* configp);
+	CacheHandler(const config::VmdkConfig* configp);
 	~CacheHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock*>& process,
@@ -18,7 +22,7 @@ public:
 		std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 private:
-	void InitializeRequestHandlers(config::JsonConfig* configp);
+	void InitializeRequestHandlers(const config::VmdkConfig* configp);
 private:
 	std::unique_ptr<RequestHandler> headp_;
 };

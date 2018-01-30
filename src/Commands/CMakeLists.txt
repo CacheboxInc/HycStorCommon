@@ -15,5 +15,6 @@ add_executable(VmdkConfig
 
 target_link_libraries(VmdkConfig
 	CommonLib
+	StorageLayer
 	${LIBRARY_LIST}
 )

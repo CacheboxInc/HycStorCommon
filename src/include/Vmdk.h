@@ -22,7 +22,7 @@ namespace pio {
 
 /* forward declaration for Pimpl */
 namespace config {
-	class JsonConfig;
+	class VmdkConfig;
 }
 
 class CheckPoint {
@@ -57,7 +57,7 @@ protected:
 class ActiveVmdk : public Vmdk {
 public:
 	ActiveVmdk(VirtualMachine *vmp, VmdkHandle handle, VmdkID id,
-		std::unique_ptr<config::JsonConfig> config);
+		const std::string& config);
 	virtual ~ActiveVmdk();
 
 	void RegisterRequestHandler(std::unique_ptr<RequestHandler> handler);
@@ -78,6 +78,7 @@ public:
 	size_t BlockShift() const;
 	size_t BlockMask() const;
 	VirtualMachine* GetVM() const noexcept;
+	const config::VmdkConfig* GetJsonConfig() const noexcept;
 
 private:
 	folly::Future<int> WriteCommon(std::unique_ptr<Request> reqp,
@@ -90,7 +91,7 @@ private:
 	int            eventfd_{-1};
 
 	uint32_t block_shift_;
-	std::unique_ptr<config::JsonConfig> config_;
+	std::unique_ptr<config::VmdkConfig> config_;
 
 	struct {
 		std::mutex mutex_;
@@ -116,6 +117,9 @@ private:
 	} requests_;
 
 	std::unique_ptr<RequestHandler> headp_{nullptr};
+
+private:
+	static constexpr uint32_t kDefaultBlockSize{4096};
 };
 
 class SnapshotVmdk : public Vmdk {

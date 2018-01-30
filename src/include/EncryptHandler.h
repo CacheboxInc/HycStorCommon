@@ -1,12 +1,11 @@
 #pragma once
 
 #include "RequestHandler.h"
-#include "JsonConfig.h"
 
 namespace pio {
 class EncryptHandler : public RequestHandler {
 public:
-	EncryptHandler(config::JsonConfig* configp);
+	EncryptHandler(const config::VmdkConfig* configp);
 	~EncryptHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock*>& process,
