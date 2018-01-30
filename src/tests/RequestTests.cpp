@@ -7,7 +7,6 @@
 #include "Vmdk.h"
 #include "IDs.h"
 #include "VmdkConfig.h"
-#include "ConfigConsts.h"
 
 using namespace pio;
 

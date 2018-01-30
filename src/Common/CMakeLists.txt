@@ -1,7 +1,6 @@
 include_directories(include)
 
 set(CommonLibFiles
-	ConfigConsts.cpp
 	JsonConfig.cpp
 	ThreadPool.cpp
 	Utils.cpp

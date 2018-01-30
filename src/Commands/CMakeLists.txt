@@ -6,6 +6,7 @@ add_executable(VmConfig
 
 target_link_libraries(VmConfig
 	CommonLib
+	StorageLayer
 	${LIBRARY_LIST}
 )
 

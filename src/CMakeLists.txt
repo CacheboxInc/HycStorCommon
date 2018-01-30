@@ -13,6 +13,7 @@ set(StorageLayerFiles
 	TgtInterfaceImpl.cpp
 
 	VirtualMachine.cpp
+	VmConfig.cpp
 	Vmdk.cpp
 	VmdkConfig.cpp
 

@@ -7,7 +7,6 @@
 #include "Request.h"
 #include "Vmdk.h"
 #include "VmdkConfig.h"
-#include "ConfigConsts.h"
 
 using namespace pio;
 

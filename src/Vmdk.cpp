@@ -14,7 +14,6 @@
 #include "RequestHandler.h"
 #include "Vmdk.h"
 #include "VirtualMachine.h"
-#include "ConfigConsts.h"
 
 namespace pio {
 Vmdk::Vmdk(VmdkHandle handle, VmdkID&& id) : handle_(handle), id_(std::move(id)) {

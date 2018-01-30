@@ -3,7 +3,6 @@
 
 #include "Vmdk.h"
 #include "VmdkConfig.h"
-#include "ConfigConsts.h"
 
 using namespace pio;
 

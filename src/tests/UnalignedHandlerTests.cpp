@@ -10,7 +10,6 @@
 #include "RamCacheHandler.h"
 #include "Utils.h"
 #include "VmdkConfig.h"
-#include "ConfigConsts.h"
 
 using namespace pio;
 
