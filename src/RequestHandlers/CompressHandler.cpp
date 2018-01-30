@@ -9,6 +9,11 @@
 namespace pio {
 CompressHandler::CompressHandler(const config::VmdkConfig* configp) :
 		RequestHandler(nullptr) {
+	enabled_ = configp->IsCompressionEnabled();
+	if (enabled_) {
+		algorithm_ = configp->GetCompressionType();
+		level_ = configp->GetCompressionLevel();
+	}
 }
 
 CompressHandler::~CompressHandler() {
@@ -25,6 +30,11 @@ folly::Future<int> CompressHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		return -ENODEV;
 	}
 
+	if (pio_unlikely(not enabled_)) {
+		return nextp_->Read(vmdkp, reqp, process, failed);
+	}
+
+	/* TODO: write compression code */
 	return nextp_->Read(vmdkp, reqp, process, failed);
 }
 
@@ -38,6 +48,11 @@ folly::Future<int> CompressHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		return -ENODEV;
 	}
 
+	if (pio_unlikely(not enabled_)) {
+		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
+	}
+
+	/* TODO: write compression code */
 	return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
 }
 
@@ -51,6 +66,11 @@ folly::Future<int> CompressHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *req
 		return -ENODEV;
 	}
 
+	if (pio_unlikely(not enabled_)) {
+		return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
+	}
+
+	/* TODO: write compression code */
 	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 

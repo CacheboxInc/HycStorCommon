@@ -81,6 +81,34 @@ void VmdkConfig::ConfigureCompression(const std::string& algo, uint16_t level) {
 	}
 }
 
+bool VmdkConfig::IsCompressionEnabled() const {
+	bool enabled;
+	std::string key;
+	StringDelimAppend(key, '.', {kCompression, kEnabled});
+	auto rc = JsonConfig::GetKey(key, enabled);
+	return rc and enabled;
+}
+
+std::string VmdkConfig::GetCompressionType() const {
+	std::string type;
+	std::string key;
+	StringDelimAppend(key, '.', {kCompression, kCompressionType});
+	auto rc = JsonConfig::GetKey(key, type);
+	if (not rc) {
+		type.clear();
+	}
+
+	return std::move(type);
+}
+
+uint16_t VmdkConfig::GetCompressionLevel() const {
+	uint16_t level;
+	std::string key;
+	StringDelimAppend(key, '.', {kCompression, kCompressionLevel});
+	auto rc = JsonConfig::GetKey(key, level);
+	return rc ? level : 0;
+}
+
 void VmdkConfig::DisableEncryption() {
 	std::string key;
 
@@ -96,6 +124,27 @@ void VmdkConfig::ConfigureEncrytption(const std::string& ekey) {
 
 	StringDelimAppend(key, '.', {kEncryption, kEncryptionKey});
 	JsonConfig::SetKey(key, ekey);
+}
+
+bool VmdkConfig::IsEncryptionEnabled() const {
+	std::string key;
+	StringDelimAppend(key, '.', {kEncryption, kEnabled});
+
+	bool enabled;
+	auto rc = JsonConfig::GetKey(key, enabled);
+	return rc and enabled;
+}
+
+std::string VmdkConfig::GetEncryptionKey() const {
+	std::string key;
+	StringDelimAppend(key, '.', {kEncryption, kEncryptionKey});
+
+	std::string e;
+	auto rc = JsonConfig::GetKey(key, e);
+	if (not rc) {
+		e.clear();
+	}
+	return std::move(e);
 }
 
 void VmdkConfig::DisableRamCache() {

@@ -17,6 +17,8 @@ public:
 		std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 private:
-	std::unique_ptr<RequestHandler> headp_;
+	bool enabled_{false};
+	std::string algorithm_;
+	uint16_t level_;
 };
 }

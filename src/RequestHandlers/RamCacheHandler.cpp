@@ -37,6 +37,17 @@ folly::Future<int> RamCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		return -EINVAL;
 	}
 
+	if (pio_likely(not enabled_)) {
+		/* RamCache is disabled */
+		if (pio_unlikely(not nextp_)) {
+			failed.reserve(process.size());
+			std::copy(process.begin(), process.end(), std::back_inserter(failed));
+			return -ENODEV;
+		}
+
+		return nextp_->Read(vmdkp, reqp, process, failed);
+	}
+
 	failed.clear();
 	std::vector<RequestBlock*> missed;
 	for (auto blockp : process) {
@@ -80,8 +91,18 @@ folly::Future<int> RamCacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		return -EINVAL;
 	}
 
-	failed.clear();
+	if (pio_likely(not enabled_)) {
+		/* RamCache is disabled */
+		if (pio_unlikely(not nextp_)) {
+			failed.reserve(process.size());
+			std::copy(process.begin(), process.end(), std::back_inserter(failed));
+			return -ENODEV;
+		}
 
+		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
+	}
+
+	failed.clear();
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
 		log_assert(srcp->Size() == vmdkp->BlockSize());
@@ -103,8 +124,18 @@ folly::Future<int> RamCacheHandler::ReadPopulate(ActiveVmdk *vmdkp,
 		return -EINVAL;
 	}
 
-	failed.clear();
+	if (pio_likely(not enabled_)) {
+		/* RamCache is disabled */
+		if (pio_unlikely(not nextp_)) {
+			failed.reserve(process.size());
+			std::copy(process.begin(), process.end(), std::back_inserter(failed));
+			return -ENODEV;
+		}
 
+		return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
+	}
+
+	failed.clear();
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
 		log_assert(srcp->Size() == vmdkp->BlockSize());

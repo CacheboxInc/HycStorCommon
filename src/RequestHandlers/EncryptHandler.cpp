@@ -9,6 +9,12 @@
 namespace pio {
 EncryptHandler::EncryptHandler(const config::VmdkConfig* configp) :
 		RequestHandler(nullptr) {
+	key_ = configp->GetEncryptionKey();
+	if (key_.empty()) {
+		enabled_ = false;
+	} else {
+		enabled_ = configp->IsEncryptionEnabled();
+	}
 }
 
 EncryptHandler::~EncryptHandler() {
@@ -25,6 +31,11 @@ folly::Future<int> EncryptHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		return -ENODEV;
 	}
 
+	if (not enabled_) {
+		return nextp_->Read(vmdkp, reqp, process, failed);
+	}
+
+	/* TODO: encrypt data here and forward request down */
 	return nextp_->Read(vmdkp, reqp, process, failed);
 }
 
@@ -38,6 +49,11 @@ folly::Future<int> EncryptHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		return -ENODEV;
 	}
 
+	if (not enabled_) {
+		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
+	}
+
+	/* TODO: encrypt data here and forward request down */
 	return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
 }
 
@@ -51,6 +67,11 @@ folly::Future<int> EncryptHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp
 		return -ENODEV;
 	}
 
+	if (not enabled_) {
+		return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
+	}
+
+	/* TODO: encrypt data here and forward request down */
 	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 

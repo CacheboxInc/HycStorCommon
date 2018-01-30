@@ -17,10 +17,17 @@ public:
 	bool GetVmId(VmID& id) const;
 	void SetBlockSize(uint32_t size);
 	bool GetBlockSize(uint32_t& size) const;
+
 	void DisableCompression();
 	void ConfigureCompression(const std::string& algo, uint16_t level);
+	bool IsCompressionEnabled() const;
+	std::string GetCompressionType() const;
+	uint16_t GetCompressionLevel() const;
+
 	void DisableEncryption();
 	void ConfigureEncrytption(const std::string& ekey);
+	bool IsEncryptionEnabled() const;
+	std::string GetEncryptionKey() const;
 
 	void DisableRamCache();
 	void ConfigureRamCache(uint16_t size_mb);
