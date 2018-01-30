@@ -8,23 +8,19 @@
 
 namespace pio {
 
-void RamCache::Read(ActiveVmdk *vmdkp, void *bufferp, Offset offset) {
+bool RamCache::Read(ActiveVmdk *vmdkp, void *bufferp, Offset offset) {
 	Key key = offset;
 
 	std::lock_guard<std::mutex> guard(mutex_);
 	auto it = cache_.find(key);
 	if (it == cache_.end()) {
-		auto destp = NewRequestBuffer(vmdkp->BlockSize());
-		auto dp = destp->Payload();
-		::memset(dp, 0, destp->Size());
-		cache_.emplace(key, std::move(destp));
-
-		it = cache_.find(key);
+		return false;
 	}
 
 	log_assert(it != cache_.end());
 	auto srcp = it->second->Payload();
 	::memcpy(bufferp, srcp, vmdkp->BlockSize());
+	return true;
 }
 
 void RamCache::Write(ActiveVmdk *vmdkp, void *bufferp, Offset offset) {

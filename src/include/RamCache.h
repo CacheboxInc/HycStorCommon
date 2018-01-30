@@ -14,7 +14,7 @@ public:
 	};
 
 	using Key = Offset;
-	void Read(ActiveVmdk *vmdkp, void *bufferp, Offset offset);
+	bool Read(ActiveVmdk *vmdkp, void *bufferp, Offset offset);
 	void Write(ActiveVmdk *vmdkp, void *bufferp, Offset offset);
 private:
 	std::mutex mutex_;

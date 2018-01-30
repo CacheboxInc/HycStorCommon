@@ -63,13 +63,11 @@ TEST(RamCacheTest, ReadMiss) {
 	auto read_bufp = NewRequestBuffer(vmdk.BlockSize());
 	auto read_payload = read_bufp->Payload();
 
-	cache.Read(&vmdk, read_payload, offset);
-	auto rc = ::memcmp(read_payload, zpp, read_bufp->Size());
-	EXPECT_EQ(rc, 0);
+	auto rc = cache.Read(&vmdk, read_payload, offset);
+	EXPECT_FALSE(rc);
 
-	cache.Read(&vmdk, read_payload, offset);
-	rc = ::memcmp(read_payload, zpp, read_bufp->Size());
-	EXPECT_EQ(rc, 0);
+	rc = cache.Read(&vmdk, read_payload, offset);
+	EXPECT_FALSE(rc);
 
 	::memset(zpp, 'A', zero_bufp->Size());
 	cache.Write(&vmdk, zpp, offset);

@@ -37,14 +37,40 @@ folly::Future<int> RamCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		return -EINVAL;
 	}
 
+	failed.clear();
+	std::vector<RequestBlock*> missed;
 	for (auto blockp : process) {
 		auto destp   = NewRequestBuffer(vmdkp->BlockSize());
 		auto payload = destp->Payload();
-		blockp->PushRequestBuffer(std::move(destp));
 
-		cache_->Read(vmdkp, payload, blockp->GetAlignedOffset());
+		auto rc = cache_->Read(vmdkp, payload, blockp->GetAlignedOffset());
+		if (rc == false) {
+			missed.emplace_back(blockp);
+			continue;
+		}
+
+		blockp->PushRequestBuffer(std::move(destp));
 	}
-	return 0;
+
+	if (missed.empty()) {
+		return 0;
+	}
+
+	if (pio_unlikely(not nextp_)) {
+		failed.reserve(missed.size());
+		std::copy(missed.begin(), missed.end(), std::back_inserter(failed));
+		return -ENODEV;
+	}
+
+	return nextp_->Read(vmdkp, reqp, missed, failed)
+	.then([&, missed = std::move(missed)] (int rc) mutable {
+		if (pio_unlikely(not failed.empty() || rc < 0)) {
+			return rc;
+		}
+
+		/* TODO: Store data in RamCache */
+		return 0;
+	});
 }
 
 folly::Future<int> RamCacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
@@ -63,7 +89,11 @@ folly::Future<int> RamCacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset());
 	}
 
-	return 0;
+	if (pio_unlikely(not nextp_)) {
+		return 0;
+	}
+
+	return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
 }
 
 folly::Future<int> RamCacheHandler::ReadPopulate(ActiveVmdk *vmdkp,
@@ -82,6 +112,10 @@ folly::Future<int> RamCacheHandler::ReadPopulate(ActiveVmdk *vmdkp,
 		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset());
 	}
 
-	return 0;
+	if (pio_unlikely(not nextp_)) {
+		return 0;
+	}
+
+	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 }
