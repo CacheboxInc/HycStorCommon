@@ -23,6 +23,8 @@ const std::vector<std::string> VmdkConfig::kCompressAlgos = {
 
 const std::string VmdkConfig::kRamCache = "RamCache";
 const std::string VmdkConfig::kRamCacheMemoryInMB = "MemoryInMB";
+const std::string VmdkConfig::kFileCache = "FileCache";
+const std::string VmdkConfig::kFileCachePath = "Path";
 
 VmdkConfig::VmdkConfig(const std::string& config) : JsonConfig(config) {
 }
@@ -180,6 +182,48 @@ uint16_t VmdkConfig::GetRamCacheMemoryLimit() const {
 	StringDelimAppend(key, '.', {kRamCache, kRamCacheMemoryInMB});
 	auto rc = JsonConfig::GetKey(key, size_mb);
 	return rc ? size_mb : 0;
+}
+
+void VmdkConfig::DisableFileCache() {
+	std::string key;
+
+	StringDelimAppend(key, '.', {kFileCache, kEnabled});
+	JsonConfig::SetKey(key, false);
+}
+
+void VmdkConfig::ConfigureFileCache(const std::string& file_path) {
+	std::string key;
+
+	StringDelimAppend(key, '.', {kFileCache, kEnabled});
+	JsonConfig::SetKey(key, true);
+
+	StringDelimAppend(key, '.', {kFileCache, kFileCachePath});
+	JsonConfig::SetKey(key, file_path);
+}
+
+bool VmdkConfig::IsFileCacheEnabled() const {
+	std::string key;
+	StringDelimAppend(key, '.', {kFileCache, kEnabled});
+
+	bool enabled;
+	auto rc = JsonConfig::GetKey(key, enabled);
+
+	return rc and enabled;
+}
+
+std::string VmdkConfig::GetFileCachePath() const {
+	std::string key;
+
+	StringDelimAppend(key, '.', {kFileCache, kFileCachePath});
+	std::string fp;
+
+	auto rc = JsonConfig::GetKey(key, fp);
+
+	if (not rc) {
+		fp.clear();
+	}
+
+	return std::move(fp);
 }
 
 }}

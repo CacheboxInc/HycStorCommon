@@ -34,6 +34,11 @@ public:
 	bool IsRamCacheEnabled() const;
 	uint16_t GetRamCacheMemoryLimit() const;
 
+	void DisableFileCache();
+	void ConfigureFileCache(const std::string& file_path);
+	bool IsFileCacheEnabled() const;
+	std::string GetFileCachePath() const;
+
 public:
 	static const std::string kEnabled;
 	static const std::string kVmdkID;
@@ -50,6 +55,9 @@ public:
 
 	static const std::string kRamCache;
 	static const std::string kRamCacheMemoryInMB;
+
+	static const std::string kFileCache;
+	static const std::string kFileCachePath;
 };
 
 }

@@ -279,12 +279,18 @@ int RequestBlock::Complete() {
 	return ReadResultPrepare();
 }
 
-RequestBuffer::RequestBuffer(size_t size) : size_(size) {
-	InitBuffer();
+RequestBuffer::RequestBuffer(size_t size, bool is_mem_align) : size_(size) {
+	InitBuffer(is_mem_align);
 }
 
-void RequestBuffer::InitBuffer() {
-	void* buf = ::malloc(size_);
+void RequestBuffer::InitBuffer(bool is_mem_align) {
+	void *buf = nullptr;
+
+	if (is_mem_align == false) {
+ 		buf = ::malloc(size_);
+ 	} else {
+ 		::posix_memalign(&buf, size_, size_);
+ 	}
 	if (buf == nullptr) {
 		throw std::bad_alloc();
 	}
@@ -299,8 +305,9 @@ char* RequestBuffer::Payload() {
 	return data_.get();
 }
 
-std::unique_ptr<RequestBuffer> NewRequestBuffer(size_t size) {
-	return std::make_unique<RequestBuffer>(size);
+std::unique_ptr<RequestBuffer> NewRequestBuffer(size_t size, bool align_mem) {
+	return std::make_unique<RequestBuffer>(size, align_mem);
+
 }
 
 }

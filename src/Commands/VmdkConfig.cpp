@@ -66,6 +66,21 @@ static void ConfigureRamCache(VmdkConfig& config) {
 	config.ConfigureRamCache(mb);
 }
 
+static void ConfigureFileCache(VmdkConfig& config) {
+	std::string enable;
+	std::cout << "Is FileCache enabled [y/n]? ";
+	std::cin >> enable;
+	if (enable == "n") {
+		config.DisableFileCache();
+		return;
+	}
+
+	std::string fp;
+	std::cout << "Enter the file cache file path: ";
+	std::cin >> fp;
+	config.ConfigureFileCache(fp);
+}
+
 int main(int argc, char* argv[]) {
 	std::string vmid;
 	std::string vmdkid;
@@ -89,6 +104,7 @@ int main(int argc, char* argv[]) {
 	ConfigureCompression(config);
 	ConfigureEncrytption(config);
 	ConfigureRamCache(config);
+	ConfigureFileCache(config);
 
 	std::cout << "VMDK Configuration\n\n"
 		<< config.Serialize() << std::endl;

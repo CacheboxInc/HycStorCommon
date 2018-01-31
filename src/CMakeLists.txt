@@ -31,6 +31,7 @@ set(StorageLayerFiles
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/CleanHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/EncryptHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/CompressHandler.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/FileCacheHandler.cpp"
 )
 
 add_library(StorageLayer SHARED

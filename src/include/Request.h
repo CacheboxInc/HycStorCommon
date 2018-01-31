@@ -160,17 +160,18 @@ class RequestBuffer {
 public:
 	using Buffer = std::unique_ptr<char, void (*)(void*)> ;
 
-	RequestBuffer(size_t size);
+	RequestBuffer(size_t size, bool is_mem_align = false);
 
 	size_t Size() const;
 	char* Payload();
 private:
-	void InitBuffer();
+	void InitBuffer(bool is_mem_align);
 private:
 	size_t size_;
 	Buffer data_{nullptr, ::free};
 };
 
-std::unique_ptr<RequestBuffer> NewRequestBuffer(size_t size);
+std::unique_ptr<RequestBuffer> NewRequestBuffer(size_t size,
+	bool is_mem_align = false);
 
 }
