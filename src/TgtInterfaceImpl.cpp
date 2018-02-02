@@ -48,9 +48,9 @@ static int InitializeLibrary() {
 			g_thread_.pool_ = std::make_unique<ThreadPool>(cores);
 			g_thread_.pool_->CreateThreads();
 
-			VLOG(1) << "library initialized "
-				<< "Cores = " << cores
-				<< "Threads = " << g_thread_.pool_->Stats().nthreads_;
+			VLOG(1) << "library initialized"
+				<< " Cores = " << cores
+				<< " Threads = " << g_thread_.pool_->Stats().nthreads_;
 		});
 	} catch (const std::exception& e) {
 		g_thread_.pool_.release();

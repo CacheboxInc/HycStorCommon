@@ -173,10 +173,19 @@ static void Test_AddVmdk() {
 	RemoveVm(vm);
 }
 
+static void Test_RestServer() {
+	int rc = HycRestServerStart();
+	assert(rc == 0);
+	/* TODO: Invoke REST API from here */
+	HycRestServerStop();
+}
+
 int main(int argc, char* agrv[]) {
 	Test_MultiplInitialize();
 	Test_AddVmWithSameID();
 	Test_AddVmdkWithInvalidVmHandle();
 	Test_AddVmdk();
+
+	Test_RestServer();
 	return 0;
 }

@@ -43,6 +43,7 @@ target_link_libraries(StorageLayer
 	${LIBRARY_LIST}
 )
 
+add_subdirectory(RestServer)
 add_subdirectory(Common)
 add_subdirectory(Commands)
 add_subdirectory(tests)

@@ -54,10 +54,12 @@ include_directories(src/include)
 include_directories(src/)
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/install/include)
+include_directories(${PROJECT_SOURCE_DIR}/thirdparty/restbed/distribution/include/)
 
 link_directories(${PROJECT_SOURCE_DIR}/lib)
 link_directories("/usr/local/lib")
 link_directories(${PROJECT_SOURCE_DIR}/install/lib)
+link_directories(${PROJECT_SOURCE_DIR}/thirdparty/restbed/distribution/library/)
 
 set(CUSTOM_LIBRARY_PATH ${PROJECT_SOURCE_DIR}/lib)
 
