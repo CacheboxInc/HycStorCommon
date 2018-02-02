@@ -2,3 +2,6 @@
 	path = thirdparty/CRoaring
 	url = git@github.com:CacheboxInc/CRoaring.git
 	branch = add_stats
+[submodule "thirdparty/restbed"]
+	path = thirdparty/restbed
+	url = git@github.com:CacheboxInc/restbed.git
