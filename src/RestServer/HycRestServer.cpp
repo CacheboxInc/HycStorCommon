@@ -137,6 +137,7 @@ void HycRestServerStop() {
 	}
 	if (g_thread_.thread_) {
 		g_thread_.thread_->join();
+		g_thread_.thread_.release();
 	}
 	return;
 }
