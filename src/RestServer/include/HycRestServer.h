@@ -5,8 +5,8 @@
 extern "C"  {
 #endif
 
-int HycRestServerStart();
-void HycRestServerStop();
+int HycRestServerStart(void);
+void HycRestServerStop(void);
 
 #ifdef __cplusplus
 }

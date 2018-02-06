@@ -120,7 +120,7 @@ void HycRestServerStart_() {
 	service->start(settings);
 }
 
-int HycRestServerStart() {
+int HycRestServerStart(void) {
 	try {
 		std::call_once(g_thread_.initialized_, [=] () mutable {
 			g_thread_.thread_ = std::make_unique<std::thread>(HycRestServerStart_);
@@ -131,7 +131,7 @@ int HycRestServerStart() {
 	}
 }
 
-void HycRestServerStop() {
+void HycRestServerStop(void) {
 	if (service) {
 		service->stop();
 	}

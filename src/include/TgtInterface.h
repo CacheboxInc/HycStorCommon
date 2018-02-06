@@ -6,7 +6,7 @@
 extern "C"  {
 #endif
 
-int InitializeLibrary();
+int InitializeLibrary(void);
 
 VmHandle NewVm(const char* vmidp, const char* const configp);
 VmHandle GetVmHandle(const char* vmidp);

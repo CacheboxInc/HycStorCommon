@@ -39,7 +39,7 @@ struct {
 	std::unique_ptr<ThreadPool> pool_;
 } g_thread_;
 
-static int InitializeLibrary() {
+static int InitializeLibrary(void) {
 	auto cores = std::thread::hardware_concurrency();
 
 	try {
