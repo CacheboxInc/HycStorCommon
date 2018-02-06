@@ -103,11 +103,11 @@ void HycRestServerStart_() {
 
 	auto new_vm = std::make_shared<Resource>();
 	new_vm->set_path("/new_vm/{id: .*}");
-	new_vm->set_method_handler("GET", NewVmRest);
+	new_vm->set_method_handler("POST", NewVmRest);
 
 	auto new_vmdk = std::make_shared<Resource>();
 	new_vmdk->set_path("/vm/{vmid: .*}/new_vmdk/{vmdkid: .*}");
-	new_vmdk->set_method_handler("GET", NewVmdkRest);
+	new_vmdk->set_method_handler("POST", NewVmdkRest);
 
 	service = std::make_unique<Service>();
 	service->publish(hello);
