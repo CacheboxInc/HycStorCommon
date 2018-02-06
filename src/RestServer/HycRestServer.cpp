@@ -91,7 +91,6 @@ void NewVmdkRest(const std::shared_ptr<Session> session) {
 		<< " VmdkID " << vmdkid
 		<< " VmdkHandle " << vmdk_handle;
 	const auto res = std::to_string(vmdk_handle);
-	fprintf(stderr, "res: %lu\n", sizeof(res));
 	session->close(OK, res, {
 		{"Content-Length", std::to_string(res.length()) }
 	});
