@@ -50,7 +50,7 @@ void NewVmRest(const std::shared_ptr<Session> session) {
 	LOG(INFO) << "Added VmID " << vmid << " VmHandle " << vm_handle;
 	const auto res = std::to_string(vm_handle);
 	session->close(OK, res, {
-		{"Content-Length", std::to_string(sizeof(res)) }
+		{"Content-Length", std::to_string(res.length()) }
 	});
 }
 
@@ -91,8 +91,9 @@ void NewVmdkRest(const std::shared_ptr<Session> session) {
 		<< " VmdkID " << vmdkid
 		<< " VmdkHandle " << vmdk_handle;
 	const auto res = std::to_string(vmdk_handle);
+	fprintf(stderr, "res: %lu\n", sizeof(res));
 	session->close(OK, res, {
-		{"Content-Length", std::to_string(sizeof(res)) }
+		{"Content-Length", std::to_string(res.length()) }
 	});
 }
 
