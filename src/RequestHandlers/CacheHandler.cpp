@@ -11,6 +11,9 @@
 #include "DirtyHandler.h"
 #include "CleanHandler.h"
 #include "RamCacheHandler.h"
+#include "ErrorHandler.h"
+#include "SuccessHandler.h"
+#include "VmdkConfig.h"
 #include "Request.h"
 #include "Utils.h"
 
@@ -36,6 +39,16 @@ void CacheHandler::InitializeRequestHandlers(const config::VmdkConfig* configp) 
 	headp_->RegisterNextRequestHandler(std::move(encrypt));
 	headp_->RegisterNextRequestHandler(std::move(dirty));
 	headp_->RegisterNextRequestHandler(std::move(clean));
+
+	if (configp->ErrorHandlerEnabled()) {
+		auto error = std::make_unique<ErrorHandler>(configp);
+		headp_->RegisterNextRequestHandler(std::move(error));
+	}
+
+	if (configp->IsSuccessHandlerEnabled()) {
+		auto success = std::make_unique<SuccessHandler>(configp);
+		headp_->RegisterNextRequestHandler(std::move(success));
+	}
 }
 
 CacheHandler::~CacheHandler() {

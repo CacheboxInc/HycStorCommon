@@ -113,14 +113,17 @@ static void RemoveVm(VmHandle handle) {
 	RemoveVmHandleLocked(handle);
 }
 
-static VmHandle NewVm(const VmID& vmid, const std::string& config) {
+static VmHandle NewVm(VmID vmid, const std::string& config) {
 	std::lock_guard<std::mutex> lock(g_vms.mutex_);
+
+	VLOG(1) << __func__ << " " << vmid << " config " << config;
 
 	auto handle = ++g_vms.handle_;
 
 	try {
 		auto it = g_vms.ids_.find(vmid);
 		if (pio_unlikely(it != g_vms.ids_.end())) {
+			LOG(ERROR) << __func__ << "vmid " << vmid << " already present.";
 			return kInvalidVmHandle;
 		}
 
@@ -129,6 +132,8 @@ static VmHandle NewVm(const VmID& vmid, const std::string& config) {
 		g_vms.ids_.insert(std::make_pair(std::move(vmid), std::move(vmp)));
 		return handle;
 	} catch (const std::bad_alloc& e) {
+		LOG(ERROR) << __func__ <<  " vmid " << vmid
+			<< " failed because of std::bad_alloc exception";
 		RemoveVmHandleLocked(handle);
 		return kInvalidVmHandle;
 	}
@@ -150,7 +155,7 @@ static void RemoveVmdk(VmdkHandle handle) {
 	RemoveVmdkHandleLocked(handle);
 }
 
-static VmdkHandle NewActiveVmdk(VmHandle vm_handle, const VmdkID& vmdkid,
+static VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 		const std::string& config) {
 	{
 		/* VMDK already present */

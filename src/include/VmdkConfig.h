@@ -39,6 +39,20 @@ public:
 	bool IsFileCacheEnabled() const;
 	std::string GetFileCachePath() const;
 
+	enum class ErrorType {
+		kThrow,
+		kReturnError,
+	};
+	bool ErrorHandlerEnabled() const;
+	bool ErrorHandlerShouldThrow() const;
+	int ErrorHandlerReturnValue() const;
+	uint32_t ErrorHandlerFrequency() const;
+	void DisableErrorHandler();
+	void ConfigureErrorHandler(ErrorType type, uint32_t frequency, int error);
+
+	bool IsSuccessHandlerEnabled() const;
+	void EnableSuccessHandler();
+	void DisableSuccessHandler();
 public:
 	static const std::string kEnabled;
 	static const std::string kVmdkID;
@@ -58,7 +72,17 @@ public:
 
 	static const std::string kFileCache;
 	static const std::string kFileCachePath;
+
+	static const std::string kErrorHandler;
+	static const std::string kErrorType;
+	static const std::string kReturnValue;
+	static const std::string kFrequency;
+	static const std::map<ErrorType, std::string> kErrorToString;
+
+	static const std::string kSuccessHandler;
 };
 
+std::ostream& operator <<(std::ostream& os, const VmdkConfig::ErrorType& type);
+std::istream& operator >>(std::istream& in, VmdkConfig::ErrorType& type);
 }
 }

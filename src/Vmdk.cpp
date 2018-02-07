@@ -30,8 +30,7 @@ VmdkHandle Vmdk::GetHandle() const noexcept {
 }
 
 ActiveVmdk::ActiveVmdk(VirtualMachine *vmp, VmdkHandle handle, VmdkID id,
-		const std::string& config) : Vmdk(handle,
-		std::move(id)), vmp_(vmp),
+		const std::string& config) : Vmdk(handle, std::move(id)), vmp_(vmp),
 		config_(std::make_unique<config::VmdkConfig>(config)) {
 	uint32_t block_size;
 	if (not config_->GetBlockSize(block_size)) {
@@ -142,13 +141,18 @@ folly::Future<int> ActiveVmdk::Read(std::unique_ptr<Request> reqp) {
 	auto p = reqp.get();
 	return headp_->Read(this, p, process, failed)
 	.then([this, reqp = std::move(reqp), process = std::move(process),
-			failed = std::move(failed)] (int rc) mutable {
-		if (pio_unlikely(rc < 0)) {
-			return rc;
-		} else if (pio_unlikely(not failed.empty())) {
-			const auto blockp = failed.front();
-			log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
-			return blockp->GetResult();
+			failed = std::move(failed)] (folly::Try<int>& result) mutable {
+		if (result.hasException<std::exception>()) {
+			reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
+		} else {
+			auto rc = result.value();
+			if (pio_unlikely(rc < 0)) {
+				reqp->SetResult(rc, RequestStatus::kFailed);
+			} else if (pio_unlikely(not failed.empty())) {
+				const auto blockp = failed.front();
+				log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
+				reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
+			}
 		}
 
 		return RequestComplete(std::move(reqp));
@@ -182,13 +186,18 @@ folly::Future<int> ActiveVmdk::WriteCommon(std::unique_ptr<Request> reqp,
 	auto p = reqp.get();
 	return headp_->Write(this, p, ckpt_id, process, failed)
 	.then([this, reqp = std::move(reqp), process = std::move(process),
-			failed = std::move(failed)] (int rc) mutable {
-		if (pio_unlikely(rc < 0)) {
-			return rc;
-		} else if (pio_unlikely(not failed.empty())) {
-			const auto blockp = failed.front();
-			log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
-			return blockp->GetResult();
+			failed = std::move(failed)] (folly::Try<int>& result) mutable {
+		if (result.hasException<std::exception>()) {
+			reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
+		} else {
+			auto rc = result.value();
+			if (pio_unlikely(rc < 0)) {
+				reqp->SetResult(rc, RequestStatus::kFailed);
+			} else if (pio_unlikely(not failed.empty())) {
+				const auto blockp = failed.front();
+				log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
+				reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
+			}
 		}
 
 		return RequestComplete(std::move(reqp));

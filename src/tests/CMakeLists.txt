@@ -7,6 +7,9 @@ add_executable(StorageLayerTests
 	UnalignedHandlerTests.cpp
 	RoaringBitmapTest.cpp
 	FileCacheTests.cpp
+	ErrorHandlerTests.cpp
+	SuccessHandlerTests.cpp
+	TgtInterfaceTests.cpp
 )
 
 target_link_libraries(StorageLayerTests

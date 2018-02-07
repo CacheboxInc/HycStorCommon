@@ -1,8 +1,11 @@
 #include <algorithm>
 
+#include <glog/logging.h>
+
 #include "VmdkConfig.h"
 #include "JsonConfig.h"
 #include "Utils.h"
+#include "Common.h"
 
 namespace pio { namespace config {
 
@@ -25,6 +28,17 @@ const std::string VmdkConfig::kRamCache = "RamCache";
 const std::string VmdkConfig::kRamCacheMemoryInMB = "MemoryInMB";
 const std::string VmdkConfig::kFileCache = "FileCache";
 const std::string VmdkConfig::kFileCachePath = "Path";
+
+const std::string VmdkConfig::kErrorHandler = "ErrorHnalder";
+const std::string VmdkConfig::kErrorType = "Type";
+const std::string VmdkConfig::kReturnValue = "ReturnValue";
+const std::string VmdkConfig::kFrequency = "Frequency";
+const std::map<VmdkConfig::ErrorType, std::string> VmdkConfig::kErrorToString = {
+	{VmdkConfig::ErrorType::kThrow, "throw"},
+	{VmdkConfig::ErrorType::kReturnError, "error"}
+};
+
+const std::string VmdkConfig::kSuccessHandler = "SuccessHandler";
 
 VmdkConfig::VmdkConfig(const std::string& config) : JsonConfig(config) {
 }
@@ -224,6 +238,134 @@ std::string VmdkConfig::GetFileCachePath() const {
 	}
 
 	return std::move(fp);
+}
+
+std::ostream& operator <<(std::ostream& os, const VmdkConfig::ErrorType& type) {
+	auto it = VmdkConfig::kErrorToString.find(type);
+	if (it == VmdkConfig::kErrorToString.end()) {
+		os << "Undefined";
+	} else {
+		os << it->second;
+	}
+
+	return os;
+}
+
+std::istream& operator >>(std::istream& in, VmdkConfig::ErrorType& type) {
+	std::string k;
+	in >> k;
+
+	type = VmdkConfig::ErrorType::kReturnError;
+	for (auto& e : VmdkConfig::kErrorToString) {
+		if (e.second == k) {
+			type = e.first;
+			break;
+		}
+	}
+
+	return in;
+}
+
+void VmdkConfig::ConfigureErrorHandler(ErrorType type, uint32_t frequency,
+		int error) {
+	log_assert(type == ErrorType::kThrow or type == ErrorType::kReturnError);
+
+	std::string key;
+	StringDelimAppend(key, '.', {kErrorHandler, kEnabled});
+	JsonConfig::SetKey(key, true);
+
+	StringDelimAppend(key, '.', {kErrorHandler, kErrorType});
+	JsonConfig::SetKey(key, type);
+
+	StringDelimAppend(key, '.', {kErrorHandler, kFrequency});
+	JsonConfig::SetKey(key, frequency);
+
+	if (type == ErrorType::kReturnError) {
+		StringDelimAppend(key, '.', {kErrorHandler, kReturnValue});
+		JsonConfig::SetKey(key, error);
+	}
+}
+
+void VmdkConfig::DisableErrorHandler() {
+	std::string key;
+	StringDelimAppend(key, '.', {kErrorHandler, kEnabled});
+	JsonConfig::SetKey(key, false);
+}
+
+bool VmdkConfig::ErrorHandlerEnabled() const {
+	std::string key;
+	StringDelimAppend(key, '.', {kErrorHandler, kEnabled});
+
+	bool enabled{false};
+	auto rc = JsonConfig::GetKey(key, enabled);
+	return rc and enabled;
+}
+
+bool VmdkConfig::ErrorHandlerShouldThrow() const {
+	if (not ErrorHandlerEnabled()) {
+		return false;
+	}
+
+	std::string key;
+	StringDelimAppend(key, '.', {kErrorHandler, kErrorType});
+
+	ErrorType type;
+	auto rc = JsonConfig::GetKey(key, type);
+	return rc and type == ErrorType::kThrow;
+}
+
+int VmdkConfig::ErrorHandlerReturnValue() const {
+	if (not ErrorHandlerEnabled()) {
+		return false;
+	}
+
+	std::string key;
+	StringDelimAppend(key, '.', {kErrorHandler, kErrorType});
+
+	ErrorType type;
+	auto rc = JsonConfig::GetKey(key, type);
+	if (not (rc and type == ErrorType::kThrow)) {
+		return 0;
+	}
+
+	int rv;
+	StringDelimAppend(key, '.', {kErrorHandler, kReturnValue});
+	rc = JsonConfig::GetKey(key, rv);
+	return rc ? rv : 0;
+}
+
+uint32_t VmdkConfig::ErrorHandlerFrequency() const {
+	if (not ErrorHandlerEnabled()) {
+		return 0;
+	}
+
+	std::string key;
+	uint32_t frequency;
+	StringDelimAppend(key, '.', {kErrorHandler, kFrequency});
+	auto rc = JsonConfig::GetKey(key, frequency);
+	return rc ? frequency : 0;
+}
+
+void VmdkConfig::EnableSuccessHandler() {
+	std::string key;
+	StringDelimAppend(key, '.', {kSuccessHandler, kEnabled});
+	JsonConfig::SetKey(key, true);
+}
+
+void VmdkConfig::DisableSuccessHandler() {
+	std::string key;
+	StringDelimAppend(key, '.', {kSuccessHandler, kEnabled});
+	JsonConfig::SetKey(key, false);
+}
+
+
+bool VmdkConfig::IsSuccessHandlerEnabled() const {
+	std::string key;
+	StringDelimAppend(key, '.', {kSuccessHandler, kEnabled});
+
+	bool enabled{false};
+	auto rc = JsonConfig::GetKey(key, enabled);
+	return rc and enabled;
 }
 
 }}

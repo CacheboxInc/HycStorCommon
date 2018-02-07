@@ -44,6 +44,7 @@ public:
 	bool IsSuccess() const noexcept;
 	bool IsFailed() const noexcept;
 	int GetResult() const noexcept;
+	void SetResult(int return_value, RequestStatus status) noexcept;
 
 public:
 	template <typename Lambda>
@@ -105,6 +106,8 @@ public:
 	BlockID GetBlockID() const;
 	Offset GetOffset() const;
 	Offset GetAlignedOffset() const;
+
+	void SetResult(int return_value, RequestStatus status) noexcept;
 
 	int GetResult() const noexcept;
 	RequestStatus GetStatus() const noexcept;

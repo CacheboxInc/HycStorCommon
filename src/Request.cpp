@@ -32,6 +32,11 @@ int Request::GetResult() const noexcept {
 	return status_.return_value_;
 }
 
+void Request::SetResult(int return_value, RequestStatus status) noexcept {
+	status_.return_value_ = return_value;
+	status_.status_ = status;
+}
+
 const void* Request::GetPrivateData() const noexcept {
 	return privatep_;
 }
@@ -137,15 +142,14 @@ int Request::Complete() {
 		auto rc = blockp->Complete();
 		if (pio_unlikely(blockp->IsFailed())) {
 			log_assert(blockp->GetResult() != 0);
-			status_.status_ = blockp->GetStatus();
-			status_.return_value_ = blockp->GetResult();
-			return blockp->GetResult();
+			SetResult(blockp->GetResult(), blockp->GetStatus());
+			return GetResult();
 		}
 		log_assert(rc == 0);
 	}
 
 	log_assert(IsSuccess());
-	return 0;
+	return GetResult();
 }
 
 bool Request::IsAllReadMissed(const std::vector<RequestBlock *> blocks)
@@ -187,6 +191,11 @@ void RequestBlock::InitRequestBuffer() {
 
 void RequestBlock::PushRequestBuffer(std::unique_ptr<RequestBuffer> bufferp) {
 	request_buffers_.emplace_back(std::move(bufferp));
+}
+
+void RequestBlock::SetResult(int return_value, RequestStatus status) noexcept {
+	status_.return_value_ = return_value;
+	status_.status_ = status;
 }
 
 RequestStatus RequestBlock::GetStatus() const noexcept {
@@ -250,8 +259,7 @@ int RequestBlock::ReadResultPrepare() {
 
 	auto bufferp = GetRequestBufferAtBack();
 	if (pio_unlikely(not bufferp)) {
-		status_.status_ = RequestStatus::kFailed;
-		status_.return_value_ = -EIO;
+		SetResult(-EIO, RequestStatus::kFailed);
 		return -EIO;
 	}
 
