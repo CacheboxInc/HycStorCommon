@@ -322,9 +322,16 @@ int VmdkConfig::ErrorHandlerReturnValue() const {
 	std::string key;
 	StringDelimAppend(key, '.', {kErrorHandler, kErrorType});
 
-	ErrorType type;
+	std::string type;
 	auto rc = JsonConfig::GetKey(key, type);
-	if (not (rc and type == ErrorType::kThrow)) {
+	if (not rc) {
+		return 0;
+	}
+
+	ErrorType t;
+	std::istringstream iss(type);
+	iss >> t;
+	if (t == ErrorType::kThrow) {
 		return 0;
 	}
 
