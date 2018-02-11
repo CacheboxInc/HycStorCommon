@@ -107,7 +107,7 @@ int main(int argc, char* argv[]) {
 	ConfigureFileCache(config);
 
 	std::cout << "VMDK Configuration\n\n"
-		<< config.Serialize() << std::endl;
+		<< config.Serialize(true) << std::endl;
 
 	return 0;
 }
