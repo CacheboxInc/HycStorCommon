@@ -119,11 +119,11 @@ add_subdirectory(src)
 
 # Install the header files
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/include"
-  DESTINATION "${CMAKE_INSTALL_PREFIX}")
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/include/hyc")
 
 # Install the REST server header files
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/RestServer/include"
-  DESTINATION "${CMAKE_INSTALL_PREFIX}")
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/include/hyc")
 
 # Set compiler options
 # if (CMAKE_COMPILER_IS_GNUCXX)
