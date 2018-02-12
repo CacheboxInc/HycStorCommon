@@ -50,3 +50,6 @@ add_subdirectory(Common)
 add_subdirectory(Commands)
 add_subdirectory(tests)
 add_subdirectory(C-Client)
+
+# Install the storage library
+install(TARGETS StorageLayer DESTINATION "/usr/lib/hyc")
