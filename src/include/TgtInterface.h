@@ -1,9 +1,12 @@
 #ifndef __TGT_INTERFACE_H__
+#define __TGT_INTERFACE_H__
 
 #include "TgtTypes.h"
 
 #ifdef __cplusplus
 extern "C"  {
+#else
+#include <stdbool.h>
 #endif
 
 int InitializeLibrary(void);
