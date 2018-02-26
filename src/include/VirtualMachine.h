@@ -11,9 +11,15 @@
 #include "Common.h"
 
 namespace pio {
+
+/* forward declaration for Pimpl */
+namespace config {
+	class VmConfig;
+}
+
 class VirtualMachine {
 public:
-	VirtualMachine(VmdkHandle handle, VmID vm_id);
+	VirtualMachine(VmdkHandle handle, VmID vm_id, const std::string& config);
 	~VirtualMachine();
 
 	void AddVmdk(ActiveVmdk* vmdkp);
@@ -29,6 +35,7 @@ public:
 public:
 	const VmID& GetID() const noexcept;
 	VmdkHandle GetHandle() const noexcept;
+	const config::VmConfig* GetJsonConfig() const noexcept;
 
 private:
 	ActiveVmdk* FindVmdk(const VmdkID& vmdk_id) const;
@@ -38,6 +45,7 @@ private:
 	VmdkHandle handle_;
 	VmID vm_id_;
 	std::atomic<RequestID> request_id_{0};
+	std::unique_ptr<config::VmConfig> config_;
 
 	struct {
 		mutable std::mutex mutex_;

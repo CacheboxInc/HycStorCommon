@@ -1,15 +1,21 @@
+#include <sys/wait.h>
 #include <thread>
 #include <atomic>
 #include <memory>
-
 #include <restbed>
+#include <array>
 
+#include <iostream>
 #include <glog/logging.h>
 
 #include "HycRestServer.h"
 #include "TgtInterface.h"
+#include "VmConfig.h"
+#include "VmdkConfig.h"
 
 using namespace restbed;
+
+namespace pio {
 
 struct {
 	std::once_flag initialized_;
@@ -27,22 +33,67 @@ void HelloWorld(const std::shared_ptr<Session> session) {
 	});
 }
 
+std::string exec(const std::string& cmd, int& status)
+{
+	std::array<char, 128> buffer;
+	std::string result;
+
+	LOG(INFO) << "Executing cmd: " << cmd;
+
+	std::shared_ptr<FILE> filp(::popen(cmd.c_str(), "r"), [&] (FILE *filp) mutable {
+		int ret = pclose(filp);
+		status = WEXITSTATUS(ret);
+	});
+
+	if (!filp) {
+		throw std::runtime_error("::open failed");
+	}
+
+	while (!feof(filp.get())) {
+		if (fgets(buffer.data(), buffer.size(), filp.get()) != nullptr)
+			result += buffer.data();
+	}
+	return result;
+}
+
 void NewVmRest(const std::shared_ptr<Session> session) {
 	const auto& request = session->get_request();
 
 	VmHandle vm_handle = kInvalidVmHandle;
 
+	std::string req_data;
 	auto vmid = request->get_path_parameter("id");
 	auto len = request->get_header("Content-Length", 0);
-	session->fetch(len, [&] (const std::shared_ptr<Session> session, const Bytes& body) {
-		std::string s(body.begin(), body.end());
-		LOG(INFO) << "VM Configuration " << s;
-		vm_handle = ::NewVm(vmid.c_str(), s.c_str());
+	session->fetch(len, [&] (const std::shared_ptr<Session> session, const Bytes& body)  mutable {
+		req_data.assign(body.begin(), body.end());
+		LOG(INFO) << "VM Configuration " << req_data;
+		vm_handle = ::NewVm(vmid.c_str(), req_data.c_str());
 	});
 
 	if (vm_handle == kInvalidVmHandle) {
 		LOG(ERROR) << "Adding new VM failed."
 			<< " VmID = " << vmid;
+		session->close(400);
+		return;
+	}
+
+	pio::config::VmConfig config(req_data);
+
+	uint32_t id;
+	config.GetTargetId(id);
+	std::string name = config.GetTargetName();
+
+	std::ostringstream os;
+	os << "tgtadm --lld iscsi --mode target --op new"
+		<< " --tid=" << id
+		<< " --targetname " << name;
+
+	int failed = 0;
+	auto result = exec(os.str(), failed);
+
+	if (failed) {
+		LOG(ERROR) << os.str() << "\nFailed with, " << result;
+		RemoveVm(vm_handle);
 		session->close(400);
 		return;
 	}
@@ -71,10 +122,13 @@ void NewVmdkRest(const std::shared_ptr<Session> session) {
 
 	auto vmdkid = request->get_path_parameter("vmdkid");
 	auto len = request->get_header("Content-Length", 0);
+
+	std::string req_data;
+
 	session->fetch(len, [&] (const std::shared_ptr<Session> session, const Bytes& body) {
-		std::string s(body.begin(), body.end());
-		LOG(INFO) << "VMDK Configuration " << s;
-		vmdk_handle = ::NewActiveVmdk(vm_handle, vmdkid.c_str(), s.c_str());
+		req_data.assign(body.begin(), body.end());
+		LOG(INFO) << "VMDK Configuration " << req_data;
+		vmdk_handle = ::NewActiveVmdk(vm_handle, vmdkid.c_str(), req_data.c_str());
 	});
 
 	if (vmdk_handle == kInvalidVmdkHandle) {
@@ -82,6 +136,37 @@ void NewVmdkRest(const std::shared_ptr<Session> session) {
 			<< " VmID = " << vmid
 			<< " VmHandle = " << vm_handle
 			<< " VmdkID = " << vmdkid;
+		session->close(400);
+		return;
+	}
+
+	pio::config::VmdkConfig config(req_data);
+
+	uint32_t tid;
+	config.GetTargetId(tid);
+	uint32_t lid;
+	config.GetLunId(lid);
+
+	std::string dev_path = config.GetDevPath();
+
+	std::ostringstream os;
+
+	os << "tgtadm  --lld iscsi --mode logicalunit --op new"
+		<< " --tid=" << tid
+		<< " --lun=" << lid
+		<< " -b " << dev_path
+		<< " --bstype hyc"
+		<< " --bsopts "
+		<< "vmid=" << vmid
+		<< ":"
+		<< "vmdkid=" << vmdkid;
+
+	int failed = 0;
+	auto result = exec(os.str(), failed);
+
+	if (failed) {
+		LOG(ERROR) << os.str() << "\nFailed with, " << result;
+		RemoveVmdk(vmdk_handle);
 		session->close(400);
 		return;
 	}
@@ -119,11 +204,13 @@ void HycRestServerStart_() {
 	settings->set_default_header("Connection", "close");
 	service->start(settings);
 }
+} // pio namespace
 
 int HycRestServerStart(void) {
 	try {
-		std::call_once(g_thread_.initialized_, [=] () mutable {
-			g_thread_.thread_ = std::make_unique<std::thread>(HycRestServerStart_);
+		std::call_once(pio::g_thread_.initialized_, [=] () mutable {
+			pio::g_thread_.thread_ =
+				std::make_unique<std::thread>(pio::HycRestServerStart_);
 		});
 		return 0;
 	} catch (const std::exception& e) {
@@ -132,12 +219,12 @@ int HycRestServerStart(void) {
 }
 
 void HycRestServerStop(void) {
-	if (service) {
-		service->stop();
+	if (pio::service) {
+		pio::service->stop();
 	}
-	if (g_thread_.thread_) {
-		g_thread_.thread_->join();
-		g_thread_.thread_.reset();
+	if (pio::g_thread_.thread_) {
+		pio::g_thread_.thread_->join();
+		pio::g_thread_.thread_.reset();
 	}
 	return;
 }

@@ -5,11 +5,13 @@
 #include "TgtTypes.h"
 #include "VirtualMachine.h"
 #include "Vmdk.h"
+#include "VmConfig.h"
 
 namespace pio {
 
-VirtualMachine::VirtualMachine(VmHandle handle, VmID vm_id) : handle_(handle),
-		vm_id_(std::move(vm_id)) {
+VirtualMachine::VirtualMachine(VmHandle handle, VmID vm_id,
+		const std::string& config) : handle_(handle), vm_id_(std::move(vm_id)),
+		config_(std::make_unique<config::VmConfig>(config)) {
 }
 
 VirtualMachine::~VirtualMachine() = default;
@@ -20,6 +22,10 @@ const VmID& VirtualMachine::GetID() const noexcept {
 
 VmHandle VirtualMachine::GetHandle() const noexcept {
 	return handle_;
+}
+
+const config::VmConfig* VirtualMachine::GetJsonConfig() const noexcept {
+	return config_.get();
 }
 
 RequestID VirtualMachine::NextRequestID() {

@@ -127,7 +127,7 @@ static VmHandle NewVm(VmID vmid, const std::string& config) {
 			return kInvalidVmHandle;
 		}
 
-		auto vmp = std::make_unique<VirtualMachine>(handle, vmid);
+		auto vmp = std::make_unique<VirtualMachine>(handle, vmid, config);
 		g_vms.handles_.insert(std::make_pair(handle, vmp.get()));
 		g_vms.ids_.insert(std::make_pair(std::move(vmid), std::move(vmp)));
 		return handle;

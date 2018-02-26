@@ -53,6 +53,14 @@ public:
 	bool IsSuccessHandlerEnabled() const;
 	void EnableSuccessHandler();
 	void DisableSuccessHandler();
+
+	void SetTargetId(uint32_t target_id);
+	bool GetTargetId(uint32_t& target_id) const;
+	void SetLunId(uint32_t lun_id);
+	bool GetLunId(uint32_t& lun_id) const;
+	void SetDevPath(const std::string& dev_path);
+	std::string GetDevPath() const;
+
 public:
 	static const std::string kEnabled;
 	static const std::string kVmdkID;
@@ -80,6 +88,10 @@ public:
 	static const std::map<ErrorType, std::string> kErrorToString;
 
 	static const std::string kSuccessHandler;
+
+	static const std::string kTargetID;
+	static const std::string kLunID;
+	static const std::string kDevPath;
 };
 
 std::ostream& operator <<(std::ostream& os, const VmdkConfig::ErrorType& type);

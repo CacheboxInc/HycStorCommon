@@ -85,6 +85,9 @@ int main(int argc, char* argv[]) {
 	std::string vmid;
 	std::string vmdkid;
 	uint64_t block_size;
+	uint32_t tid;
+	uint32_t lid;
+	std::string path;
 
 	std::cout << "VMDK Configuration JSON Dump Utility" << std::endl;
 	std::cout << "Enter VmID: ";
@@ -95,11 +98,21 @@ int main(int argc, char* argv[]) {
 	std::cout << "Enter BlockSize: ";
 	std::cin >> block_size;
 
+	std::cout << "Enter TargetID: ";
+	std::cin >> tid;
+	std::cout << "Enter LunID: ";
+	std::cin >> lid;
+	std::cout << "Enter DevPath: ";
+	std::cin >> path;
+
 	VmdkConfig config;
 
 	config.SetVmId(vmid);
 	config.SetVmdkId(vmdkid);
 	config.SetBlockSize(block_size);
+	config.SetTargetId(tid);
+	config.SetLunId(lid);
+	config.SetDevPath(path);
 
 	ConfigureCompression(config);
 	ConfigureEncrytption(config);

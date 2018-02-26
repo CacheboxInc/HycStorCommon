@@ -14,7 +14,14 @@ public:
 	void SetVmId(const VmID& vmid);
 	bool GetVmId(VmID& vmid) const;
 
+	void SetTargetId(uint32_t target_id);
+	bool GetTargetId(uint32_t& target_id) const;
+	void SetTargetName(const std::string& target_name);
+	std::string GetTargetName() const;
+
 public:
 	static const std::string kVmID;
+	static const std::string kTargetID;
+	static const std::string kTargetName;
 };
 }}

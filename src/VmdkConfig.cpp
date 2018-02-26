@@ -40,6 +40,10 @@ const std::map<VmdkConfig::ErrorType, std::string> VmdkConfig::kErrorToString = 
 
 const std::string VmdkConfig::kSuccessHandler = "SuccessHandler";
 
+const std::string VmdkConfig::kTargetID = "TargetID";
+const std::string VmdkConfig::kLunID = "LunID";
+const std::string VmdkConfig::kDevPath = "DevPath";
+
 VmdkConfig::VmdkConfig(const std::string& config) : JsonConfig(config) {
 }
 
@@ -365,7 +369,6 @@ void VmdkConfig::DisableSuccessHandler() {
 	JsonConfig::SetKey(key, false);
 }
 
-
 bool VmdkConfig::IsSuccessHandlerEnabled() const {
 	std::string key;
 	StringDelimAppend(key, '.', {kSuccessHandler, kEnabled});
@@ -375,4 +378,32 @@ bool VmdkConfig::IsSuccessHandlerEnabled() const {
 	return rc and enabled;
 }
 
+void VmdkConfig::SetTargetId(uint32_t target_id) {
+	JsonConfig::SetKey(kTargetID, target_id);
+}
+
+bool VmdkConfig::GetTargetId(uint32_t& target_id) const {
+	return JsonConfig::GetKey(kTargetID, target_id);
+}
+
+void VmdkConfig::SetLunId(uint32_t lun_id) {
+	JsonConfig::SetKey(kLunID, lun_id);
+}
+
+bool VmdkConfig::GetLunId(uint32_t& lun_id) const {
+	return JsonConfig::GetKey(kLunID, lun_id);
+}
+
+void VmdkConfig::SetDevPath(const std::string& dev_path) {
+	return JsonConfig::SetKey(kDevPath, dev_path);
+}
+
+std::string VmdkConfig::GetDevPath() const {
+	std::string dev_path;
+	auto rc = JsonConfig::GetKey(kDevPath, dev_path);
+	if (not rc) {
+		dev_path.clear();
+	}
+	return dev_path;
+}
 }}
