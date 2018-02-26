@@ -63,10 +63,10 @@ Thread::~Thread() {
 }
 
 void Thread::Loop() {
-	folly::EventBase base;
-
 	FiberManager manager(std::make_unique<EventBaseLoopController>());
 	SetFiberManager(&manager);
+
+	folly::EventBase base;
 	SetEventBase(&base);
 
 	dynamic_cast<EventBaseLoopController&>(manager.loopController())
