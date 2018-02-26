@@ -6,7 +6,7 @@
 cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
 
 # Project(<name> VERSION <version> LANGUAGES CXX)
-project(GaneshaDB-POC C CXX ASM)
+project(HYC-STORAGE-LIB C CXX ASM)
 
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake" "${CMAKE_MODULE_PATH}")
 
