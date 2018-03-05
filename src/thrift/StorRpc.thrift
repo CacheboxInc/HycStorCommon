@@ -22,8 +22,13 @@ struct AbortResult {
 
 service StorRpc {
 	string Ping();
-	VmHandle GetVmHandle(1: string vmid);
-	VmdkHandle GetVmdkHandle(1: VmHandle vm, 2: string vmdk);
+
+	VmHandle OpenVm(1: string vmid);
+	void CloseVm(1: VmHandle vm);
+
+	VmdkHandle OpenVmdk(1: string vmid, 2: string vmdkid);
+	i32 CloseVmdk(1: VmdkHandle vmdk);
+
 	ReadResult Read(1: VmdkHandle vmdk, 2: RequestId reqid, 3: i32 size,
 		4: i64 offset);
 	WriteResult Write(1: VmdkHandle vmdk, 2: RequestId reqid, 3: binary data,

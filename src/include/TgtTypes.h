@@ -10,6 +10,14 @@ extern "C"  {
 #define kInvalidRequestID  0
 #define kInvalidRpcHandle  0
 
+#ifndef hyc_likely
+#define hyc_likely(x) (__builtin_expect(!!(x), 1))
+#endif
+
+#ifndef hyc_unlikely
+#define hyc_unlikely(x) (__builtin_expect(!!(x), 0))
+#endif
+
 typedef int64_t RequestID;
 typedef int64_t VmHandle;
 typedef int64_t VmdkHandle;

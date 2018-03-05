@@ -16,7 +16,7 @@ add_custom_command(
 	OUTPUT ${ThriftRpcFiles}
 	COMMAND cp "${CMAKE_CURRENT_SOURCE_DIR}/${ThriftFile}" .
 	COMMAND ${THRIFT} --gen mstch_cpp2 -o .
-		--templates "/home/prasad/workspace/cb/fbthrift/thrift/compiler/generate/templates"
+		--templates "${THRIFT_TEMPLATE}"
 		${ThriftFile}
 	DEPENDS ${ThriftFile}
 )
