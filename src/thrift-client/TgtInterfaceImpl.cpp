@@ -14,7 +14,7 @@
 #include "Utils.h"
 #include "TgtTypes.h"
 #include "gen-cpp2/StorRpc.h"
-
+#include "TgtInterface.h"
 
 namespace hyc {
 using namespace apache::thrift;
@@ -71,9 +71,9 @@ class RpcConnection {
 public:
 	RpcConnection(RpcConnectHandle handle);
 	~RpcConnection();
-	void Connect();
-	int OpenVmdk(std::string vmid, std::string vmdkid, int eventfd);
-	int CloseVmdk();
+	int32_t Connect();
+	int32_t OpenVmdk(std::string vmid, std::string vmdkid, int eventfd);
+	int32_t CloseVmdk();
 	uint32_t GetCompleteRequests(RequestResult* resultsp,
 		uint32_t nresults, bool *has_morep);
 	RequestID ScheduleRead(const void* privatep, char* bufferp, int32_t buf_sz,
@@ -89,6 +89,7 @@ private:
 	Request* NewRequest(Request::Type type, const void* privatep,
 		char* bufferp, size_t buf_sz, size_t xfer_sz, int64_t offset);
 	void RequestComplete(Request* reqp);
+	int32_t Disconnect();
 
 private:
 	RpcConnectHandle rpc_handle_{kInvalidRpcHandle};
@@ -113,7 +114,8 @@ private:
 };
 
 std::ostream& operator << (std::ostream& os, const RpcConnection& rpc) {
-	os << "VmID " << rpc.vmid_
+	os << "RPC handle " << rpc.rpc_handle_
+		<< " VmID " << rpc.vmid_
 		<< " VmdkID " << rpc.vmdkid_
 		<< " VmdkHandle " << rpc.vmdk_handle_
 		<< " eventfd " << rpc.eventfd_
@@ -127,6 +129,81 @@ RpcConnection::RpcConnection(RpcConnectHandle handle) : rpc_handle_(handle) {
 
 RpcConnection::~RpcConnection() {
 	assert(PendingOperations() == 0);
+	Disconnect();
+}
+
+int32_t RpcConnection::Connect() {
+	std::mutex m;
+	std::condition_variable cv;
+	bool started = false;
+	int32_t result = 0;
+
+	runner_ = std::make_unique<std::thread>(
+			[this, &m, &cv, &started, &result] () mutable {
+		try {
+			auto base = std::make_unique<folly::EventBase>();
+			auto client = std::make_unique<StorRpcAsyncClient>(
+				HeaderClientChannel::newChannel(
+					async::TAsyncSocket::newSocket(base.get(),
+						{kServerIp, kServerPort})));
+
+			{
+				/* ping stord */
+				std::string pong;
+				client->sync_Ping(pong);
+			}
+
+			auto chan =
+				dynamic_cast<HeaderClientChannel*>(client->getHeaderChannel());
+
+			this->base_ = std::move(base);
+			this->client_ = std::move(client);
+
+			{
+				/* notify main thread of success */
+				::sleep(1);
+				result = 0;
+				started = true;
+				std::unique_lock<std::mutex> lk(m);
+				cv.notify_all();
+			}
+
+			VLOG(1) << *this <<  " EventBase looping forever";
+			this->base_->loopForever();
+			VLOG(1) << *this << " EventBase loop stopped";
+
+			chan->closeNow();
+			base = std::move(this->base_);
+			client = std::move(this->client_);
+		} catch (const std::exception& e) {
+			/* notify main thread of failure */
+			LOG(ERROR) << "Failed to connect with stord";
+			started = true;
+			result = -1;
+			std::unique_lock<std::mutex> lk(m);
+			cv.notify_all();
+		}
+	});
+
+	std::unique_lock<std::mutex> lk(m);
+	cv.wait(lk, [&started] { return started; });
+
+	if (result < 0) {
+		return result;
+	}
+
+	/* ensure that EventBase loop is started */
+	this->base_->waitUntilRunning();
+	VLOG(1) << *this << " Connection Result " << result;
+	return 0;
+}
+
+int32_t RpcConnection::Disconnect() {
+	VLOG(1) << "Disconnecting " << *this;
+	if (PendingOperations() != 0) {
+		return -EBUSY;
+	}
+
 	if (base_) {
 		base_->terminateLoopSoon();
 	}
@@ -134,25 +211,7 @@ RpcConnection::~RpcConnection() {
 	if (runner_) {
 		runner_->join();
 	}
-	runner_ = nullptr;
-	base_ = nullptr;
-}
-
-void RpcConnection::Connect() {
-	runner_ = std::make_unique<std::thread>([this] () mutable {
-		this->base_ = std::make_unique<folly::EventBase>();
-
-		this->client_ = std::make_unique<StorRpcAsyncClient>(
-			HeaderClientChannel::newChannel(
-				async::TAsyncSocket::newSocket(this->base_.get(),
-					{kServerIp, kServerPort})));
-
-		auto chan = dynamic_cast<HeaderClientChannel*>(client_->getHeaderChannel());
-
-		this->base_->loopForever();
-
-		chan->closeNow();
-	});
+	return 0;
 }
 
 int RpcConnection::OpenVmdk(std::string vmid, std::string vmdkid, int eventfd) {
@@ -338,7 +397,10 @@ struct {
 RpcConnectHandle RpcServerConnect() {
 	auto handle = ++g_connections_.handle_;
 	auto rpc = std::make_unique<RpcConnection>(handle);
-	rpc->Connect();
+	auto rc = rpc->Connect();
+	if (rc < 0) {
+		return kInvalidRpcHandle;
+	}
 
 	std::lock_guard<std::mutex> lock(g_connections_.mutex_);
 	g_connections_.map_.emplace(handle, std::move(rpc));
@@ -355,7 +417,20 @@ RpcConnection* FindRpcConnection(RpcConnectHandle handle) {
 	return it->second.get();
 }
 
-int RpcOpenVmdk(RpcConnectHandle handle, const char* vmid, const char* vmdkid,
+int32_t RpcServerDisconnect(RpcConnectHandle handle) {
+	auto rpc = FindRpcConnection(handle);
+	if (hyc_unlikely(rpc == nullptr)) {
+		return -ENODEV;
+	}
+
+	std::lock_guard<std::mutex> lock(g_connections_.mutex_);
+	auto it = g_connections_.map_.find(handle);
+	assert(hyc_unlikely(it != g_connections_.map_.end()));
+	g_connections_.map_.erase(it);
+	return 0;
+}
+
+int32_t RpcOpenVmdk(RpcConnectHandle handle, const char* vmid, const char* vmdkid,
 		int eventfd) {
 	auto rpc = FindRpcConnection(handle);
 	if (hyc_unlikely(rpc == nullptr)) {
@@ -365,7 +440,7 @@ int RpcOpenVmdk(RpcConnectHandle handle, const char* vmid, const char* vmdkid,
 	return rpc->OpenVmdk(vmid, vmdkid, eventfd);
 }
 
-int RpcCloseVmdk(RpcConnectHandle handle) {
+int32_t RpcCloseVmdk(RpcConnectHandle handle) {
 	auto rpc = FindRpcConnection(handle);
 	if (hyc_unlikely(rpc == nullptr)) {
 		return -ENODEV;
@@ -376,11 +451,7 @@ int RpcCloseVmdk(RpcConnectHandle handle) {
 		return rc;
 	}
 
-	std::lock_guard<std::mutex> lock(g_connections_.mutex_);
-	auto it = g_connections_.map_.find(handle);
-	assert(hyc_unlikely(it != g_connections_.map_.end()));
-	g_connections_.map_.erase(it);
-	return 0;
+	return RpcServerDisconnect(handle);
 }
 
 RequestID RpcScheduleRead(RpcConnectHandle handle, const void* privatep,
@@ -434,9 +505,17 @@ RpcConnectHandle HycStorRpcServerConnect() {
 	}
 }
 
-int HycOpenVmdk(RpcConnectHandle handle, const char* vmid, const char* vmdkid,
+int32_t HycStorRpcServerDisconnect(RpcConnectHandle handle) {
+	try {
+		return hyc::RpcServerDisconnect(handle);
+	} catch (std::exception& e) {
+		return -1;
+	}
+}
+
+int32_t HycOpenVmdk(RpcConnectHandle handle, const char* vmid, const char* vmdkid,
 		int eventfd) {
-	assert(vmid != nullptr and vmdkid != nullptr and eventfd >= 0);
+	assert(vmid != nullptr and vmdkid != nullptr);
 	try {
 		return hyc::RpcOpenVmdk(handle, vmid, vmdkid, eventfd);
 	} catch (std::exception& e) {
@@ -444,7 +523,7 @@ int HycOpenVmdk(RpcConnectHandle handle, const char* vmid, const char* vmdkid,
 	}
 }
 
-int HycCloseVmdk(RpcConnectHandle handle) {
+int32_t HycCloseVmdk(RpcConnectHandle handle) {
 	try {
 		return hyc::RpcCloseVmdk(handle);
 	} catch (std::exception& e) {

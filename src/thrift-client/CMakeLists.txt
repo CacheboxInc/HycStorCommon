@@ -7,3 +7,5 @@ set(HycClientLibFiles
 add_library(HycClientLib
 	${HycClientLibFiles}
 )
+
+add_subdirectory(tests)

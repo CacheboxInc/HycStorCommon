@@ -1,3 +1,17 @@
+set(ThriftLibs
+	thrift-core
+	protocol
+	concurrency
+	transport
+	async
+	security
+	server
+	thriftfrozen2
+	thriftprotocol
+	thriftcpp2
+	wangle
+)
+
 set(LIBRARY_LIST
 	gflags
 	glog
@@ -6,6 +20,7 @@ set(LIBRARY_LIST
 	boost_system
 	boost_context
 	boost_thread
+	${ThriftLibs}
 )
 
 add_subdirectory(tests)
