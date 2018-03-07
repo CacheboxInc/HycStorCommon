@@ -67,16 +67,7 @@ set(CUSTOM_LIBRARY_PATH ${PROJECT_SOURCE_DIR}/lib)
 
 set (CXX_STANDARD "c++17")
 set(THRIFT "/usr/local/bin/thrift1")
-
-message(STATUS "FBTHRIFT PATH $ENV{FBTHRFIT_SOURCE_DIR}")
-if (NOT DEFINED ENV{FBTHRFIT_SOURCE_DIR})
-  message(FATAL_ERROR "You must set FBTHRFIT_SOURCE_DIR environment variable")
-endif()
-set(THRIFT_TEMPLATE "$ENV{FBTHRFIT_SOURCE_DIR}/thrift/compiler/generate/templates")
-if(NOT EXISTS ${THRIFT_TEMPLATE})
-  message(STATUS "THRIFT_TEMPLATE is set to ${THRIFT_TEMPLATE}. Directory does not exists")
-  message(FATAL_ERROR "You must set FBTHRFIT_SOURCE_DIR environment variable")
-endif()
+set(THRIFT_TEMPLATE "/usr/local/include/thrift/templates")
 
 # separate out the C++ options which are not used in C
 # add boost logger macro
