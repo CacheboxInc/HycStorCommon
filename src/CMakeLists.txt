@@ -23,7 +23,6 @@ set(LIBRARY_LIST
 	${ThriftLibs}
 )
 
-add_subdirectory(tests)
 add_subdirectory(thrift)
 add_subdirectory(CommonLib)
 add_subdirectory(thrift-client)

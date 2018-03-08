@@ -16,6 +16,4 @@ void MoveLastElements(std::vector<T>& dst, std::vector<T>& src, size_t tomove) {
 	src.erase(sit, eit);
 }
 
-void StringDelimAppend(std::string& result, const char delim,
-	const std::initializer_list<std::string>& input);
 }
