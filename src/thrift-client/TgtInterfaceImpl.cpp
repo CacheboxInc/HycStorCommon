@@ -10,6 +10,9 @@
 #include <sys/eventfd.h>
 #include <thrift/lib/cpp/async/TAsyncSocket.h>
 #include <thrift/lib/cpp2/async/HeaderClientChannel.h>
+#include <folly/io/async/AsyncTimeout.h>
+#include <folly/io/async/EventBase.h>
+#include <folly/io/async/EventHandler.h>
 
 #include "Utils.h"
 #include "TgtTypes.h"
@@ -20,9 +23,44 @@ namespace hyc {
 using namespace apache::thrift;
 using namespace apache::thrift::async;
 using namespace hyc_thrift;
+using namespace folly;
 
 static constexpr int32_t kServerPort = 9876;
 static const std::string kServerIp = "127.0.0.1";
+
+class ReschedulingTimeout : public AsyncTimeout {
+public:
+	ReschedulingTimeout(EventBase* basep, uint32_t milli) :
+			AsyncTimeout(basep), basep_(basep), milli_(milli) {
+	}
+
+	~ReschedulingTimeout() {
+		Cancel();
+	}
+
+	void timeoutExpired() noexcept override {
+		if (func_()) {
+			ScheduleTimeout(func_);
+		}
+	}
+
+	void ScheduleTimeout(std::function<bool (void)> func) {
+		func_ = func;
+		scheduleTimeout(milli_);
+	}
+
+	void Cancel() {
+		if (not isScheduled()) {
+			return;
+		}
+		this->cancelTimeout();
+	}
+
+private:
+	EventBase* basep_{nullptr};
+	uint32_t milli_{0};
+	std::function<bool (void)> func_;
+};
 
 struct Request {
 	enum class Type {
@@ -69,8 +107,9 @@ std::ostream& operator << (std::ostream& os, const Request& request) {
 
 class RpcConnection {
 public:
-	RpcConnection(RpcConnectHandle handle);
+	RpcConnection(RpcConnectHandle handle, uint32_t ping_secs = 30);
 	~RpcConnection();
+	void SetPingTimeout();
 	int32_t Connect();
 	int32_t OpenVmdk(std::string vmid, std::string vmdkid, int eventfd);
 	int32_t CloseVmdk();
@@ -108,6 +147,11 @@ private:
 
 	std::atomic<RequestID> requestid_{0};
 
+	struct {
+		std::unique_ptr<ReschedulingTimeout> timeout_;
+		uint32_t timeout_secs_;
+	} ping_;
+
 	std::unique_ptr<StorRpcAsyncClient> client_;
 	std::unique_ptr<folly::EventBase> base_;
 	std::unique_ptr<std::thread> runner_;
@@ -124,12 +168,31 @@ std::ostream& operator << (std::ostream& os, const RpcConnection& rpc) {
 	return os;
 }
 
-RpcConnection::RpcConnection(RpcConnectHandle handle) : rpc_handle_(handle) {
+RpcConnection::RpcConnection(RpcConnectHandle handle, uint32_t ping_secs) :
+		rpc_handle_(handle) {
+	ping_.timeout_secs_ = ping_secs;
 }
 
 RpcConnection::~RpcConnection() {
 	assert(PendingOperations() == 0);
 	Disconnect();
+}
+
+void RpcConnection::SetPingTimeout() {
+	assert(base_ != nullptr);
+	std::chrono::seconds s(ping_.timeout_secs_);
+	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(s).count();
+	ping_.timeout_ = std::make_unique<ReschedulingTimeout>(base_.get(), ms);
+	ping_.timeout_->ScheduleTimeout([this] () mutable {
+		client_->future_Ping()
+		.then([] (const std::string& result) mutable {
+			/* ignore */
+		})
+		.onError([] (const std::exception& e) mutable {
+			/* TODO: handle error */
+		});
+		return true;
+	});
 }
 
 int32_t RpcConnection::Connect() {
@@ -158,6 +221,7 @@ int32_t RpcConnection::Connect() {
 
 			this->base_ = std::move(base);
 			this->client_ = std::move(client);
+			SetPingTimeout();
 
 			{
 				/* notify main thread of success */
@@ -394,9 +458,9 @@ struct {
 	std::atomic<RpcConnectHandle> handle_{0};
 } g_connections_;
 
-RpcConnectHandle RpcServerConnect() {
+RpcConnectHandle RpcServerConnect(uint32_t ping_secs = 30) {
 	auto handle = ++g_connections_.handle_;
-	auto rpc = std::make_unique<RpcConnection>(handle);
+	auto rpc = std::make_unique<RpcConnection>(handle, ping_secs);
 	auto rc = rpc->Connect();
 	if (rc < 0) {
 		return kInvalidRpcHandle;
@@ -500,6 +564,14 @@ RequestID RpcScheduleWriteSame(RpcConnectHandle handle, const void* privatep,
 RpcConnectHandle HycStorRpcServerConnect() {
 	try  {
 		return hyc::RpcServerConnect();
+	} catch (std::exception& e) {
+		return kInvalidRpcHandle;
+	}
+}
+
+RpcConnectHandle HycStorRpcServerConnectTest(uint32_t ping_secs) {
+	try {
+		return hyc::RpcServerConnect(ping_secs);
 	} catch (std::exception& e) {
 		return kInvalidRpcHandle;
 	}
