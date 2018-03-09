@@ -13,3 +13,6 @@ add_library(CommonLib SHARED
 )
 
 add_subdirectory(tests)
+
+# Install the storage library
+install(TARGETS CommonLib DESTINATION "/usr/lib/hyc")
