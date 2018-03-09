@@ -68,7 +68,7 @@ folly::Future<CheckPointID> VirtualMachine::TakeCheckPoint() {
 	CheckPointID c = ++checkpoint_.checkpoint_id_;
 
 	std::vector<folly::Future<int>> futures;
-	std::lock_guard lock(vmdk_.mutex_);
+	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
 	for (const auto& vmdkp : vmdk_.list_) {
 		auto fut = vmdkp->TakeCheckPoint(c - 1);
 		futures.emplace_back(std::move(fut));
