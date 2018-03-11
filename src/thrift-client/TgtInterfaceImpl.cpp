@@ -18,6 +18,7 @@
 #include "TgtTypes.h"
 #include "gen-cpp2/StorRpc.h"
 #include "TgtInterface.h"
+#include "TimePoint.h"
 
 namespace hyc {
 using namespace apache::thrift;
@@ -77,6 +78,8 @@ struct Request {
 	int32_t xfer_sz;
 	int64_t offset;
 	int32_t result;
+
+	TimePoint timer;
 };
 
 std::ostream& operator << (std::ostream& os, const Request::Type type) {
@@ -105,6 +108,20 @@ std::ostream& operator << (std::ostream& os, const Request& request) {
 	return os;
 }
 
+struct ClientStats {
+	std::atomic<int64_t> read_requests_{0};
+	std::atomic<int64_t> read_failed_{0};
+	std::atomic<int64_t> read_bytes_{0};
+	std::atomic<int64_t> read_latency_{0};
+
+	std::atomic<int64_t> write_requests_{0};
+	std::atomic<int64_t> write_failed_{0};
+	std::atomic<int64_t> write_same_requests_{0};
+	std::atomic<int64_t> write_same_failed_{0};
+	std::atomic<int64_t> write_bytes_{0};
+	std::atomic<int64_t> write_latency_{0};
+};
+
 class RpcConnection {
 public:
 	RpcConnection(RpcConnectHandle handle, uint32_t ping_secs = 30);
@@ -129,6 +146,7 @@ private:
 		char* bufferp, size_t buf_sz, size_t xfer_sz, int64_t offset);
 	void RequestComplete(Request* reqp);
 	int32_t Disconnect();
+	void UpdateStats(Request* reqp);
 
 private:
 	RpcConnectHandle rpc_handle_{kInvalidRpcHandle};
@@ -144,6 +162,8 @@ private:
 		std::unordered_map<RequestID, std::unique_ptr<Request>> scheduled_;
 		std::vector<std::unique_ptr<Request>> complete_;
 	} requests_;
+
+	ClientStats stats_;
 
 	std::atomic<RequestID> requestid_{0};
 
@@ -183,14 +203,51 @@ void RpcConnection::SetPingTimeout() {
 	std::chrono::seconds s(ping_.timeout_secs_);
 	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(s).count();
 	ping_.timeout_ = std::make_unique<ReschedulingTimeout>(base_.get(), ms);
-	ping_.timeout_->ScheduleTimeout([this] () mutable {
-		client_->future_Ping()
-		.then([] (const std::string& result) mutable {
-			/* ignore */
-		})
-		.onError([] (const std::exception& e) mutable {
-			/* TODO: handle error */
+	ping_.timeout_->ScheduleTimeout([this] () {
+		VmdkStats stats;
+		stats.set_read_requests(this->stats_.read_requests_);
+		stats.set_read_failed(this->stats_.read_failed_);
+		stats.set_read_bytes(this->stats_.read_bytes_);
+		stats.set_read_latency(this->stats_.read_latency_);
+		stats.set_write_requests(this->stats_.write_requests_);
+		stats.set_write_failed(this->stats_.write_failed_);
+		stats.set_write_same_requests(this->stats_.write_same_requests_);
+		stats.set_write_same_failed(this->stats_.write_same_failed_);
+		stats.set_write_bytes(this->stats_.write_bytes_);
+		stats.set_write_latency(this->stats_.write_latency_);
+
+		std::vector<folly::Future<int>> futs;
+		futs.reserve(2);
+
+		futs.emplace_back(
+			client_->future_Ping()
+			.then([] (const std::string& result) {
+				return 0;
+			})
+			.onError([] (const std::exception& e) {
+				return -ENODEV;
+			})
+		);
+
+		futs.emplace_back(
+			client_->future_PushVmdkStats(this->vmdk_handle_, stats)
+			.then([] () {
+				return 0;
+			})
+			.onError([] (const std::exception& e) {
+				return -ENODEV;
+			})
+		);
+
+		folly::collectAll(std::move(futs))
+		.then([] (std::vector<folly::Try<int>>& results) {
+			for (const auto& r : results) {
+				if (hyc_unlikely(r.value() < 0)) {
+					/* TODO: handle error */
+				}
+			}
 		});
+
 		return true;
 	});
 }
@@ -211,7 +268,12 @@ int32_t RpcConnection::Connect() {
 						{kServerIp, kServerPort})));
 
 			{
-				/* ping stord */
+				/*
+				 * ping stord
+				 * - ping sends a response string back to client.
+				 * If the server is not connected or connection is refused, this
+				 * throws AsyncSocketException .
+				 */
 				std::string pong;
 				client->sync_Ping(pong);
 			}
@@ -239,8 +301,15 @@ int32_t RpcConnection::Connect() {
 			chan->closeNow();
 			base = std::move(this->base_);
 			client = std::move(this->client_);
-		} catch (const std::exception& e) {
+		} catch (const folly::AsyncSocketException& e) {
 			/* notify main thread of failure */
+			LOG(ERROR) << "Failed to connect with stord "
+				<< e.getType() << "," << e.getErrno() << " ";
+			started = true;
+			result = -1;
+			std::unique_lock<std::mutex> lk(m);
+			cv.notify_all();
+		} catch (const apache::thrift::transport::TTransportException& e) {
 			LOG(ERROR) << "Failed to connect with stord";
 			started = true;
 			result = -1;
@@ -328,7 +397,42 @@ Request* RpcConnection::NewRequest(Request::Type type, const void* privatep,
 	return reqp;
 }
 
+void RpcConnection::UpdateStats(Request* reqp) {
+	--requests_.pending_;
+	auto latency = reqp->timer.GetMicroSec();
+	switch (reqp->type) {
+	case Request::Type::kRead:
+		++stats_.read_requests_;
+		if (hyc_unlikely(reqp->result)) {
+			++stats_.read_failed_;
+		} else {
+			stats_.read_latency_ += latency;
+			stats_.read_bytes_ += reqp->xfer_sz;
+		}
+		break;
+	case Request::Type::kWrite:
+		++stats_.write_requests_;
+		if (hyc_unlikely(reqp->result)) {
+			++stats_.write_failed_;
+		} else {
+			stats_.write_latency_ += latency;
+			stats_.write_bytes_ += reqp->xfer_sz;
+		}
+		break;
+	case Request::Type::kWriteSame:
+		++stats_.write_same_requests_;
+		if (hyc_unlikely(reqp->result)) {
+			++stats_.write_same_failed_;
+		} else {
+			stats_.write_latency_ += latency;
+			stats_.write_bytes_ += reqp->xfer_sz;
+		}
+		break;
+	}
+}
+
 void RpcConnection::RequestComplete(Request* reqp) {
+	UpdateStats(reqp);
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
 	auto it = requests_.scheduled_.find(reqp->id);
 	assert(hyc_unlikely(it == requests_.scheduled_.end()));
@@ -381,6 +485,7 @@ RequestID RpcConnection::ScheduleRead(const void* privatep, char* bufferp,
 	}
 
 	base_->runInEventBaseThread([this, reqp, buf_sz, offset] () mutable {
+		++this->requests_.pending_;
 		client_->future_Read(vmdk_handle_, reqp->id, buf_sz, offset)
 		.then([this, reqp] (const ReadResult& result) mutable {
 			reqp->result = result.get_result();
@@ -407,6 +512,7 @@ RequestID RpcConnection::ScheduleWrite(const void* privatep, char* bufferp,
 	}
 
 	base_->runInEventBaseThread([this, reqp, bufferp, buf_sz, offset] () mutable {
+		++this->requests_.pending_;
 		std::string data(bufferp, buf_sz);
 		assert(hyc_likely(data.size() == (uint32_t)buf_sz));
 		client_->future_Write(vmdk_handle_, reqp->id, data, buf_sz, offset)
@@ -432,6 +538,7 @@ RequestID RpcConnection::ScheduleWriteSame(const void* privatep, char* bufferp,
 
 	base_->runInEventBaseThread([this, reqp, bufferp, buf_sz, write_sz, offset]
 			() mutable {
+		++this->requests_.pending_;
 		std::string data(bufferp, buf_sz);
 		assert(hyc_likely(data.size() == (uint32_t)buf_sz));
 		client_->future_WriteSame(vmdk_handle_, reqp->id, data, buf_sz,

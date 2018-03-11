@@ -2,6 +2,7 @@ include_directories(include)
 
 set(HycStorCommonFiles
 	SpinLock.cpp
+	TimePoint.cpp
 )
 
 add_library(HycStorCommon

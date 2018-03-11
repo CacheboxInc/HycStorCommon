@@ -29,6 +29,11 @@ public:
 		++nping_;
 	}
 
+	void async_tm_PushVmdkStats(std::unique_ptr<HandlerCallbackBase> cb,
+			VmdkHandle vmdk, std::unique_ptr<VmdkStats> stats) override {
+		++nstats_;
+	}
+
 	void async_tm_OpenVm(std::unique_ptr<HandlerCallback<VmHandle>> cb,
 			std::unique_ptr<std::string> vmid) override {
 		cb->result(++vm_handle_);
@@ -98,6 +103,7 @@ public:
 	std::atomic<uint32_t> nread_{0};
 	std::atomic<uint32_t> nwrite_{0};
 	std::atomic<uint32_t> nwrite_same_{0};
+	std::atomic<uint32_t> nstats_{0};
 private:
 	std::atomic<VmHandle> vm_handle_{0};
 	std::atomic<VmdkHandle> vmdk_handle_{0};
@@ -157,6 +163,7 @@ TEST(TgtInterfaceImplTest, Ping) {
 	auto rpc = HycStorRpcServerConnectTest(1);
 	::sleep(kSleep);
 	EXPECT_GT(si->nping_, kSleep);
+	EXPECT_GE(si->nstats_, kSleep);
 
 	auto rc = HycStorRpcServerDisconnect(rpc);
 	EXPECT_EQ(rc, 0);
