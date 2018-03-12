@@ -6,6 +6,7 @@ add_executable(CommonTests
 	SpinLockTests.cpp
 	QLockTests.cpp
 	SingletonTests.cpp
+	RendezTests.cpp
 )
 
 target_link_libraries(CommonTests

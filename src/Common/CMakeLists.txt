@@ -6,6 +6,7 @@ set(CommonLibFiles
 	Utils.cpp
 	SpinLock.cpp
 	QLock.cpp
+	Rendez.cpp
 )
 
 add_library(CommonLib SHARED
