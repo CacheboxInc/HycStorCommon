@@ -23,7 +23,6 @@ public:
 	void async_tm_Ping(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<std::string>>> cb)
 			override {
-		VLOG(1) << "Received ping from client";
 		std::string pong("pong");
 		cb->result(std::move(pong));
 		++nping_;
@@ -63,7 +62,7 @@ public:
 			std::unique_ptr<HandlerCallback<std::unique_ptr<ReadResult>>> cb,
 			VmdkHandle vmdk, RequestId reqid, int32_t size, int64_t offset)
 			override {
-		std::string data('A', size);
+		std::string data(size, 'A');
 		auto read = std::make_unique<ReadResult>();
 		read->set_data(std::move(data));
 		read->set_reqid(reqid);
@@ -167,4 +166,67 @@ TEST(TgtInterfaceImplTest, Ping) {
 
 	auto rc = HycStorRpcServerDisconnect(rpc);
 	EXPECT_EQ(rc, 0);
+}
+
+TEST(TgtInterfaceImplTest, Read) {
+	const int32_t kReadsPerThread = 4096;
+	const int32_t kThreads = 10;
+	std::string buf(4096, 'A');
+
+	auto server = StartServer();
+
+	auto rpc = HycStorRpcServerConnect();
+	EXPECT_NE(rpc, kInvalidRpcHandle);
+
+	auto rc = HycOpenVmdk(rpc, "vmid", "vmdkid", -1);
+	EXPECT_EQ(rc, 0);
+
+	std::mutex mutex;
+	std::set<RequestID> scheduled;
+
+	auto Schedule = [&] () {
+		std::set<RequestID> ids;
+		for (auto i = 0; i < kReadsPerThread; i++) {
+			auto id = HycScheduleRead(rpc, nullptr, buf.data(), buf.size(), 0);
+			EXPECT_NE(id, kInvalidRequestID);
+			ids.insert(id);
+		}
+		EXPECT_EQ(ids.size(), kReadsPerThread);
+
+		std::lock_guard<std::mutex> lock(mutex);
+		auto s1 = scheduled.size();
+		scheduled.insert(ids.begin(), ids.end());
+		EXPECT_EQ(s1 + ids.size(), scheduled.size());
+	};
+
+	{
+		std::vector<std::thread> threads;
+		for (auto t = 0; t < kThreads; ++t) {
+			threads.emplace_back(std::thread(Schedule));
+		}
+
+		for (auto& thread: threads) {
+			thread.join();
+		}
+	}
+
+	EXPECT_EQ(scheduled.size(), kReadsPerThread * kThreads);
+
+	while (not scheduled.empty()) {
+		RequestResult completions;
+		bool more;
+
+		auto c = HycGetCompleteRequests(rpc, &completions, 1, &more);
+		if (c == 1) {
+			auto it = scheduled.find(completions.request_id);
+			EXPECT_NE(it, scheduled.end());
+			scheduled.erase(it);
+			EXPECT_EQ(completions.result, 0);
+		} else {
+			EXPECT_FALSE(more);
+		}
+	}
+
+	HycCloseVmdk(rpc);
+	HycStorRpcServerDisconnect(rpc);
 }

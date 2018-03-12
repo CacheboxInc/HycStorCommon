@@ -347,14 +347,21 @@ int32_t RpcConnection::Disconnect() {
 	return 0;
 }
 
-int RpcConnection::OpenVmdk(std::string vmid, std::string vmdkid, int eventfd) {
-	auto vmdk_handle_ = client_->sync_OpenVmdk(vmid, vmdkid);
-	if (vmdk_handle_ == kInvalidVmHandle) {
+int32_t RpcConnection::OpenVmdk(std::string vmid, std::string vmdkid,
+		int eventfd) {
+	if (vmdk_handle_ != kInvalidVmdkHandle) {
+		/* already open */
+		return -EBUSY;
+	}
+
+	auto vmdk_handle = client_->future_OpenVmdk(vmid, vmdkid).get();
+	if (vmdk_handle == kInvalidVmHandle) {
 		return -ENODEV;
 	}
-	this->vmid_ = std::move(vmid);
-	this->vmdkid_ = std::move(vmdkid);
-	this->eventfd_ = eventfd;
+	vmid_ = std::move(vmid);
+	vmdkid_ = std::move(vmdkid);
+	eventfd_ = eventfd;
+	vmdk_handle_ = vmdk_handle;
 	return 0;
 }
 
@@ -363,8 +370,7 @@ int RpcConnection::CloseVmdk() {
 		return -EBUSY;
 	}
 
-	/* TODO: stop accepting new IOs */
-	auto rc = client_->sync_CloseVmdk(vmdk_handle_);
+	auto rc = client_->future_CloseVmdk(vmdk_handle_).get();
 	if (rc < 0) {
 		return rc;
 	}
@@ -435,7 +441,7 @@ void RpcConnection::RequestComplete(Request* reqp) {
 	UpdateStats(reqp);
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
 	auto it = requests_.scheduled_.find(reqp->id);
-	assert(hyc_unlikely(it == requests_.scheduled_.end()));
+	assert(hyc_unlikely(it != requests_.scheduled_.end()));
 
 	auto request = std::move(it->second);
 	requests_.scheduled_.erase(it);
@@ -478,79 +484,75 @@ uint32_t RpcConnection::GetCompleteRequests(RequestResult* resultsp,
 
 RequestID RpcConnection::ScheduleRead(const void* privatep, char* bufferp,
 		int32_t buf_sz, int64_t offset) {
+	assert(vmdk_handle_ != kInvalidVmdkHandle);
 	auto reqp = NewRequest(Request::Type::kRead, privatep, bufferp, buf_sz,
 		buf_sz, offset);
 	if (hyc_unlikely(not reqp)) {
 		return kInvalidRequestID;
 	}
 
-	base_->runInEventBaseThread([this, reqp, buf_sz, offset] () mutable {
-		++this->requests_.pending_;
-		client_->future_Read(vmdk_handle_, reqp->id, buf_sz, offset)
-		.then([this, reqp] (const ReadResult& result) mutable {
-			reqp->result = result.get_result();
-			if (hyc_likely(reqp->result == 0)) {
-				assert((uint32_t)reqp->buf_sz == result.get_data().size());
-				::memcpy(reqp->bufferp, result.get_data().data(), reqp->buf_sz);
-			}
-			RequestComplete(reqp);
-		})
-		.onError([this, reqp] (const std::exception& e) mutable {
-			reqp->result = -EIO;
-			RequestComplete(reqp);
-		});
+	++this->requests_.pending_;
+	client_->future_Read(vmdk_handle_, reqp->id, buf_sz, offset)
+	.then([this, reqp] (const ReadResult& result) mutable {
+		reqp->result = result.get_result();
+		if (hyc_likely(reqp->result == 0)) {
+			assert((uint32_t)reqp->buf_sz == result.get_data().size());
+			::memcpy(reqp->bufferp, result.get_data().data(), reqp->buf_sz);
+		}
+		RequestComplete(reqp);
+	})
+	.onError([this, reqp] (const std::exception& e) mutable {
+		reqp->result = -EIO;
+		RequestComplete(reqp);
 	});
 	return reqp->id;
 }
 
 RequestID RpcConnection::ScheduleWrite(const void* privatep, char* bufferp,
 		int32_t buf_sz, int64_t offset) {
+	assert(vmdk_handle_ != kInvalidVmdkHandle);
 	auto reqp = NewRequest(Request::Type::kWrite, privatep, bufferp, buf_sz,
 		buf_sz, offset);
 	if (hyc_unlikely(not reqp)) {
 		return kInvalidRequestID;
 	}
 
-	base_->runInEventBaseThread([this, reqp, bufferp, buf_sz, offset] () mutable {
-		++this->requests_.pending_;
-		std::string data(bufferp, buf_sz);
-		assert(hyc_likely(data.size() == (uint32_t)buf_sz));
-		client_->future_Write(vmdk_handle_, reqp->id, data, buf_sz, offset)
-		.then([this, reqp] (const WriteResult& result) mutable {
-			reqp->result = result.get_result();
-			RequestComplete(reqp);
-		})
-		.onError([this, reqp] (const std::exception& e) mutable {
-			reqp->result = -EIO;
-			RequestComplete(reqp);
-		});
+	++this->requests_.pending_;
+	std::string data(bufferp, buf_sz);
+	assert(hyc_likely(data.size() == (uint32_t)buf_sz));
+	client_->future_Write(vmdk_handle_, reqp->id, data, buf_sz, offset)
+	.then([this, reqp] (const WriteResult& result) mutable {
+		reqp->result = result.get_result();
+		RequestComplete(reqp);
+	})
+	.onError([this, reqp] (const std::exception& e) mutable {
+		reqp->result = -EIO;
+		RequestComplete(reqp);
 	});
 	return reqp->id;
 }
 
 RequestID RpcConnection::ScheduleWriteSame(const void* privatep, char* bufferp,
 		int32_t buf_sz, int32_t write_sz, int64_t offset) {
+	assert(vmdk_handle_ != kInvalidVmdkHandle);
 	auto reqp = NewRequest(Request::Type::kWrite, privatep, bufferp, buf_sz,
 		write_sz, offset);
 	if (hyc_unlikely(not reqp)) {
 		return kInvalidRequestID;
 	}
 
-	base_->runInEventBaseThread([this, reqp, bufferp, buf_sz, write_sz, offset]
-			() mutable {
-		++this->requests_.pending_;
-		std::string data(bufferp, buf_sz);
-		assert(hyc_likely(data.size() == (uint32_t)buf_sz));
-		client_->future_WriteSame(vmdk_handle_, reqp->id, data, buf_sz,
-			write_sz, offset)
-		.then([this, reqp] (const WriteResult& result) mutable {
-			reqp->result = result.get_result();
-			RequestComplete(reqp);
-		})
-		.onError([this, reqp] (const std::exception& e) mutable {
-			reqp->result = -EIO;
-			RequestComplete(reqp);
-		});
+	++this->requests_.pending_;
+	std::string data(bufferp, buf_sz);
+	assert(hyc_likely(data.size() == (uint32_t)buf_sz));
+	client_->future_WriteSame(vmdk_handle_, reqp->id, data, buf_sz,
+		write_sz, offset)
+	.then([this, reqp] (const WriteResult& result) mutable {
+		reqp->result = result.get_result();
+		RequestComplete(reqp);
+	})
+	.onError([this, reqp] (const std::exception& e) mutable {
+		reqp->result = -EIO;
+		RequestComplete(reqp);
 	});
 	return reqp->id;
 }
