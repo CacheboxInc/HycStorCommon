@@ -9,7 +9,7 @@ set(CommonLibFiles
 	Rendez.cpp
 )
 
-add_library(CommonLib SHARED
+add_library(CommonLib STATIC
 	${CommonLibFiles}
 )
 

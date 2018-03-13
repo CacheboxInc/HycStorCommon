@@ -13,6 +13,7 @@ add_executable(StorageLayerTests
 )
 
 target_link_libraries(StorageLayerTests
+	CommonLib
 	StorageLayer
 	gtest
 	${LIBRARY_LIST}

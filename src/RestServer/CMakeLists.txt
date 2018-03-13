@@ -4,7 +4,7 @@ set(RestServerFiles
 	HycRestServer.cpp
 )
 
-add_library(RestServer SHARED
+add_library(RestServer STATIC
 	${RestServerFiles}
 )
 

@@ -7,6 +7,12 @@ set(LIBRARY_LIST
 	pthread
 	roaring
 	boost_system
+	boost_context
+	boost_thread
+	dl
+	event
+	double-conversion
+	iberty
 )
 
 set(StorageLayerFiles
@@ -36,7 +42,7 @@ set(StorageLayerFiles
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/SuccessHandler.cpp"
 )
 
-add_library(StorageLayer SHARED
+add_library(StorageLayer STATIC
 	${StorageLayerFiles}
 )
 

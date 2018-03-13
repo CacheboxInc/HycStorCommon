@@ -8,7 +8,10 @@ add_executable(TestClient
 )
 
 target_link_libraries(TestClient
+	-Wl,--start-group
+	CommonLib
 	StorageLayer
 	RestServer
 	${LIBRARY_LIST}
+	-Wl,--end-group
 )
