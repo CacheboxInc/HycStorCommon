@@ -12,6 +12,14 @@ set(ThriftLibs
 	wangle
 )
 
+set(COMPRESSION_LIBS
+	lzma
+	z
+	lz4
+	snappy
+	bz2
+)
+
 set(LIBRARY_LIST
 	gflags
 	glog
@@ -20,6 +28,10 @@ set(LIBRARY_LIST
 	boost_system
 	boost_context
 	boost_thread
+	dl
+	event
+	double-conversion
+	iberty
 	${ThriftLibs}
 )
 

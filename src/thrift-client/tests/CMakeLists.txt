@@ -18,6 +18,7 @@ target_link_libraries(TgtInterfaceImplTest
 	HycStorCommon
 	StorRpcLib
 	HycClientLib
+	${COMPRESSION_LIBS}
 	${LIBRARY_LIST}
 	-Wl,--end-group
 )
