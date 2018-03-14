@@ -26,3 +26,5 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 add_library(StorRpcLib
 	${ThriftRpcFiles}
 )
+
+install(TARGETS StorRpcLib DESTINATION "/usr/lib/hyc")

@@ -9,3 +9,5 @@ add_library(HycClientLib
 )
 
 add_subdirectory(tests)
+
+install(TARGETS HycClientLib DESTINATION "/usr/lib/hyc")
