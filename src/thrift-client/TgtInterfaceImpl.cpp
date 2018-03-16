@@ -13,7 +13,7 @@
 #include <folly/io/async/AsyncTimeout.h>
 #include <folly/io/async/EventBase.h>
 #include <folly/io/async/EventHandler.h>
-#include <gtest/gtest.h>
+
 #include <glog/logging.h>
 #include <gflags/gflags.h>
 #include <folly/init/Init.h>
@@ -676,7 +676,7 @@ RequestID RpcScheduleWriteSame(RpcConnectHandle handle, const void* privatep,
 } // namespace hyc
 
 void HycStorInitialize(int argc, char *argv[]) {
-	::testing::InitGoogleTest(&argc, argv);
+	FLAGS_v = 2;
 	folly::init(&argc, &argv);
 }
 
