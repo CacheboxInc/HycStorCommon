@@ -10,3 +10,5 @@ add_library(HycStorCommon
 )
 
 add_subdirectory(tests)
+
+install(TARGETS HycStorCommon DESTINATION "/usr/lib/hyc")

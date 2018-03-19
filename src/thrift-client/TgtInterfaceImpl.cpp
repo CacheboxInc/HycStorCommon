@@ -14,6 +14,10 @@
 #include <folly/io/async/EventBase.h>
 #include <folly/io/async/EventHandler.h>
 
+#include <glog/logging.h>
+#include <gflags/gflags.h>
+#include <folly/init/Init.h>
+
 #include "Utils.h"
 #include "TgtTypes.h"
 #include "gen-cpp2/StorRpc.h"
@@ -617,6 +621,7 @@ struct {
 } g_connections_;
 
 RpcConnectHandle RpcServerConnect(uint32_t ping_secs = 30) {
+
 	auto handle = ++g_connections_.handle_;
 	auto rpc = std::make_unique<RpcConnection>(handle, ping_secs);
 	auto rc = rpc->Connect();
@@ -718,6 +723,11 @@ RequestID RpcScheduleWriteSame(RpcConnectHandle handle, const void* privatep,
 }
 
 } // namespace hyc
+
+void HycStorInitialize(int argc, char *argv[]) {
+	FLAGS_v = 2;
+	folly::init(&argc, &argv);
+}
 
 RpcConnectHandle HycStorRpcServerConnect() {
 	try  {
