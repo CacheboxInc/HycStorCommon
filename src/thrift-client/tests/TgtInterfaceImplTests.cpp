@@ -126,7 +126,7 @@ TEST(TgtInterfaceImplTest, NoServerConnectFails) {
 TEST(TgtInterfaceImplTest, ConnectDisconnect) {
 	auto server = StartServer();
 	std::vector<std::thread> threads;
-	for (auto i = 0; i < 5; ++i) {
+	for (auto i = 0; i < 10; ++i) {
 		threads.emplace_back(std::thread([] () mutable {
 			for (auto i = 0; i < 10; ++i) {
 				VLOG(1) << "Connecting " << std::endl;
@@ -229,4 +229,28 @@ TEST(TgtInterfaceImplTest, Read) {
 
 	HycCloseVmdk(rpc);
 	HycStorRpcServerDisconnect(rpc);
+}
+
+TEST(TgtInterfaceImplTest, PingFailure) {
+	class StorRpcError : public virtual StorRpcSvIf {
+	public:
+		void async_tm_Ping(
+				std::unique_ptr<HandlerCallback<std::unique_ptr<std::string>>> cb)
+				override {
+			ServiceException e;
+			e.message = "No memory";
+			e.error_number = ENOMEM;
+			cb->exception(e);
+		}
+	};
+
+	auto si = std::make_shared<StorRpcError>();
+	auto ts = std::make_shared<ThriftServer>();
+	ts->setInterface(si);
+	ts->setAddress(kServerIp, kServerPort);
+	ts->setNumIOWorkerThreads(1);
+	auto server = std::make_shared<ScopedServerInterfaceThread>(ts);
+
+	auto rpc = HycStorRpcServerConnect();
+	(void) rpc;
 }

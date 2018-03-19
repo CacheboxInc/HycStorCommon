@@ -20,6 +20,11 @@ struct AbortResult {
 	2: required i32 result;
 }
 
+exception ServiceException {
+	1: string message;
+	2: i32 error_number;
+}
+
 struct VmdkStats {
 	1: i64 read_requests;
 	2: i64 read_failed;
@@ -34,7 +39,7 @@ struct VmdkStats {
 }
 
 service StorRpc {
-	string Ping();
+	string Ping() throws (1: ServiceException e);
 
 	VmHandle OpenVm(1: string vmid);
 	void CloseVm(1: VmHandle vm);

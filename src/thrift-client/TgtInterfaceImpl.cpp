@@ -122,6 +122,7 @@ struct ClientStats {
 	std::atomic<int64_t> write_latency_{0};
 };
 
+class PostRequestCompletionCallback;
 class RpcConnection {
 public:
 	RpcConnection(RpcConnectHandle handle, uint32_t ping_secs = 30);
@@ -140,6 +141,7 @@ public:
 		int32_t buf_sz, int32_t write_sz, int64_t offset);
 
 	friend std::ostream& operator << (std::ostream& os, const RpcConnection& rpc);
+	friend class PostRequestCompletionCallback;
 private:
 	uint64_t PendingOperations() const;
 	Request* NewRequest(Request::Type type, const void* privatep,
@@ -147,6 +149,7 @@ private:
 	void RequestComplete(Request* reqp);
 	int32_t Disconnect();
 	void UpdateStats(Request* reqp);
+	void PostRequestCompletion() const;
 
 private:
 	RpcConnectHandle rpc_handle_{kInvalidRpcHandle};
@@ -158,7 +161,7 @@ private:
 	struct {
 		std::atomic<uint64_t> pending_{0};
 
-		std::mutex mutex_;
+		mutable std::mutex mutex_;
 		std::unordered_map<RequestID, std::unique_ptr<Request>> scheduled_;
 		std::vector<std::unique_ptr<Request>> complete_;
 	} requests_;
@@ -172,9 +175,38 @@ private:
 		uint32_t timeout_secs_;
 	} ping_;
 
+	std::unique_ptr<PostRequestCompletionCallback> post_complete_cb_;
 	std::unique_ptr<StorRpcAsyncClient> client_;
 	std::unique_ptr<folly::EventBase> base_;
 	std::unique_ptr<std::thread> runner_;
+};
+
+class PostRequestCompletionCallback : public EventBase::LoopCallback {
+public:
+	explicit PostRequestCompletionCallback(RpcConnection* rpcp,
+			folly::EventBase* basep) : rpcp_(rpcp), basep_(basep) {
+	}
+
+	void runLoopCallback() noexcept override {
+		if (hyc_likely(not stop_)) {
+			rpcp_->PostRequestCompletion();
+		}
+	}
+
+	~PostRequestCompletionCallback() {
+		Stop();
+	}
+
+	void Stop() {
+		stop_ = true;
+		if (isLoopCallbackScheduled()) {
+			cancelLoopCallback();
+		}
+	}
+private:
+	RpcConnection* rpcp_;
+	folly::EventBase* basep_;
+	std::atomic<bool> stop_{false};
 };
 
 std::ostream& operator << (std::ostream& os, const RpcConnection& rpc) {
@@ -299,6 +331,7 @@ int32_t RpcConnection::Connect() {
 			VLOG(1) << *this << " EventBase loop stopped";
 
 			chan->closeNow();
+			this->post_complete_cb_->Stop();
 			base = std::move(this->base_);
 			client = std::move(this->client_);
 		} catch (const folly::AsyncSocketException& e) {
@@ -311,6 +344,12 @@ int32_t RpcConnection::Connect() {
 			cv.notify_all();
 		} catch (const apache::thrift::transport::TTransportException& e) {
 			LOG(ERROR) << "Failed to connect with stord";
+			started = true;
+			result = -1;
+			std::unique_lock<std::mutex> lk(m);
+			cv.notify_all();
+		} catch (const std::exception& e) {
+			LOG(ERROR) << "Received exception " << e.what();
 			started = true;
 			result = -1;
 			std::unique_lock<std::mutex> lk(m);
@@ -328,6 +367,10 @@ int32_t RpcConnection::Connect() {
 	/* ensure that EventBase loop is started */
 	this->base_->waitUntilRunning();
 	VLOG(1) << *this << " Connection Result " << result;
+	post_complete_cb_ = std::make_unique<PostRequestCompletionCallback>(this, base_.get());
+	base_->runInEventBaseThread([this] () {
+		base_->runBeforeLoop(post_complete_cb_.get());
+	});
 	return 0;
 }
 
@@ -446,15 +489,21 @@ void RpcConnection::RequestComplete(Request* reqp) {
 	auto request = std::move(it->second);
 	requests_.scheduled_.erase(it);
 	requests_.complete_.emplace_back(std::move(request));
+}
 
-	if (hyc_likely(eventfd_ >= 0)) {
-		auto rc = ::eventfd_write(eventfd_, 1);
+void RpcConnection::PostRequestCompletion() const {
+	std::lock_guard<std::mutex> lock(requests_.mutex_);
+	if (not requests_.complete_.empty() and hyc_likely(eventfd_ >= 0)) {
+		auto rc = ::eventfd_write(eventfd_, requests_.complete_.size());
 		if (hyc_unlikely(rc < 0)) {
-			LOG(ERROR) << "eventfd_write write failed RPC " << *this
-				<< " Request " << *reqp;
+			LOG(ERROR) << "eventfd_write write failed RPC " << *this;
 		}
 		(void) rc;
 	}
+
+	base_->runInEventBaseThread([this] () {
+		base_->runBeforeLoop(post_complete_cb_.get());
+	});
 }
 
 uint32_t RpcConnection::GetCompleteRequests(RequestResult* resultsp,
