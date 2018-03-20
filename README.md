@@ -9,6 +9,8 @@ Complete setup steps :
 		#apt-get install gcc-7 g++-7
 		#sudo update-alternatives --install /usr/bin/gcc gcc \
 			/usr/bin/gcc-7 60 --slave /usr/bin/g++ g++ /usr/bin/g++-7
+		#sudo update-alternatives --install /usr/bin/gcc gcc \
+			/usr/bin/gcc-7 60 --slave /usr/bin/g++ g++ /usr/bin/g++-7
 
 1. Clone the repository.
 	#git clone --recursive git@github.com:CacheboxInc/hyc-storage-layer.git
