@@ -168,6 +168,10 @@ private:
 		mutable std::mutex mutex_;
 		std::unordered_map<RequestID, std::unique_ptr<Request>> scheduled_;
 		std::vector<std::unique_ptr<Request>> complete_;
+		struct {
+			std::unique_ptr<PostRequestCompletionCallback> cb_;
+			mutable std::atomic<bool> registered_{false};
+		} complete_cb_;
 	} requests_;
 
 	ClientStats stats_;
@@ -179,7 +183,7 @@ private:
 		uint32_t timeout_secs_;
 	} ping_;
 
-	std::unique_ptr<PostRequestCompletionCallback> post_complete_cb_;
+
 	std::unique_ptr<StorRpcAsyncClient> client_;
 	std::unique_ptr<folly::EventBase> base_;
 	std::unique_ptr<std::thread> runner_;
@@ -335,7 +339,7 @@ int32_t RpcConnection::Connect() {
 			VLOG(1) << *this << " EventBase loop stopped";
 
 			chan->closeNow();
-			this->post_complete_cb_->Stop();
+			this->requests_.complete_cb_.cb_->Stop();
 			base = std::move(this->base_);
 			client = std::move(this->client_);
 		} catch (const folly::AsyncSocketException& e) {
@@ -371,10 +375,8 @@ int32_t RpcConnection::Connect() {
 	/* ensure that EventBase loop is started */
 	this->base_->waitUntilRunning();
 	VLOG(1) << *this << " Connection Result " << result;
-	post_complete_cb_ = std::make_unique<PostRequestCompletionCallback>(this, base_.get());
-	base_->runInEventBaseThread([this] () {
-		base_->runBeforeLoop(post_complete_cb_.get());
-	});
+	requests_.complete_cb_.cb_ =
+		std::make_unique<PostRequestCompletionCallback>(this, base_.get());
 	return 0;
 }
 
@@ -493,46 +495,43 @@ void RpcConnection::RequestComplete(Request* reqp) {
 	auto request = std::move(it->second);
 	requests_.scheduled_.erase(it);
 	requests_.complete_.emplace_back(std::move(request));
+	if (not requests_.complete_cb_.registered_) {
+		base_->runBeforeLoop(requests_.complete_cb_.cb_.get());
+		requests_.complete_cb_.registered_ = true;
+	}
 }
 
 void RpcConnection::PostRequestCompletion() const {
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
-	if (not requests_.complete_.empty() and hyc_likely(eventfd_ >= 0)) {
+	if (hyc_likely(not requests_.complete_.empty() and eventfd_ >= 0)) {
 		auto rc = ::eventfd_write(eventfd_, requests_.complete_.size());
 		if (hyc_unlikely(rc < 0)) {
 			LOG(ERROR) << "eventfd_write write failed RPC " << *this;
 		}
 		(void) rc;
 	}
-
-	base_->runInEventBaseThread([this] () {
-		base_->runBeforeLoop(post_complete_cb_.get());
-	});
+	requests_.complete_cb_.registered_ = false;
 }
 
 uint32_t RpcConnection::GetCompleteRequests(RequestResult* resultsp,
 		uint32_t nresults, bool *has_morep) {
-	std::vector<std::unique_ptr<Request>> dst;
-
-	{
-		dst.reserve(nresults);
-		std::lock_guard<std::mutex> lock(requests_.mutex_);
-		*has_morep = requests_.complete_.size() > nresults;
-		hyc::MoveLastElements(dst, requests_.complete_, nresults);
+	*has_morep = false;
+	std::lock_guard<std::mutex> lock(requests_.mutex_);
+	auto tocopy = std::min(requests_.complete_.size(), static_cast<size_t>(nresults));
+	if (not tocopy) {
+		return 0;
 	}
 
-	auto i = 0;
-	RequestResult* resultp = resultsp;
-	for (const auto& reqp : dst) {
-		resultp->privatep   = reqp->privatep;
-		resultp->request_id = reqp->id;
-		resultp->result     = reqp->result;
-
-		++i;
-		++resultp;
+	auto eit = requests_.complete_.end();
+	auto sit = std::prev(eit, tocopy);
+	for (auto resultp = resultsp; sit != eit; ++sit, ++resultp) {
+		resultp->privatep   = sit->get()->privatep;
+		resultp->request_id = sit->get()->id;
+		resultp->result     = sit->get()->result;
 	}
-
-	return dst.size();
+	requests_.complete_.erase(std::prev(eit, tocopy), eit);
+	*has_morep = not requests_.complete_.empty();
+	return tocopy;
 }
 
 RequestID RpcConnection::ScheduleRead(const void* privatep, char* bufferp,
