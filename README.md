@@ -4,13 +4,15 @@ HyC Storage Layer Code
 Complete setup steps :
 
 0. Compiler setup.
-	We are using gcc/g++ 7.2 for compilation.
+	- We are using gcc/g++ 7.2 for compilation.
 		#sudo add-apt-repository ppa:jonathonf/gcc-7.2
 		#apt-get install gcc-7 g++-7
 		#sudo update-alternatives --install /usr/bin/gcc gcc \
 			/usr/bin/gcc-7 60 --slave /usr/bin/g++ g++ /usr/bin/g++-7
 		#sudo update-alternatives --install /usr/bin/gcc gcc \
 			/usr/bin/gcc-7 60 --slave /usr/bin/g++ g++ /usr/bin/g++-7
+	- cmake is also needed
+		#sudo apt-get install cmake
 
 1. Clone the repository.
 	#git clone --recursive git@github.com:CacheboxInc/hyc-storage-layer.git
@@ -24,9 +26,6 @@ Complete setup steps :
 
 	Follow https://github.com/CacheboxInc/folly/README.md file for
 	installation instructions.
-
-	We need a shared library of folly. So while doing cmake, need to pass
-	-DBUILD_SHARED_LIBS=ON
 
 3. Build hyc-storage-layer
 	Building hyc-storage-layer first requires to build all the thirdparty
@@ -42,7 +41,7 @@ Complete setup steps :
 			#cd hyc-storage-layer/thirdparty/restbed
 			#mkdir build
 			#cd build
-			#cmake -DBUILD_SHARED=YES ..
+			#cmake ..
 			#make -j $(nproc)
 			#make install
 
