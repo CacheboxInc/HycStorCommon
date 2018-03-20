@@ -23,6 +23,7 @@
 #include "gen-cpp2/StorRpc.h"
 #include "TgtInterface.h"
 #include "TimePoint.h"
+#include "SpinLock.h"
 
 namespace hyc {
 using namespace apache::thrift;
@@ -165,7 +166,7 @@ private:
 	struct {
 		std::atomic<uint64_t> pending_{0};
 
-		mutable std::mutex mutex_;
+		mutable SpinLock mutex_;
 		std::unordered_map<RequestID, std::unique_ptr<Request>> scheduled_;
 		std::vector<std::unique_ptr<Request>> complete_;
 		struct {
@@ -447,7 +448,7 @@ Request* RpcConnection::NewRequest(Request::Type type, const void* privatep,
 	request->offset = offset;
 
 	auto reqp = request.get();
-	std::lock_guard<std::mutex> lock(requests_.mutex_);
+	std::lock_guard<SpinLock> lock(requests_.mutex_);
 	requests_.scheduled_.emplace(request->id, std::move(request));
 	return reqp;
 }
@@ -488,7 +489,7 @@ void RpcConnection::UpdateStats(Request* reqp) {
 
 void RpcConnection::RequestComplete(Request* reqp) {
 	UpdateStats(reqp);
-	std::lock_guard<std::mutex> lock(requests_.mutex_);
+	std::lock_guard<SpinLock> lock(requests_.mutex_);
 	auto it = requests_.scheduled_.find(reqp->id);
 	assert(hyc_unlikely(it != requests_.scheduled_.end()));
 
@@ -496,13 +497,15 @@ void RpcConnection::RequestComplete(Request* reqp) {
 	requests_.scheduled_.erase(it);
 	requests_.complete_.emplace_back(std::move(request));
 	if (not requests_.complete_cb_.registered_) {
-		base_->runBeforeLoop(requests_.complete_cb_.cb_.get());
+		base_->runInEventBaseThread([this] () mutable {
+			base_->runBeforeLoop(requests_.complete_cb_.cb_.get());
+		});
 		requests_.complete_cb_.registered_ = true;
 	}
 }
 
 void RpcConnection::PostRequestCompletion() const {
-	std::lock_guard<std::mutex> lock(requests_.mutex_);
+	std::lock_guard<SpinLock> lock(requests_.mutex_);
 	if (hyc_likely(not requests_.complete_.empty() and eventfd_ >= 0)) {
 		auto rc = ::eventfd_write(eventfd_, requests_.complete_.size());
 		if (hyc_unlikely(rc < 0)) {
@@ -516,7 +519,7 @@ void RpcConnection::PostRequestCompletion() const {
 uint32_t RpcConnection::GetCompleteRequests(RequestResult* resultsp,
 		uint32_t nresults, bool *has_morep) {
 	*has_morep = false;
-	std::lock_guard<std::mutex> lock(requests_.mutex_);
+	std::lock_guard<SpinLock> lock(requests_.mutex_);
 	auto tocopy = std::min(requests_.complete_.size(), static_cast<size_t>(nresults));
 	if (not tocopy) {
 		return 0;
@@ -614,7 +617,7 @@ RequestID RpcConnection::ScheduleWriteSame(const void* privatep, char* bufferp,
  * ======================
  */
 struct {
-	std::mutex mutex_;
+	SpinLock mutex_;
 	std::unordered_map<RpcConnectHandle, std::unique_ptr<RpcConnection>> map_;
 	std::atomic<RpcConnectHandle> handle_{0};
 } g_connections_;
@@ -628,13 +631,13 @@ RpcConnectHandle RpcServerConnect(uint32_t ping_secs = 30) {
 		return kInvalidRpcHandle;
 	}
 
-	std::lock_guard<std::mutex> lock(g_connections_.mutex_);
+	std::lock_guard<SpinLock> lock(g_connections_.mutex_);
 	g_connections_.map_.emplace(handle, std::move(rpc));
 	return handle;
 }
 
 RpcConnection* FindRpcConnection(RpcConnectHandle handle) {
-	std::lock_guard<std::mutex> lock(g_connections_.mutex_);
+	std::lock_guard<SpinLock> lock(g_connections_.mutex_);
 	auto it = g_connections_.map_.find(handle);
 	if (hyc_unlikely(it == g_connections_.map_.end())) {
 		return nullptr;
@@ -649,7 +652,7 @@ int32_t RpcServerDisconnect(RpcConnectHandle handle) {
 		return -ENODEV;
 	}
 
-	std::lock_guard<std::mutex> lock(g_connections_.mutex_);
+	std::lock_guard<SpinLock> lock(g_connections_.mutex_);
 	auto it = g_connections_.map_.find(handle);
 	assert(hyc_unlikely(it != g_connections_.map_.end()));
 	g_connections_.map_.erase(it);
