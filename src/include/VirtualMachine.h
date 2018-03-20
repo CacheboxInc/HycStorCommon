@@ -8,14 +8,17 @@
 #include <cstdint>
 
 #include "IDs.h"
-#include "Common.h"
+#include "DaemonCommon.h"
+
+using namespace ::hyc_thrift;
+
 
 namespace pio {
-
 /* forward declaration for Pimpl */
 namespace config {
 	class VmConfig;
 }
+
 
 class VirtualMachine {
 public:
@@ -25,13 +28,11 @@ public:
 	void AddVmdk(ActiveVmdk* vmdkp);
 	RequestID NextRequestID();
 
-	folly::Future<int> Write(ActiveVmdk* vmdkp, std::unique_ptr<Request> reqp);
-	folly::Future<int> WriteSame(ActiveVmdk* vmdkp, std::unique_ptr<Request> reqp);
-	folly::Future<int> Read(ActiveVmdk* vmdkp, std::unique_ptr<Request> reqp);
+	folly::Future<int> Write(ActiveVmdk* vmdkp, Request* reqp);
+	folly::Future<int> WriteSame(ActiveVmdk* vmdkp, Request* reqp);
+	folly::Future<int> Read(ActiveVmdk* vmdkp, Request* reqp);
 	folly::Future<CheckPointID> TakeCheckPoint();
 
-	uint32_t GetRequestResult(ActiveVmdk* vmdkp, RequestResult* resultsp,
-		uint32_t nresults, bool *has_morep) const;
 public:
 	const VmID& GetID() const noexcept;
 	VmdkHandle GetHandle() const noexcept;

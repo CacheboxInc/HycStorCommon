@@ -3,10 +3,17 @@
 #include <set>
 #include <utility>
 #include <mutex>
+#include <memory>
 
 #include <cstdint>
 
-#include <folly/futures/FutureSplitter.h>
+#include "SpinLock.h"
+
+namespace folly {
+/* forward declaration for pimpl */
+template <typename T>
+class FutureSplitter;
+}
 
 namespace pio {
 namespace RangeLock {
@@ -17,13 +24,16 @@ class Range {
 public:
 	Range(const std::pair<uint64_t, uint64_t>& range);
 	folly::Future<int> GetFuture() const;
-	folly::Promise<int>&& MovePromise() const;
+	std::unique_ptr<folly::Promise<int>> MovePromise() const;
 
 	friend struct RangeCompare;
 private:
 	std::pair<uint64_t, uint64_t>      range_;
-	mutable folly::Promise<int>        promise_;
-	mutable folly::FutureSplitter<int> futures_;
+	struct {
+		mutable SpinLock mutex_;
+		mutable std::unique_ptr<folly::Promise<int>> promise_;
+		mutable std::unique_ptr<folly::FutureSplitter<int>> futures_;
+	} details_;
 };
 
 struct RangeCompare {

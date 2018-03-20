@@ -1,4 +1,27 @@
 include_directories(include)
+include_directories(${CMAKE_BINARY_DIR}/src/thrift/)
+
+set(ThriftLibs
+	thrift-core
+	protocol
+	concurrency
+	transport
+	async
+	security
+	server
+	thriftfrozen2
+	thriftprotocol
+	thriftcpp2
+	wangle
+)
+
+set(COMPRESS_LIBS
+	snappy
+	lz4
+	z
+	bz2
+	zstd
+)
 
 set(LIBRARY_LIST
 	gflags
@@ -13,6 +36,7 @@ set(LIBRARY_LIST
 	event
 	double-conversion
 	iberty
+	${ThriftLibs}
 )
 
 set(StorageLayerFiles
@@ -46,16 +70,20 @@ add_library(StorageLayer STATIC
 	${StorageLayerFiles}
 )
 
+
 target_link_libraries(StorageLayer
 	CommonLib
+	StorRpcLib
 	${LIBRARY_LIST}
 )
 
+add_subdirectory(thrift)
 add_subdirectory(RestServer)
 add_subdirectory(Common)
 add_subdirectory(Commands)
 add_subdirectory(tests)
 add_subdirectory(C-Client)
+add_subdirectory(stord)
 
 # Install the storage library
-install(TARGETS StorageLayer DESTINATION "/usr/lib/hyc")
+#install(TARGETS StorageLayer DESTINATION "/usr/lib/hyc")

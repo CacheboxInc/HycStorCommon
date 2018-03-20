@@ -7,7 +7,8 @@
 #include <folly/futures/Future.h>
 #include <glog/logging.h>
 
-#include "TgtInterface.h"
+#include "gen-cpp2/StorRpc_types.h"
+#include "DaemonTgtInterface.h"
 #include "Request.h"
 #include "ThreadPool.h"
 #include "VirtualMachine.h"
@@ -16,18 +17,19 @@
 #include "CacheHandler.h"
 #include "VmdkConfig.h"
 
+using namespace ::hyc_thrift;
+
 namespace pio {
 using namespace folly;
 
-/* global data structures for library */
-struct {
+struct vms {
 	std::mutex mutex_;
 	std::atomic<VmHandle> handle_{0};
 	std::unordered_map<VmID, std::unique_ptr<VirtualMachine>> ids_;
 	std::unordered_map<VmHandle, VirtualMachine*> handles_;
 } g_vms;
 
-struct {
+struct vmdks {
 	std::mutex mutex_;
 	std::atomic<VmdkHandle> handle_{0};
 	std::unordered_map<VmdkID, std::unique_ptr<Vmdk>> ids_;
@@ -79,7 +81,7 @@ static VirtualMachine* VmFromVmHandle(VmHandle handle) {
 	return it->second;
 }
 
-static ActiveVmdk* VmdkFromVmdkHandle(VmdkHandle handle) {
+ActiveVmdk* VmdkFromVmdkHandle(VmdkHandle handle) {
 	std::lock_guard<std::mutex> lock(g_vmdks.mutex_);
 	auto it = g_vmdks.handles_.find(handle);
 	if (pio_unlikely(it == g_vmdks.handles_.end())) {
@@ -194,6 +196,7 @@ static VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 	}
 }
 
+#if 0
 static int SetVmdkEventFd(VmdkHandle handle, int eventfd) {
 	auto vmdkp = VmdkFromVmdkHandle(handle);
 	if (pio_unlikely(not vmdkp)) {
@@ -315,6 +318,7 @@ static uint32_t GetCompleteRequests(VmdkHandle handle, RequestResult *resultsp,
 
 	return vmp->GetRequestResult(vmdkp, resultsp, nresults, has_morep);
 }
+#endif
 }
 
 int InitializeLibrary() {
@@ -386,6 +390,7 @@ VmdkHandle GetVmdkHandle(const char* vmdkidp) {
 	}
 }
 
+#if 0
 int SetVmdkEventFd(VmdkHandle handle, int eventfd) {
 	try {
 		return pio::SetVmdkEventFd(handle, eventfd);
@@ -394,7 +399,7 @@ int SetVmdkEventFd(VmdkHandle handle, int eventfd) {
 	}
 }
 
-RequestID ScheduleRead(VmdkHandle handle, const void* privatep,
+RequestId ScheduleRead(VmdkHandle handle, const void* privatep,
 		char *bufferp, size_t length, uint64_t offset) {
 	try {
 		return pio::ScheduleRead(handle, privatep, bufferp, length, offset);
@@ -403,7 +408,7 @@ RequestID ScheduleRead(VmdkHandle handle, const void* privatep,
 	}
 }
 
-RequestID ScheduleWrite(VmdkHandle handle, const void* privatep,
+RequestId ScheduleWrite(VmdkHandle handle, const void* privatep,
 		char *bufferp, size_t length, uint64_t offset) {
 	try {
 		return pio::ScheduleWrite(handle, privatep, bufferp, length, offset);
@@ -412,7 +417,7 @@ RequestID ScheduleWrite(VmdkHandle handle, const void* privatep,
 	}
 }
 
-RequestID ScheduleWriteSame(VmdkHandle handle, const void* privatep,
+RequestId ScheduleWriteSame(VmdkHandle handle, const void* privatep,
 		char *bufferp, size_t buffer_length, uint64_t transfer_length,
 		uint64_t offset) {
 	try {
@@ -423,7 +428,7 @@ RequestID ScheduleWriteSame(VmdkHandle handle, const void* privatep,
 	}
 }
 
-int RequestAbort(VmdkHandle handle, RequestID request_id) {
+int RequestAbort(VmdkHandle handle, RequestId request_id) {
 	try {
 		return pio::RequestAbort(handle, request_id);
 	} catch (const std::exception& e) {
@@ -440,3 +445,4 @@ uint32_t GetCompleteRequests(VmdkHandle handle, RequestResult *resultsp,
 		return 0;
 	}
 }
+#endif

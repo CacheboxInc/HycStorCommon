@@ -1,4 +1,5 @@
 include_directories(include)
+include_directories(${CMAKE_BINARY_DIR}/src/thrift/)
 
 set(RestServerFiles
 	HycRestServer.cpp

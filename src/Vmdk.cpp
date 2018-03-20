@@ -7,13 +7,13 @@
 
 #include <roaring/roaring.hh>
 
+#include "gen-cpp2/StorRpc_types.h"
 #include "IDs.h"
-#include "Utils.h"
-#include "TgtTypes.h"
+#include "DaemonUtils.h"
+#include "DaemonTgtTypes.h"
 #include "VmdkConfig.h"
 #include "RequestHandler.h"
 #include "Vmdk.h"
-#include "VirtualMachine.h"
 
 namespace pio {
 Vmdk::Vmdk(VmdkHandle handle, VmdkID&& id) : handle_(handle), id_(std::move(id)) {
@@ -77,53 +77,7 @@ void ActiveVmdk::RegisterRequestHandler(std::unique_ptr<RequestHandler> handler)
 	headp_->RegisterNextRequestHandler(std::move(handler));
 }
 
-int ActiveVmdk::RequestComplete(std::unique_ptr<Request> reqp) {
-	auto result = reqp->Complete();
-
-	{
-		std::lock_guard<std::mutex> lock(requests_.mutex_);
-		requests_.complete_.emplace_back(std::move(reqp));
-	}
-
-	if (pio_likely(eventfd_ >= 0)) {
-		auto rc = ::eventfd_write(eventfd_, 1);
-		if (pio_unlikely(rc < 0)) {
-			LOG(ERROR) << "Write to eventfd failed "
-				<< "VmdkID " << GetID()
-				<< "FD " << eventfd_;
-		}
-		/* ignore write failure */
-		(void) rc;
-	}
-	return result;
-}
-
-uint32_t ActiveVmdk::GetRequestResult(RequestResult* resultsp,
-		uint32_t nresults, bool *has_morep) {
-	std::vector<std::unique_ptr<Request>> dst;
-
-	{
-		dst.reserve(nresults);
-		std::lock_guard<std::mutex> lock(requests_.mutex_);
-		*has_morep = requests_.complete_.size() > nresults;
-		pio::MoveLastElements(dst, requests_.complete_, nresults);
-	}
-
-	auto i = 0;
-	RequestResult* resultp = resultsp;
-	for (const auto& reqp : dst) {
-		resultp->privatep   = reqp->GetPrivateData();
-		resultp->request_id = reqp->GetID();
-		resultp->result     = reqp->GetResult();
-
-		++i;
-		++resultp;
-	}
-
-	return dst.size();
-}
-
-folly::Future<int> ActiveVmdk::Read(std::unique_ptr<Request> reqp) {
+folly::Future<int> ActiveVmdk::Read(Request* reqp) {
 	assert(reqp);
 
 	if (pio_unlikely(not headp_)) {
@@ -138,9 +92,8 @@ folly::Future<int> ActiveVmdk::Read(std::unique_ptr<Request> reqp) {
 		return true;
 	});
 
-	auto p = reqp.get();
-	return headp_->Read(this, p, process, failed)
-	.then([this, reqp = std::move(reqp), process = std::move(process),
+	return headp_->Read(this, reqp, process, failed)
+	.then([this, reqp, process = std::move(process),
 			failed = std::move(failed)] (folly::Try<int>& result) mutable {
 		if (result.hasException<std::exception>()) {
 			reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
@@ -155,22 +108,19 @@ folly::Future<int> ActiveVmdk::Read(std::unique_ptr<Request> reqp) {
 			}
 		}
 
-		return RequestComplete(std::move(reqp));
+		return reqp->Complete();
 	});
 }
 
-folly::Future<int> ActiveVmdk::Write(std::unique_ptr<Request> reqp,
-		CheckPointID ckpt_id) {
-	return WriteCommon(std::move(reqp), ckpt_id);
+folly::Future<int> ActiveVmdk::Write(Request* reqp, CheckPointID ckpt_id) {
+	return WriteCommon(reqp, ckpt_id);
 }
 
-folly::Future<int> ActiveVmdk::WriteSame(std::unique_ptr<Request> reqp,
-		CheckPointID ckpt_id) {
-	return WriteCommon(std::move(reqp), ckpt_id);
+folly::Future<int> ActiveVmdk::WriteSame(Request* reqp, CheckPointID ckpt_id) {
+	return WriteCommon(reqp, ckpt_id);
 }
 
-folly::Future<int> ActiveVmdk::WriteCommon(std::unique_ptr<Request> reqp,
-		CheckPointID ckpt_id) {
+folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) {
 	if (pio_unlikely(not headp_)) {
 		return -ENXIO;
 	}
@@ -183,9 +133,8 @@ folly::Future<int> ActiveVmdk::WriteCommon(std::unique_ptr<Request> reqp,
 		return true;
 	});
 
-	auto p = reqp.get();
-	return headp_->Write(this, p, ckpt_id, process, failed)
-	.then([this, reqp = std::move(reqp), process = std::move(process),
+	return headp_->Write(this, reqp, ckpt_id, process, failed)
+	.then([this, reqp, process = std::move(process),
 			failed = std::move(failed)] (folly::Try<int>& result) mutable {
 		if (result.hasException<std::exception>()) {
 			reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
@@ -200,7 +149,7 @@ folly::Future<int> ActiveVmdk::WriteCommon(std::unique_ptr<Request> reqp,
 			}
 		}
 
-		return RequestComplete(std::move(reqp));
+		return reqp->Complete();
 	});
 }
 

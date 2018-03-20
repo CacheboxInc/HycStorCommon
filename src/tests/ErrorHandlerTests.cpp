@@ -3,12 +3,14 @@
 #include <gtest/gtest.h>
 #include <glog/logging.h>
 
+#include "gen-cpp2/StorRpc_types.h"
+#include "DaemonTgtTypes.h"
 #include "Request.h"
 #include "Vmdk.h"
-#include "Utils.h"
+#include "DaemonUtils.h"
 #include "VmdkConfig.h"
 #include "CacheHandler.h"
-#include "TgtTypes.h"
+#include "DaemonTgtTypes.h"
 
 using namespace pio;
 using namespace pio::config;
@@ -75,7 +77,10 @@ protected:
 			Request::Type::kWrite, payload, bufferp->Size(), bufferp->Size(),
 			offset);
 
-		return vmdkp->Write(std::move(reqp), ckpt_id);
+		return vmdkp->Write(reqp.get(), ckpt_id)
+		.then([reqp = std::move(reqp)] (int rc) {
+			return rc;
+		});
 	}
 
 	folly::Future<int> VmdkRead(BlockID block, size_t skip, size_t size) {
@@ -90,8 +95,8 @@ protected:
 			Request::Type::kRead, payload, bufferp->Size(), bufferp->Size(),
 			offset);
 
-		return vmdkp->Read(std::move(reqp))
-		.then([bufferp = std::move(bufferp)] (int rc) mutable {
+		return vmdkp->Read(reqp.get())
+		.then([bufferp = std::move(bufferp), reqp = std::move(reqp)] (int rc) mutable {
 			return rc;
 		});
 	}

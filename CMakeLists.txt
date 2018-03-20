@@ -70,6 +70,8 @@ set(CUSTOM_LIBRARY_PATH ${PROJECT_SOURCE_DIR}/lib)
 # SET(CMAKE_C_COMPILER "/usr/bin/gcc")
 
 set (CXX_STANDARD "c++17")
+set(THRIFT "/usr/local/bin/thrift1")
+set(THRIFT_TEMPLATE "/usr/local/include/thrift/templates")
 
 # separate out the C++ options which are not used in C
 # add boost logger macro

@@ -1,7 +1,9 @@
 #include <memory>
 #include <mutex>
 
-#include "Common.h"
+#include "gen-cpp2/StorRpc_types.h"
+#include "DaemonTgtTypes.h"
+#include "DaemonCommon.h"
 #include "Request.h"
 #include "Vmdk.h"
 #include "RamCache.h"

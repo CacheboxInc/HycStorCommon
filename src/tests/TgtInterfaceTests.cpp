@@ -5,7 +5,9 @@
 #include <gtest/gtest.h>
 #include <glog/logging.h>
 
-#include "TgtInterface.h"
+#include "gen-cpp2/StorRpc_types.h"
+#include "DaemonTgtTypes.h"
+#include "DaemonTgtInterface.h"
 #include "VmConfig.h"
 #include "VmdkConfig.h"
 

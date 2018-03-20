@@ -13,10 +13,15 @@ add_executable(StorageLayerTests
 )
 
 target_link_libraries(StorageLayerTests
+	-Wl,--start-group
 	CommonLib
+	StorRpcLib
 	StorageLayer
 	gtest
+	lzma
+	${COMPRESS_LIBS}
 	${LIBRARY_LIST}
+	-Wl,--end-group
 )
 
 ADD_TEST(StorageLayerTests StorageLayerTests ${PROJECT_SOURCE_DIR})

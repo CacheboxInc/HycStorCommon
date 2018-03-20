@@ -3,6 +3,7 @@
 #include <utility>
 
 #include <folly/futures/Future.h>
+#include <folly/futures/FutureSplitter.h>
 
 #include "RangeLock.h"
 
@@ -22,16 +23,28 @@ bool RangeCompare::operator() (const std::pair<uint64_t, uint64_t>& lhs,
 	return lhs.second < rhs.range_.first;
 }
 
-Range::Range(const std::pair<uint64_t, uint64_t>& range) : range_(range),
-		promise_(), futures_(promise_.getFuture()) {
+Range::Range(const std::pair<uint64_t, uint64_t>& range) : range_(range) {
 }
 
 folly::Future<int> Range::GetFuture() const {
-	return futures_.getFuture();
+	if (details_.futures_) {
+		return details_.futures_->getFuture();
+	}
+
+	std::lock_guard<SpinLock> lock(details_.mutex_);
+	if (details_.futures_) {
+		return details_.futures_->getFuture();
+	}
+	details_.promise_ = std::make_unique<folly::Promise<int>>();
+	details_.futures_ =
+		std::make_unique<folly::FutureSplitter<int>>(
+			details_.promise_->getFuture()
+		);
+	return details_.futures_->getFuture();
 }
 
-folly::Promise<int>&& Range::MovePromise() const {
-	return std::move(promise_);
+std::unique_ptr<folly::Promise<int>> Range::MovePromise() const {
+	return std::move(details_.promise_);
 }
 
 void RangeLock::LockRange(const std::pair<uint64_t, uint64_t>& range) {
@@ -59,11 +72,14 @@ void RangeLock::Unlock(const std::pair<uint64_t, uint64_t>& range) {
 		assert(0);
 		return;
 	}
+
 	auto promise = it->MovePromise();
 	ranges_.erase(it);
 	l.unlock();
 
-	promise.setValue(0);
+	if (promise) {
+		promise->setValue(0);
+	}
 }
 
 bool RangeLock::IsRangeLocked(const std::pair<uint64_t, uint64_t>& range) const {

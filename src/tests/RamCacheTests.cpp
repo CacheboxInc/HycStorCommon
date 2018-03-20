@@ -3,6 +3,8 @@
 #include <gtest/gtest.h>
 #include <glog/logging.h>
 
+#include "gen-cpp2/StorRpc_types.h"
+#include "DaemonTgtTypes.h"
 #include "RamCache.h"
 #include "Request.h"
 #include "Vmdk.h"

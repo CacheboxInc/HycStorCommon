@@ -11,8 +11,9 @@
 
 #include <folly/futures/Future.h>
 
-#include "Common.h"
+#include "DaemonCommon.h"
 #include "IDs.h"
+#include "VirtualMachine.h"
 #include "Request.h"
 #include "RequestHandler.h"
 
@@ -63,15 +64,10 @@ public:
 	void RegisterRequestHandler(std::unique_ptr<RequestHandler> handler);
 	void SetEventFd(int eventfd) noexcept;
 
-	folly::Future<int> Read(std::unique_ptr<Request> reqp);
-	folly::Future<int> Write(std::unique_ptr<Request> reqp,
-		CheckPointID ckpt_id);
-	folly::Future<int> WriteSame(std::unique_ptr<Request> reqp,
-		CheckPointID ckpt_id);
+	folly::Future<int> Read(Request* reqp);
+	folly::Future<int> Write(Request* reqp, CheckPointID ckpt_id);
+	folly::Future<int> WriteSame(Request* reqp, CheckPointID ckpt_id);
 	folly::Future<int> TakeCheckPoint(CheckPointID check_point);
-
-	uint32_t GetRequestResult(RequestResult* resultsp, uint32_t nresults,
-		bool *has_morep);
 
 public:
 	size_t BlockSize() const;
@@ -81,9 +77,7 @@ public:
 	const config::VmdkConfig* GetJsonConfig() const noexcept;
 
 private:
-	folly::Future<int> WriteCommon(std::unique_ptr<Request> reqp,
-		CheckPointID ckpt_id);
-	int RequestComplete(std::unique_ptr<Request> reqp);
+	folly::Future<int> WriteCommon(Request* reqp, CheckPointID ckpt_id);
 
 private:
 	VirtualMachine *vmp_{nullptr};
@@ -110,11 +104,6 @@ private:
 		std::atomic<uint64_t> writes_in_progress_;
 		std::atomic<uint64_t> reads_in_progress_;
 	} stats_;
-
-	struct {
-		std::mutex mutex_;
-		std::vector<std::unique_ptr<Request>> complete_;
-	} requests_;
 
 	std::unique_ptr<RequestHandler> headp_{nullptr};
 

@@ -2,6 +2,7 @@
 #include <string>
 
 #include <folly/futures/Future.h>
+#include <folly/futures/FutureSplitter.h>
 
 #include "IDs.h"
 #include "Request.h"

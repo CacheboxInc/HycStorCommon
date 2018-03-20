@@ -3,6 +3,8 @@
 #include <iterator>
 #include <vector>
 
+#include "gen-cpp2/StorRpc_types.h"
+#include "DaemonTgtTypes.h"
 #include "Request.h"
 #include "VmdkConfig.h"
 #include "ErrorHandler.h"

@@ -3,7 +3,6 @@
 #include <limits>
 
 #include "IDs.h"
-#include "TgtTypes.h"
 
 namespace pio {
 class Vmdk;

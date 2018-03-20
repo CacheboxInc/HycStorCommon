@@ -15,7 +15,7 @@
 #include "SuccessHandler.h"
 #include "VmdkConfig.h"
 #include "Request.h"
-#include "Utils.h"
+#include "DaemonUtils.h"
 
 namespace pio {
 CacheHandler::CacheHandler(const config::VmdkConfig* configp) :

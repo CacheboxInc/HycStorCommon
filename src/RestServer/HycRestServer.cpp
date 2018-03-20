@@ -8,12 +8,14 @@
 #include <iostream>
 #include <glog/logging.h>
 
+#include "gen-cpp2/StorRpc_types.h"
 #include "HycRestServer.h"
-#include "TgtInterface.h"
+#include "DaemonTgtInterface.h"
 #include "VmConfig.h"
 #include "VmdkConfig.h"
 
 using namespace restbed;
+using namespace ::hyc_thrift;
 
 namespace pio {
 

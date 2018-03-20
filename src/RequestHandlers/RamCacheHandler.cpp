@@ -3,8 +3,10 @@
 
 #include <folly/futures/Future.h>
 
+#include "gen-cpp2/StorRpc_types.h"
+#include "DaemonTgtTypes.h"
 #include "IDs.h"
-#include "Common.h"
+#include "DaemonCommon.h"
 #include "Vmdk.h"
 #include "Request.h"
 #include "RequestHandler.h"

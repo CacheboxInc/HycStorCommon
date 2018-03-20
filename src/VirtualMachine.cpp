@@ -2,10 +2,12 @@
 
 #include <folly/futures/Future.h>
 
-#include "TgtTypes.h"
+#include "gen-cpp2/StorRpc_types.h"
+#include "DaemonTgtTypes.h"
 #include "VirtualMachine.h"
 #include "Vmdk.h"
 #include "VmConfig.h"
+
 
 namespace pio {
 
@@ -80,8 +82,7 @@ folly::Future<CheckPointID> VirtualMachine::TakeCheckPoint() {
 	});
 }
 
-folly::Future<int> VirtualMachine::Write(ActiveVmdk* vmdkp,
-		std::unique_ptr<Request> reqp) {
+folly::Future<int> VirtualMachine::Write(ActiveVmdk* vmdkp, Request* reqp) {
 	if (pio_unlikely(not FindVmdk(vmdkp->GetHandle()))) {
 		throw std::invalid_argument("VMDK not attached to VM");
 	}
@@ -93,7 +94,7 @@ folly::Future<int> VirtualMachine::Write(ActiveVmdk* vmdkp,
 	} ();
 
 	stats_.writes_in_progress_.fetch_add(std::memory_order_relaxed);
-	return vmdkp->Write(std::move(reqp), ckpt_id)
+	return vmdkp->Write(reqp, ckpt_id)
 	.then([this, ckpt_id] (int rc) mutable {
 		stats_.writes_in_progress_.fetch_sub(std::memory_order_relaxed);
 
@@ -106,22 +107,20 @@ folly::Future<int> VirtualMachine::Write(ActiveVmdk* vmdkp,
 	});
 }
 
-folly::Future<int> VirtualMachine::Read(ActiveVmdk* vmdkp,
-		std::unique_ptr<Request> reqp) {
+folly::Future<int> VirtualMachine::Read(ActiveVmdk* vmdkp, Request* reqp) {
 	if (pio_unlikely(not FindVmdk(vmdkp->GetHandle()))) {
 		throw std::invalid_argument("VMDK not attached to VM");
 	}
 
 	++stats_.reads_in_progress_;
-	return vmdkp->Read(std::move(reqp))
+	return vmdkp->Read(reqp)
 	.then([this] (int rc) {
 		--stats_.reads_in_progress_;
 		return rc;
 	});
 }
 
-folly::Future<int> VirtualMachine::WriteSame(ActiveVmdk* vmdkp,
-		std::unique_ptr<Request> reqp) {
+folly::Future<int> VirtualMachine::WriteSame(ActiveVmdk* vmdkp, Request* reqp) {
 	if (pio_unlikely(not FindVmdk(vmdkp->GetHandle()))) {
 		throw std::invalid_argument("VMDK not attached to VM");
 	}
@@ -133,7 +132,7 @@ folly::Future<int> VirtualMachine::WriteSame(ActiveVmdk* vmdkp,
 	} ();
 
 	++stats_.writes_in_progress_;
-	return vmdkp->WriteSame(std::move(reqp), ckpt_id)
+	return vmdkp->WriteSame(reqp, ckpt_id)
 	.then([this, ckpt_id] (int rc) mutable {
 		--stats_.writes_in_progress_;
 
@@ -144,18 +143,6 @@ folly::Future<int> VirtualMachine::WriteSame(ActiveVmdk* vmdkp,
 		}
 		return rc;
 	});
-}
-
-uint32_t VirtualMachine::GetRequestResult(ActiveVmdk* vmdkp,
-		RequestResult* resultsp, uint32_t nresults, bool *has_morep) const {
-	log_assert(vmdkp && resultsp && has_morep);
-
-	*has_morep = false;
-	if (pio_unlikely(not FindVmdk(vmdkp->GetHandle()))) {
-		throw std::invalid_argument("VMDK not attached to VM");
-	}
-
-	return vmdkp->GetRequestResult(resultsp, nresults, has_morep);
 }
 
 }

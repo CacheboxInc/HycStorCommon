@@ -3,12 +3,14 @@
 #include <gtest/gtest.h>
 #include <glog/logging.h>
 
+#include "gen-cpp2/StorRpc_types.h"
+#include "DaemonTgtTypes.h"
 #include "Request.h"
 #include "Vmdk.h"
 #include "UnalignedHandler.h"
 #include "LockHandler.h"
 #include "RamCacheHandler.h"
-#include "Utils.h"
+#include "DaemonUtils.h"
 #include "VmdkConfig.h"
 
 using namespace pio;
@@ -68,7 +70,10 @@ protected:
 			Request::Type::kWrite, payload, bufferp->Size(), bufferp->Size(),
 			offset);
 
-		return vmdkp->Write(std::move(reqp), ckpt_id);
+		return vmdkp->Write(reqp.get(), ckpt_id)
+		.then([reqp = std::move(reqp)] (int rc) {
+			return rc;
+		});
 	}
 
 	folly::Future<std::unique_ptr<RequestBuffer>>
@@ -84,8 +89,8 @@ protected:
 			Request::Type::kRead, payload, bufferp->Size(), bufferp->Size(),
 			offset);
 
-		return vmdkp->Read(std::move(reqp))
-		.then([bufferp = std::move(bufferp)] (int rc) mutable {
+		return vmdkp->Read(reqp.get())
+		.then([bufferp = std::move(bufferp), reqp = std::move(reqp)] (int rc) mutable {
 			EXPECT_EQ(rc, 0);
 			return std::move(bufferp);
 		});

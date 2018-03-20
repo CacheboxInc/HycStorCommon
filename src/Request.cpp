@@ -4,11 +4,12 @@
 
 #include <cstdint>
 
-#include "TgtTypes.h"
+#include "gen-cpp2/StorRpc_types.h"
+#include "DaemonTgtTypes.h"
 #include "Request.h"
 #include "RequestHandler.h"
 #include "Vmdk.h"
-#include "Utils.h"
+#include "DaemonUtils.h"
 
 namespace pio {
 

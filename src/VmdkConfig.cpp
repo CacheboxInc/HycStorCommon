@@ -4,8 +4,8 @@
 
 #include "VmdkConfig.h"
 #include "JsonConfig.h"
-#include "Utils.h"
-#include "Common.h"
+#include "DaemonUtils.h"
+#include "DaemonCommon.h"
 
 namespace pio { namespace config {
 

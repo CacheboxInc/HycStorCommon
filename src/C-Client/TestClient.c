@@ -10,8 +10,13 @@
 #include <string.h>
 #include <sys/sysinfo.h>
 
-#include "TgtInterface.h"
+typedef int64_t RequestId;
+typedef int64_t VmHandle;
+typedef int64_t VmdkHandle;
+
+#include "DaemonTgtInterface.h"
 #include "HycRestServer.h"
+
 
 const char kVmConfig[] = "{\"VmID\":\"1\"}";
 const char kVmdkConfig[] = "{\"VmID\":\"1\",\"VmdkID\":\"1\",\"BlockSize\":"
