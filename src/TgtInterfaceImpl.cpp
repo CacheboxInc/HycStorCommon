@@ -41,28 +41,6 @@ struct {
 	std::unique_ptr<ThreadPool> pool_;
 } g_thread_;
 
-static int InitializeLibrary(void) {
-	auto cores = std::thread::hardware_concurrency();
-
-	try {
-		std::call_once(g_thread_.initialized_, [=] () mutable {
-			google::InitGoogleLogging("TGTD-StorageLibrary");
-			g_thread_.pool_ = std::make_unique<ThreadPool>(cores);
-			g_thread_.pool_->CreateThreads();
-
-			VLOG(1) << "library initialized"
-				<< " Cores = " << cores
-				<< " Threads = " << g_thread_.pool_->Stats().nthreads_;
-		});
-	} catch (const std::exception& e) {
-		g_thread_.pool_.release();
-		return -ENOMEM;
-	}
-
-	log_assert(g_thread_.pool_);
-	return 0;
-}
-
 static VirtualMachine* VmFromVmID(const std::string& vmid) {
 	std::lock_guard<std::mutex> lock(g_vms.mutex_);
 	auto it = g_vms.ids_.find(vmid);
@@ -110,12 +88,12 @@ static void RemoveVmHandleLocked(VmHandle handle) {
 	}
 }
 
-static void RemoveVm(VmHandle handle) {
+void RemoveVm(VmHandle handle) {
 	std::lock_guard<std::mutex> lock(g_vms.mutex_);
 	RemoveVmHandleLocked(handle);
 }
 
-static VmHandle NewVm(VmID vmid, const std::string& config) {
+VmHandle NewVm(VmID vmid, const std::string& config) {
 	std::lock_guard<std::mutex> lock(g_vms.mutex_);
 
 	VLOG(1) << __func__ << " " << vmid << " config " << config;
@@ -152,12 +130,12 @@ static void RemoveVmdkHandleLocked(VmdkHandle handle) {
 	}
 }
 
-static void RemoveVmdk(VmdkHandle handle) {
+void RemoveVmdk(VmdkHandle handle) {
 	std::lock_guard<std::mutex> lock(g_vmdks.mutex_);
 	RemoveVmdkHandleLocked(handle);
 }
 
-static VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
+VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 		const std::string& config) {
 	{
 		/* VMDK already present */
@@ -196,151 +174,9 @@ static VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 	}
 }
 
-#if 0
-static int SetVmdkEventFd(VmdkHandle handle, int eventfd) {
-	auto vmdkp = VmdkFromVmdkHandle(handle);
-	if (pio_unlikely(not vmdkp)) {
-		return -EINVAL;
-	}
-	vmdkp->SetEventFd(eventfd);
-	return 0;
-}
-
-static RequestID ScheduleRead(VmdkHandle handle, const void* privatep,
-		char *bufferp, size_t length, uint64_t offset) {
-	auto vmdkp = VmdkFromVmdkHandle(handle);
-	if (pio_unlikely(not vmdkp)) {
-		VLOG(1) << "Invalid VMDK handle " << handle;
-		return kInvalidRequestID;
-	}
-
-	auto vmp = vmdkp->GetVM();
-	if (pio_unlikely(not vmp)) {
-		LOG(ERROR) << "ActiveVmdk without VM " << handle;
-		return kInvalidRequestID;
-	}
-
-	auto id = vmp->NextRequestID();
-	auto reqp = std::make_unique<Request>(id, vmdkp, Request::Type::kRead,
-		bufferp, length, length, offset);
-	reqp->SetPrivateData(privatep);
-
-	/* Add fiber task */
-	g_thread_.pool_->AddTask([vmdkp, vmp, reqp = std::move(reqp)] () mutable {
-		auto rc = vmp->Read(vmdkp, std::move(reqp)).get();
-		(void) rc;
-	});
-
-	return id;
-}
-
-static RequestID ScheduleWrite(VmdkHandle handle, const void* privatep,
-		char *bufferp, size_t length, uint64_t offset) {
-	auto vmdkp = VmdkFromVmdkHandle(handle);
-	if (pio_unlikely(not vmdkp)) {
-		VLOG(1) << "Invalid VMDK handle " << handle;
-		return kInvalidRequestID;
-	}
-
-	auto vmp = vmdkp->GetVM();
-	if (pio_unlikely(not vmp)) {
-		LOG(ERROR) << "ActiveVmdk without VM " << handle;
-		return kInvalidRequestID;
-	}
-
-	auto id = vmp->NextRequestID();
-	auto reqp = std::make_unique<Request>(id, vmdkp, Request::Type::kWrite,
-		bufferp, length, length, offset);
-	reqp->SetPrivateData(privatep);
-
-	/* Add fiber task */
-	g_thread_.pool_->AddTask([vmdkp, vmp, reqp = std::move(reqp)] () mutable {
-		auto rc = vmp->Write(vmdkp, std::move(reqp)).get();
-		(void) rc;
-	});
-
-	return id;
-}
-
-static RequestID ScheduleWriteSame(VmdkHandle handle, const void* privatep,
-		char *bufferp, size_t buffer_length, size_t transfer_length,
-		uint64_t offset) {
-	auto vmdkp = VmdkFromVmdkHandle(handle);
-	if (pio_unlikely(not vmdkp)) {
-		VLOG(1) << "Invalid VMDK handle " << handle;
-		return kInvalidRequestID;
-	}
-
-	auto vmp = vmdkp->GetVM();
-	if (pio_unlikely(not vmp)) {
-		LOG(ERROR) << "ActiveVmdk without VM " << handle;
-		return kInvalidRequestID;
-	}
-
-	auto id = vmp->NextRequestID();
-	auto reqp = std::make_unique<Request>(id, vmdkp, Request::Type::kWriteSame,
-		bufferp, buffer_length, transfer_length, offset);
-	reqp->SetPrivateData(privatep);
-
-	/* Add fiber task */
-	g_thread_.pool_->AddTask([vmdkp, vmp, reqp = std::move(reqp)] () mutable {
-		auto rc = vmp->WriteSame(vmdkp, std::move(reqp)).get();
-		(void) rc;
-	});
-
-	return id;
-}
-
-static int RequestAbort(VmdkHandle handle, RequestID request_id) {
-	auto vmdkp = VmdkFromVmdkHandle(handle);
-	if (pio_unlikely(not vmdkp)) {
-		VLOG(1) << "Invalid VMDK handle " << handle;
-		return -1;
-	}
-
-	/* TODO: */
-	return 0;
-}
-
-static uint32_t GetCompleteRequests(VmdkHandle handle, RequestResult *resultsp,
-		uint32_t nresults, bool *has_morep) {
-	auto vmdkp = VmdkFromVmdkHandle(handle);
-	if (pio_unlikely(not vmdkp)) {
-		VLOG(1) << "Invalid VMDK handle " << handle;
-		return kInvalidRequestID;
-	}
-
-	auto vmp = vmdkp->GetVM();
-	if (pio_unlikely(not vmp)) {
-		LOG(ERROR) << "ActiveVmdk without VM " << handle;
-		return kInvalidRequestID;
-	}
-
-	return vmp->GetRequestResult(vmdkp, resultsp, nresults, has_morep);
-}
-#endif
-}
-
-int InitializeLibrary() {
+VmHandle GetVmHandle(const std::string& vmid) {
 	try {
-		return pio::InitializeLibrary();
-	} catch (const std::exception& e) {
-		return -1;
-	}
-}
-
-VmHandle NewVm(const char* vmidp, const char* const configp) {
-	try {
-		return pio::NewVm(vmidp, configp);
-	} catch (const std::exception& e) {
-		LOG(ERROR) << __func__ << " Failed ";
-		return kInvalidVmHandle;
-	}
-}
-
-VmHandle GetVmHandle(const char* vmidp) {
-	try {
-		auto vmp = pio::VmFromVmID(vmidp);
+		auto vmp = pio::VmFromVmID(vmid);
 		if (pio_unlikely(not vmp)) {
 			return kInvalidVmHandle;
 		}
@@ -350,37 +186,9 @@ VmHandle GetVmHandle(const char* vmidp) {
 	}
 }
 
-void RemoveVm(VmHandle handle) {
+VmdkHandle GetVmdkHandle(const std::string& vmdkid) {
 	try {
-		pio::RemoveVm(handle);
-		return;
-	} catch (const std::exception& e) {
-		return;
-	}
-}
-
-VmdkHandle NewActiveVmdk(VmHandle vm_handle, const char* vmdkid,
-		const char* const configp) {
-	try {
-		return pio::NewActiveVmdk(vm_handle, vmdkid, configp);
-	} catch (const std::exception& e) {
-		LOG(ERROR) << __func__ << " Failed ";
-		return kInvalidVmdkHandle;
-	}
-}
-
-void RemoveVmdk(VmdkHandle handle) {
-	try {
-		pio::RemoveVmdk(handle);
-		return;
-	} catch (const std::exception& e) {
-		return;
-	}
-}
-
-VmdkHandle GetVmdkHandle(const char* vmdkidp) {
-	try {
-		auto vmdkp = pio::VmdkFromVmdkID(vmdkidp);
+		auto vmdkp = pio::VmdkFromVmdkID(vmdkid);
 		if (pio_unlikely(not vmdkp)) {
 			return kInvalidVmdkHandle;
 		}
@@ -389,60 +197,4 @@ VmdkHandle GetVmdkHandle(const char* vmdkidp) {
 		return kInvalidVmdkHandle;
 	}
 }
-
-#if 0
-int SetVmdkEventFd(VmdkHandle handle, int eventfd) {
-	try {
-		return pio::SetVmdkEventFd(handle, eventfd);
-	} catch (const std::exception& e) {
-		return -EINVAL;
-	}
 }
-
-RequestId ScheduleRead(VmdkHandle handle, const void* privatep,
-		char *bufferp, size_t length, uint64_t offset) {
-	try {
-		return pio::ScheduleRead(handle, privatep, bufferp, length, offset);
-	} catch (const std::exception& e) {
-		return kInvalidRequestID;
-	}
-}
-
-RequestId ScheduleWrite(VmdkHandle handle, const void* privatep,
-		char *bufferp, size_t length, uint64_t offset) {
-	try {
-		return pio::ScheduleWrite(handle, privatep, bufferp, length, offset);
-	} catch (const std::exception& e) {
-		return kInvalidRequestID;
-	}
-}
-
-RequestId ScheduleWriteSame(VmdkHandle handle, const void* privatep,
-		char *bufferp, size_t buffer_length, uint64_t transfer_length,
-		uint64_t offset) {
-	try {
-		return pio::ScheduleWriteSame(handle, privatep, bufferp, buffer_length,
-			transfer_length, offset);
-	} catch (const std::exception& e) {
-		return kInvalidRequestID;
-	}
-}
-
-int RequestAbort(VmdkHandle handle, RequestId request_id) {
-	try {
-		return pio::RequestAbort(handle, request_id);
-	} catch (const std::exception& e) {
-		return -1;
-	}
-}
-
-uint32_t GetCompleteRequests(VmdkHandle handle, RequestResult *resultsp,
-		uint32_t nresults, bool *has_morep) {
-	try {
-		return pio::GetCompleteRequests(handle, resultsp, nresults, has_morep);
-	} catch (const std::exception& e) {
-		*has_morep = true;
-		return 0;
-	}
-}
-#endif

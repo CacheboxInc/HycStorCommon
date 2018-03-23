@@ -69,7 +69,7 @@ void NewVmRest(const std::shared_ptr<Session> session) {
 	session->fetch(len, [&] (const std::shared_ptr<Session> session, const Bytes& body)  mutable {
 		req_data.assign(body.begin(), body.end());
 		LOG(INFO) << "VM Configuration " << req_data;
-		vm_handle = ::NewVm(vmid.c_str(), req_data.c_str());
+		vm_handle = pio::NewVm(vmid, req_data);
 	});
 
 	if (vm_handle == kInvalidVmHandle) {
@@ -112,7 +112,7 @@ void NewVmdkRest(const std::shared_ptr<Session> session) {
 
 	auto vmid = request->get_path_parameter("vmid");
 
-	auto vm_handle = ::GetVmHandle(vmid.c_str());
+	auto vm_handle = pio::GetVmHandle(vmid);
 	if (vm_handle == kInvalidVmHandle) {
 		LOG(ERROR) << "Adding new VMDK failed."
 			<< " Invalid VmID = " << vmid ;
@@ -130,7 +130,7 @@ void NewVmdkRest(const std::shared_ptr<Session> session) {
 	session->fetch(len, [&] (const std::shared_ptr<Session> session, const Bytes& body) {
 		req_data.assign(body.begin(), body.end());
 		LOG(INFO) << "VMDK Configuration " << req_data;
-		vmdk_handle = ::NewActiveVmdk(vm_handle, vmdkid.c_str(), req_data.c_str());
+		vmdk_handle = pio::NewActiveVmdk(vm_handle, vmdkid, req_data);
 	});
 
 	if (vmdk_handle == kInvalidVmdkHandle) {

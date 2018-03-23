@@ -5,6 +5,7 @@
 
 #include "IDs.h"
 #include "JsonConfig.h"
+#include <map>
 
 namespace pio { namespace config {
 class VmdkConfig : public JsonConfig {

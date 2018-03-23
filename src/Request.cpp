@@ -298,7 +298,8 @@ void RequestBuffer::InitBuffer(bool is_mem_align) {
 	if (is_mem_align == false) {
  		buf = ::malloc(size_);
  	} else {
- 		::posix_memalign(&buf, size_, size_);
+		auto rc = ::posix_memalign(&buf, size_, size_);
+		(void) rc;
  	}
 	if (buf == nullptr) {
 		throw std::bad_alloc();

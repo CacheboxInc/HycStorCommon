@@ -47,7 +47,7 @@ public:
 	// stub
 	void async_tm_OpenVm(std::unique_ptr<HandlerCallback<VmHandle>> cb,
 			std::unique_ptr<std::string> vmid) override {
-		cb->result(GetVmHandle(vmid.get()->c_str()));
+		cb->result(GetVmHandle(*vmid.get()));
 	}
 
 	// stub
@@ -60,7 +60,7 @@ public:
 	void async_tm_OpenVmdk(std::unique_ptr<HandlerCallback<VmdkHandle>> cb,
 			std::unique_ptr<std::string> vmid,
 			std::unique_ptr<std::string> vmdkid) override {
-		cb->result(GetVmdkHandle(vmdkid.get()->c_str()));
+		cb->result(GetVmdkHandle(*vmdkid.get()));
 	}
 
 	// stub

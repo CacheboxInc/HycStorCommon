@@ -82,7 +82,6 @@ add_subdirectory(RestServer)
 add_subdirectory(Common)
 add_subdirectory(Commands)
 add_subdirectory(tests)
-add_subdirectory(C-Client)
 add_subdirectory(stord)
 
 # Install the storage library

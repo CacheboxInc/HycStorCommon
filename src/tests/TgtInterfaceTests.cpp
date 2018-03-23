@@ -16,10 +16,9 @@ using namespace pio::config;
 
 class TgtInterfaceTest : public ::testing::Test {
 public:
+
 	static void SetUpTestCase() {
-		/* InitializeLibrary -- internally initialized google logging */
-		google::ShutdownGoogleLogging();
-		InitializeLibrary();
+
 	}
 
 	static void TearDownTestCase() {
