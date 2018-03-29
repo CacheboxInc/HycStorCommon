@@ -29,7 +29,7 @@ VmdkHandle Vmdk::GetHandle() const noexcept {
 	return handle_;
 }
 
-ActiveVmdk::ActiveVmdk(VirtualMachine *vmp, VmdkHandle handle, VmdkID id,
+ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 		const std::string& config) : Vmdk(handle, std::move(id)), vmp_(vmp),
 		config_(std::make_unique<config::VmdkConfig>(config)) {
 	uint32_t block_size;

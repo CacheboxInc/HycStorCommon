@@ -46,6 +46,7 @@ set(StorageLayerFiles
 	VmConfig.cpp
 	Vmdk.cpp
 	VmdkConfig.cpp
+	VmdkFactory.cpp
 
 	RangeLock.cpp
 	Request.cpp

@@ -21,13 +21,13 @@ TEST(ActiveVmdkTest, Constructor_Exception) {
 
 		/* block_size must be power of 2 */
 		EXPECT_THROW(
-			ActiveVmdk vmdk(nullptr, 1, "1", config.Serialize()),
+			ActiveVmdk vmdk(1, "1", nullptr, config.Serialize()),
 			std::invalid_argument);
 	}
 
 	for (auto i = 0; i < 30; ++i) {
 		config::VmdkConfig config;
 		DefaultVmdkConfig(config, 1ull << i);
-		ActiveVmdk vmdk(nullptr, 1, "1", config.Serialize());
+		ActiveVmdk vmdk(1, "1", nullptr, config.Serialize());
 	}
 }

@@ -57,7 +57,7 @@ protected:
 
 class ActiveVmdk : public Vmdk {
 public:
-	ActiveVmdk(VirtualMachine *vmp, VmdkHandle handle, VmdkID id,
+	ActiveVmdk(VmdkHandle handle, VmdkID vmdk_id, VirtualMachine *vmp,
 		const std::string& config);
 	virtual ~ActiveVmdk();
 
@@ -113,6 +113,9 @@ private:
 
 class SnapshotVmdk : public Vmdk {
 public:
+	SnapshotVmdk(VmdkHandle handle, VmdkID vmdk_id) :
+			Vmdk(handle, std::move(vmdk_id)) {
+	}
 private:
 	Vmdk*               parentp_{nullptr};
 	std::vector<Vmdk *> chidren_;

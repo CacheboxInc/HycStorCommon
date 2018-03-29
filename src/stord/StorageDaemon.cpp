@@ -18,6 +18,8 @@
 #include "Request.h"
 #include "Vmdk.h"
 #include "HycRestServer.h"
+#include "VmdkFactory.h"
+#include "Singleton.h"
 
 using namespace apache::thrift;
 using namespace apache::thrift::async;
@@ -73,8 +75,10 @@ public:
 			std::unique_ptr<HandlerCallback<std::unique_ptr<ReadResult>>> cb,
 			VmdkHandle vmdk, RequestId reqid, int32_t size, int64_t offset)
 			override {
-		auto vmdkp = VmdkFromVmdkHandle(vmdk);
-		assert(vmdkp != nullptr);
+		auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdk);
+		assert(pio_likely(p));
+		auto vmdkp = dynamic_cast<ActiveVmdk*>(p);
+		assert(pio_likely(vmdkp));
 
 		auto vmp = vmdkp->GetVM();
 		assert(vmp != nullptr);
@@ -99,8 +103,10 @@ public:
 			std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
 			VmdkHandle vmdk, RequestId reqid, std::unique_ptr<std::string> data,
 			int32_t size, int64_t offset) override {
-		auto vmdkp = VmdkFromVmdkHandle(vmdk);
-		assert(vmdkp != nullptr);
+		auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdk);
+		assert(pio_likely(p));
+		auto vmdkp = dynamic_cast<ActiveVmdk*>(p);
+		assert(pio_likely(vmdkp));
 
 		auto vmp = vmdkp->GetVM();
 		assert(vmp != nullptr);
@@ -181,6 +187,7 @@ int main(int argc, char* argv[])
 
 #endif
 
+	InitStordLib();
 	auto ret = HycRestServerStart();
 	if (ret) {
 		// TODO deinitializeLib
@@ -202,6 +209,7 @@ int main(int argc, char* argv[])
 	thirft_server->serve();
 
 	HycRestServerStop();
+	DeinitStordLib();
 
 	return ret;
 }

@@ -18,19 +18,17 @@ class TgtInterfaceTest : public ::testing::Test {
 public:
 
 	static void SetUpTestCase() {
-
+		InitStordLib();
 	}
 
 	static void TearDownTestCase() {
-
+		DeinitStordLib();
 	}
 
 	virtual void SetUp() {
-
 	}
 
 	virtual void TearDown() {
-
 	}
 
 	VmHandle AddVm(const std::string& vmid) {

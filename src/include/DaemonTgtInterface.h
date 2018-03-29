@@ -9,7 +9,8 @@ namespace pio {
 
 ActiveVmdk* VmdkFromVmdkHandle(VmdkHandle handle);
 
-int InitializeLibrary(void);
+int InitStordLib(void);
+int DeinitStordLib(void);
 
 VmHandle NewVm(pio::VmID vmid, const std::string& config);
 VmHandle GetVmHandle(const std::string& vmid);
