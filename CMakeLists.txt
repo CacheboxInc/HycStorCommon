@@ -60,6 +60,8 @@ link_directories(${PROJECT_SOURCE_DIR}/lib)
 link_directories("/usr/local/lib")
 link_directories(${PROJECT_SOURCE_DIR}/install/lib)
 link_directories(${PROJECT_SOURCE_DIR}/thirdparty/restbed/distribution/library/)
+link_directories(${PROJECT_SOURCE_DIR}/thirdparty/ha-lib/build/src/)
+link_directories(${PROJECT_SOURCE_DIR}/thirdparty/ha-lib/third-party/lib/)
 
 set(CUSTOM_LIBRARY_PATH ${PROJECT_SOURCE_DIR}/lib)
 

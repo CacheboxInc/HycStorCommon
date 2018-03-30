@@ -35,7 +35,7 @@ void HelloWorld(const std::shared_ptr<Session> session) {
 	});
 }
 
-std::string exec(const std::string& cmd, int& status)
+static std::string exec(const std::string& cmd, int& status)
 {
 	std::array<char, 128> buffer;
 	std::string result;

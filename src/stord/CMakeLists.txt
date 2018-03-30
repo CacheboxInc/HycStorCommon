@@ -3,9 +3,22 @@ set(CMAKE_VERBOSE_MAKEFILE on)
 include_directories(include)
 include_directories(${PROJECT_SOURCE_DIR}/src/RestServer/include)
 include_directories(${CMAKE_BINARY_DIR}/src/thrift/)
+include_directories(${PROJECT_SOURCE_DIR}/thirdparty/ha-lib/third-party/include)
+include_directories(${PROJECT_SOURCE_DIR}/thirdparty/ha-lib/src)
 
 add_executable(stord
 	StorageDaemon.cpp
+)
+
+set(HA_LIBS
+	ha
+	base64
+	curl
+	jansson
+	microhttpd
+	orcania
+	ulfius
+	yder
 )
 
 target_link_libraries(stord
@@ -20,6 +33,7 @@ target_link_libraries(stord
 	StorRpcLib
 	StorageLayer
 	RestServer
+	${HA_LIBS}
 	${COMPRESS_LIBS}
 	${LIBRARY_LIST}
 	-Wl,--end-group
