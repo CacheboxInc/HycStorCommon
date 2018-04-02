@@ -62,9 +62,11 @@ public:
 			std::unique_ptr<HandlerCallback<std::unique_ptr<ReadResult>>> cb,
 			VmdkHandle vmdk, RequestId reqid, int32_t size, int64_t offset)
 			override {
-		std::string data(size, 'A');
+		auto iobuf = folly::IOBuf::create(size);
+		::memset(iobuf->writableTail(), 'A', size);
+		iobuf->append(size);
 		auto read = std::make_unique<ReadResult>();
-		read->set_data(std::move(data));
+		read->set_data(std::move(iobuf));
 		read->set_reqid(reqid);
 		read->set_result(0);
 		cb->result(std::move(read));
@@ -73,7 +75,7 @@ public:
 
 	void async_tm_Write(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
-			VmdkHandle vmdk, RequestId reqid, std::unique_ptr<std::string> data,
+			VmdkHandle vmdk, RequestId reqid, std::unique_ptr<IOBufPtr> data,
 			int32_t size, int64_t offset) override {
 		auto write = std::make_unique<WriteResult>();
 		write->set_reqid(reqid);
@@ -84,7 +86,7 @@ public:
 
 	void async_tm_WriteSame(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
-			VmdkHandle vmdk, RequestId reqid, std::unique_ptr<std::string> data,
+			VmdkHandle vmdk, RequestId reqid, std::unique_ptr<IOBufPtr> data,
 			int32_t data_size, int32_t write_size, int64_t offset) override {
 		auto write = std::make_unique<WriteResult>();
 		write->set_reqid(reqid);

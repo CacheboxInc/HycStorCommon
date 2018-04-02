@@ -155,7 +155,7 @@ private:
 	int32_t Disconnect();
 	void UpdateStats(Request* reqp);
 	void PostRequestCompletion() const;
-
+	void ReadDataCopy(Request* reqp, const ReadResult& result);
 private:
 	RpcConnectHandle rpc_handle_{kInvalidRpcHandle};
 	std::string vmid_;
@@ -537,6 +537,23 @@ uint32_t RpcConnection::GetCompleteRequests(RequestResult* resultsp,
 	return tocopy;
 }
 
+void RpcConnection::ReadDataCopy(Request* reqp, const ReadResult& result) {
+	assert(hyc_likely(result.data->computeChainDataLength() ==
+		static_cast<size_t>(reqp->buf_sz)));
+
+	auto bufp = reqp->bufferp;
+	auto const* p = result.data.get();
+	auto e = result.data->countChainElements();
+	for (auto c = 0u; c > e; ++c, p = p->next()) {
+		auto l = p->length();
+		if (not l) {
+			continue;
+		}
+		::memcpy(bufp, p->data(), l);
+		bufp += l;
+	}
+}
+
 RequestID RpcConnection::ScheduleRead(const void* privatep, char* bufferp,
 		int32_t buf_sz, int64_t offset) {
 	assert(vmdk_handle_ != kInvalidVmdkHandle);
@@ -552,8 +569,7 @@ RequestID RpcConnection::ScheduleRead(const void* privatep, char* bufferp,
 		.then([this, reqp] (const ReadResult& result) mutable {
 			reqp->result = result.get_result();
 			if (hyc_likely(reqp->result == 0)) {
-				assert((uint32_t)reqp->buf_sz == result.get_data().size());
-				::memcpy(reqp->bufferp, result.get_data().data(), reqp->buf_sz);
+				ReadDataCopy(reqp, result);
 			}
 			RequestComplete(reqp);
 		})
@@ -576,11 +592,12 @@ RequestID RpcConnection::ScheduleWrite(const void* privatep, char* bufferp,
 
 	++this->requests_.pending_;
 
-	assert(hyc_likely(data.size() == (uint32_t)buf_sz));
 	base_->runInEventBaseThread([this, reqp, bufferp, buf_sz, offset] () mutable {
-		std::string data(bufferp, buf_sz);
+		auto data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
+			bufferp, buf_sz);
 		client_->future_Write(vmdk_handle_, reqp->id, data, buf_sz, offset)
-		.then([this, reqp] (const WriteResult& result) mutable {
+		.then([this, reqp, data = std::move(data)]
+				(const WriteResult& result) mutable {
 			reqp->result = result.get_result();
 			RequestComplete(reqp);
 		})
@@ -602,13 +619,14 @@ RequestID RpcConnection::ScheduleWriteSame(const void* privatep, char* bufferp,
 	}
 
 	++this->requests_.pending_;
-	assert(hyc_likely(data.size() == (uint32_t)buf_sz));
 	base_->runInEventBaseThread([this, reqp, bufferp, buf_sz,
 				write_sz, offset] () mutable {
-		std::string data(bufferp, buf_sz);
+		auto data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
+			bufferp, buf_sz);
 		client_->future_WriteSame(vmdk_handle_, reqp->id, data, buf_sz,
 			write_sz, offset)
-		.then([this, reqp] (const WriteResult& result) mutable {
+		.then([this, reqp, data = std::move(data)]
+				(const WriteResult& result) mutable {
 			reqp->result = result.get_result();
 			RequestComplete(reqp);
 		})

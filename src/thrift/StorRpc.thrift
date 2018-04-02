@@ -3,11 +3,12 @@ namespace cpp2 hyc_thrift
 typedef i64 RequestId
 typedef i64 VmHandle
 typedef i64 VmdkHandle
+typedef binary (cpp.type = "std::unique_ptr<folly::IOBuf>") IOBufPtr
 
 struct ReadResult {
 	1: required RequestId reqid;
 	2: required i32 result;
-	3: required binary data;
+	3: required IOBufPtr data;
 }
 
 struct WriteResult {
@@ -51,9 +52,9 @@ service StorRpc {
 
 	ReadResult Read(1: VmdkHandle vmdk, 2: RequestId reqid, 3: i32 size,
 		4: i64 offset);
-	WriteResult Write(1: VmdkHandle vmdk, 2: RequestId reqid, 3: binary data,
+	WriteResult Write(1: VmdkHandle vmdk, 2: RequestId reqid, 3: IOBufPtr data,
 		4: i32 size, 5: i64 offset);
-	WriteResult WriteSame(1: VmdkHandle vmdk, 2: RequestId reqid, 3: binary data,
+	WriteResult WriteSame(1: VmdkHandle vmdk, 2: RequestId reqid, 3: IOBufPtr data,
 		4: i32 data_size, 5: i32 write_size, 6: i64 offset);
 	AbortResult Abort(1: VmdkHandle vmdk, 2: RequestId reqid);
 }
