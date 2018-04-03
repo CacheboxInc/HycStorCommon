@@ -73,3 +73,5 @@ Complete setup steps :
 	#cd hyc-storage-layer/thirdparty/CRoaring/build
 	#./src/tests/StorageLayerTests --gtest_filter=RoaringBitmapSpaceBenchmark.*``
 
+7. Starting stord,
+./stord -etcd_ip="http://127.0.0.1:2379" -stord_version="v1.0" -svc_label="stord_svc"
