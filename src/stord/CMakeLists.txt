@@ -32,7 +32,6 @@ target_link_libraries(stord
 	CommonLib
 	StorRpcLib
 	StorageLayer
-	RestServer
 	${HA_LIBS}
 	${COMPRESS_LIBS}
 	${LIBRARY_LIST}

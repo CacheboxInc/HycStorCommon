@@ -79,7 +79,6 @@ target_link_libraries(StorageLayer
 )
 
 add_subdirectory(thrift)
-add_subdirectory(RestServer)
 add_subdirectory(Common)
 add_subdirectory(Commands)
 add_subdirectory(tests)

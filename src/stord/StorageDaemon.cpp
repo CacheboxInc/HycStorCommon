@@ -465,14 +465,6 @@ int main(int argc, char* argv[])
 	}
 
 	InitStordLib();
-	auto ret = HycRestServerStart();
-	if (ret) {
-		LOG(ERROR) << "Rest server start failed " << ret;
-		return ret;
-	}
-
-	LOG(INFO) << "Rest server started.";
-
 	auto si = std::make_shared<StorRpcSvImpl>();
 	thirft_server = std::make_shared<ThriftServer>();
 
@@ -484,8 +476,7 @@ int main(int argc, char* argv[])
 
 	thirft_server->serve();
 
-	HycRestServerStop();
 	DeinitStordLib();
 
-	return ret;
+	return 0;
 }
