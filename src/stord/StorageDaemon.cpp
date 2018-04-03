@@ -19,7 +19,6 @@
 #include "Vmdk.h"
 #include "VmConfig.h"
 #include "VmdkConfig.h"
-#include "HycRestServer.h"
 #include "halib.h"
 #include "VmdkFactory.h"
 #include "Singleton.h"
