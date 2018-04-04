@@ -17,19 +17,13 @@
 #include "CacheHandler.h"
 #include "VmdkConfig.h"
 #include "VmdkFactory.h"
+#include "VmManager.h"
 #include "Singleton.h"
 
 using namespace ::hyc_thrift;
 
 namespace pio {
 using namespace folly;
-
-struct vms {
-	std::mutex mutex_;
-	std::atomic<VmHandle> handle_{0};
-	std::unordered_map<VmID, std::unique_ptr<VirtualMachine>> ids_;
-	std::unordered_map<VmHandle, VirtualMachine*> handles_;
-} g_vms;
 
 struct {
 	std::once_flag initialized_;
@@ -39,6 +33,7 @@ int InitStordLib(void) {
 	try {
 		std::call_once(g_init_.initialized_, [=] () mutable {
 			SingletonHolder<VmdkManager>::CreateInstance();
+			SingletonHolder<VmManager>::CreateInstance();
 		});
 	} catch (const std::exception& e) {
 		return -1;
@@ -50,59 +45,16 @@ int DeinitStordLib(void) {
 	return 0;
 }
 
-static VirtualMachine* VmFromVmID(const std::string& vmid) {
-	std::lock_guard<std::mutex> lock(g_vms.mutex_);
-	auto it = g_vms.ids_.find(vmid);
-	if (pio_unlikely(it == g_vms.ids_.end())) {
+VmHandle NewVm(VmID vmid, const std::string& config) {
+	auto managerp = SingletonHolder<VmManager>::GetInstance();
+	if (auto vmp = managerp->GetInstance(vmid); pio_unlikely(vmp)) {
+		LOG(ERROR) << "VirtualMachine already present";
 		return kInvalidVmHandle;
 	}
-	return it->second.get();
-}
 
-static VirtualMachine* VmFromVmHandle(VmHandle handle) {
-	std::lock_guard<std::mutex> lock(g_vms.mutex_);
-	auto it = g_vms.handles_.find(handle);
-	if (pio_unlikely(it == g_vms.handles_.end())) {
-		return nullptr;
-	}
-	return it->second;
-}
-
-static void RemoveVmHandleLocked(VmHandle handle) {
-	auto it1 = g_vms.handles_.find(handle);
-	if (it1 != g_vms.handles_.end()) {
-		auto it2 = g_vms.ids_.find(it1->second->GetID());
-		if (it2 != g_vms.ids_.end()) {
-			g_vms.ids_.erase(it2);
-		}
-		g_vms.handles_.erase(it1);
-	}
-}
-
-void RemoveVm(VmHandle handle) {
-	std::lock_guard<std::mutex> lock(g_vms.mutex_);
-	RemoveVmHandleLocked(handle);
-}
-
-VmHandle NewVm(VmID vmid, const std::string& config) {
-	std::lock_guard<std::mutex> lock(g_vms.mutex_);
-
-	auto handle = ++g_vms.handle_;
 	try {
-		if (auto it = g_vms.ids_.find(vmid);
-				pio_unlikely(it != g_vms.ids_.end())) {
-			LOG(ERROR) << __func__ << "vmid " << vmid << " already present.";
-			return kInvalidVmHandle;
-		}
-
-		auto vmp = std::make_unique<VirtualMachine>(handle, vmid, config);
-		g_vms.handles_.insert(std::make_pair(handle, vmp.get()));
-		g_vms.ids_.insert(std::make_pair(std::move(vmid), std::move(vmp)));
-		return handle;
-	} catch (const std::bad_alloc& e) {
-		LOG(ERROR) << __func__ <<  " vmid " << vmid
-			<< " failed because of std::bad_alloc exception";
-		RemoveVmHandleLocked(handle);
+		return managerp->CreateInstance(std::move(vmid), config);
+	} catch (...) {
 		return kInvalidVmHandle;
 	}
 }
@@ -116,7 +68,7 @@ VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 		return kInvalidVmdkHandle;
 	}
 
-	auto vmp = VmFromVmHandle(vm_handle);
+	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
 	if (pio_unlikely(not vmp)) {
 		return kInvalidVmdkHandle;
 	}
@@ -148,7 +100,7 @@ VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 
 VmHandle GetVmHandle(const std::string& vmid) {
 	try {
-		auto vmp = pio::VmFromVmID(vmid);
+		auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vmid);
 		if (pio_unlikely(not vmp)) {
 			return kInvalidVmHandle;
 		}
@@ -157,6 +109,15 @@ VmHandle GetVmHandle(const std::string& vmid) {
 		return kInvalidVmHandle;
 	}
 }
+
+void RemoveVm(VmHandle handle) {
+	try {
+		SingletonHolder<VmManager>::GetInstance()->FreeInstance(handle);
+	} catch (...) {
+
+	}
+}
+
 
 VmdkHandle GetVmdkHandle(const std::string& vmdkid) {
 	try {
