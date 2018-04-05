@@ -145,32 +145,19 @@ static void Usr1SignalHandler(int signal) {
 	thirft_server->stop();
 }
 
+static bool ValidatePort(const char *flag, int port) {
+	if (port > 0 && port < 32768) {
+		return true;
+	}
+	LOG(ERROR) << "Invalid value for " << flag << ": " << port;
+	return false;
+}
+
 DEFINE_string(etcd_ip, "", "etcd_ip supplied by HA");
 DEFINE_string(svc_label, "", "represents service label for the service");
 DEFINE_string(stord_version, "", "protocol version of tgt");
-
-static std::string exec(const std::string& cmd, int& status)
-{
-	std::array<char, 128> buffer;
-	std::string result;
-
-	LOG(INFO) << "Executing cmd: " << cmd;
-
-	std::shared_ptr<FILE> filp(::popen(cmd.c_str(), "r"), [&] (FILE *filp) mutable {
-		int ret = pclose(filp);
-		status = WEXITSTATUS(ret);
-	});
-
-	if (!filp) {
-		throw std::runtime_error("::open failed");
-	}
-
-	while (!feof(filp.get())) {
-		if (fgets(buffer.data(), buffer.size(), filp.get()) != nullptr)
-			result += buffer.data();
-	}
-	return result;
-}
+DEFINE_int32(ha_svc_port, 0, "ha service port number");
+DEFINE_validator(ha_svc_port, &ValidatePort);
 
 static struct {
 	std::once_flag initialized_;
@@ -270,28 +257,6 @@ static int NewVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
 		return HA_CALLBACK_CONTINUE;
 	}
-	pio::config::VmConfig config(req_data);
-
-	uint32_t id;
-	config.GetTargetId(id);
-	std::string name = config.GetTargetName();
-
-	std::ostringstream os;
-	os << "tgtadm --lld iscsi --mode target --op new"
-		<< " --tid=" << id
-		<< " --targetname " << name;
-
-	int failed = 0;
-	auto result = exec(os.str(), failed);
-
-	if (failed) {
-		std::ostringstream es;
-		es << os.str() << " Failed with, " << result;
-		es << "tgt target create failed";
-		SetErrMsg(resp, STORD_ERR_TARGET_CREATE, es.str());
-		RemoveVm(vm_handle);
-		return HA_CALLBACK_CONTINUE;
-	}
 
 	LOG(INFO) << "Added VmID " << vmid << " VmHandle " << vm_handle;
 	const auto res = std::to_string(vm_handle);
@@ -344,35 +309,6 @@ static int NewVmdk(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 			<< " VmHandle = " << vm_handle
 			<< " VmdkID = " << vmdkid;
 		SetErrMsg(resp, STORD_ERR_INVALID_VMDK, es.str());
-		return HA_CALLBACK_CONTINUE;
-	}
-	pio::config::VmdkConfig config(req_data);
-
-	uint32_t tid;
-	config.GetTargetId(tid);
-	uint32_t lid;
-	config.GetLunId(lid);
-
-	std::string dev_path = config.GetDevPath();
-
-	std::ostringstream os;
-	os << "tgtadm --lld iscsi --mode logicalunit --op new"
-		<< " --tid=" << tid
-		<< " --lun=" << lid
-		<< " -b " << dev_path
-		<< " --bstype hyc"
-		<< " --bsopts "
-		<< "vmid=" << vmid
-		<< ":"
-		<< "vmdkid=" << vmdkid;
-
-	int failed = 0;
-	auto result = exec(os.str(), failed);
-	if (failed) {
-		std::ostringstream es;
-		es << os.str() << " Failed with, " << result;
-		RemoveVmdk(vmdk_handle);
-		SetErrMsg(resp, STORD_ERR_LUN_CREATE, es.str());
 		return HA_CALLBACK_CONTINUE;
 	}
 	LOG(INFO) << "Added VMDK VmID " << vmid
@@ -453,9 +389,10 @@ int main(int argc, char* argv[])
 	handlers->ha_endpoints[1].ha_user_data = NULL;
 	handlers->ha_count += 1;
 
-	g_thread_.ha_instance_ = ::ha_initialize(FLAGS_etcd_ip.c_str(),
-			FLAGS_svc_label.c_str(), FLAGS_stord_version.c_str(),
-			120, const_cast<const struct ha_handlers *> (handlers.get()),
+	g_thread_.ha_instance_ = ::ha_initialize(FLAGS_ha_svc_port,
+			FLAGS_etcd_ip.c_str(), FLAGS_svc_label.c_str(),
+			FLAGS_stord_version.c_str(), 120,
+			const_cast<const struct ha_handlers *> (handlers.get()),
 			StordHaStartCallback, StordHaStopCallback);
 
 	if (g_thread_.ha_instance_ == nullptr) {
