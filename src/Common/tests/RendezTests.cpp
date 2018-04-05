@@ -5,6 +5,7 @@
 
 #include "ThreadPool.h"
 #include "Rendez.h"
+#include "QLock.h"
 
 using namespace pio;
 
@@ -108,4 +109,52 @@ TEST(RendezTest, TaskWakeUpAll) {
 		EXPECT_TRUE(f.isReady());
 		EXPECT_FALSE(rendez.IsSleeping());
 	}
+}
+
+TEST(RendezTest, QLock) {
+	if (std::thread::hardware_concurrency() <= 1) {
+		/* The test cannot be run on single core machine */
+		return;
+	}
+
+	const int kLoop = 1ull << 18;
+	ThreadPool pool(std::thread::hardware_concurrency());
+	pool.CreateThreads();
+
+	std::vector<folly::Future<int>> futures;
+	std::atomic<bool> stop{false};
+
+	QLock mutex;
+	Rendez rendez;
+	{
+		auto promise = std::make_unique<folly::Promise<int>>();
+		futures.emplace_back(promise->getFuture());
+		pool.AddTask([promise = std::move(promise), &rendez, &mutex, &stop] ()
+				mutable {
+			for (auto i = 0; i < kLoop; ++i) {
+				mutex.lock();
+				rendez.TaskSleep(&mutex);
+				mutex.unlock();
+			}
+			promise->setValue(0);
+			stop = true;
+		});
+	}
+	{
+		auto promise = std::make_unique<folly::Promise<int>>();
+		futures.emplace_back(promise->getFuture());
+		pool.AddTask([promise = std::move(promise), &rendez, &mutex, &stop] ()
+				mutable {
+			while (not stop) {
+				mutex.lock();
+				rendez.TaskWakeUp();
+				mutex.unlock();
+			}
+			promise->setValue(0);
+		});
+	}
+
+	auto f = folly::collectAll(std::move(futures));
+	f.wait(std::chrono::milliseconds(5000));
+	EXPECT_TRUE(f.isReady());
 }

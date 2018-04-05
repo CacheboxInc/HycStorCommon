@@ -18,6 +18,9 @@ void QLock::lock() {
 		auto batonp = baton.get();
 		{
 			std::lock_guard<SpinLock> lock_(waiters_.mutex_);
+			if (not lock_flag_.test_and_set(std::memory_order_acquire)) {
+				return;
+			}
 			waiters_.queue_.push(batonp);
 		}
 		batonp->wait();
