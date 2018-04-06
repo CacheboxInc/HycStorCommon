@@ -9,7 +9,7 @@ extern "C"  {
 #include <stdbool.h>
 #endif
 
-void HycStorInitialize(int argc, char *argv[]);
+void HycStorInitialize(int argc, char *argv[], char *stord_ip, uint16_t stord_port);
 RpcConnectHandle HycStorRpcServerConnect(void);
 int32_t HycStorRpcServerDisconnect(RpcConnectHandle handle);
 int32_t HycOpenVmdk(RpcConnectHandle handle, const char* vmid, const char* vmdkid,

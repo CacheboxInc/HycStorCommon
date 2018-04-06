@@ -31,8 +31,8 @@ using namespace apache::thrift::async;
 using namespace hyc_thrift;
 using namespace folly;
 
-static constexpr int32_t kServerPort = 9876;
-static const std::string kServerIp = "127.0.0.1";
+static std::string StordIp;
+static uint16_t StordPort;
 
 class ReschedulingTimeout : public AsyncTimeout {
 public:
@@ -306,7 +306,7 @@ int32_t RpcConnection::Connect() {
 			auto client = std::make_unique<StorRpcAsyncClient>(
 				HeaderClientChannel::newChannel(
 					async::TAsyncSocket::newSocket(base.get(),
-						{kServerIp, kServerPort})));
+						{StordIp, StordPort})));
 
 			{
 				/*
@@ -734,9 +734,13 @@ RequestID RpcScheduleWriteSame(RpcConnectHandle handle, const void* privatep,
 
 } // namespace hyc
 
-void HycStorInitialize(int argc, char *argv[]) {
+void HycStorInitialize(int argc, char *argv[], char *stord_ip,
+		uint16_t stord_port) {
 	FLAGS_v = 2;
 	folly::init(&argc, &argv);
+
+	hyc::StordIp.assign(stord_ip);
+	hyc::StordPort = stord_port;
 }
 
 RpcConnectHandle HycStorRpcServerConnect() {
