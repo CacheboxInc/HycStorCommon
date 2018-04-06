@@ -576,9 +576,9 @@ RequestID RpcConnection::ScheduleWrite(const void* privatep, char* bufferp,
 
 	++this->requests_.pending_;
 
-	assert(hyc_likely(data.size() == (uint32_t)buf_sz));
 	base_->runInEventBaseThread([this, reqp, bufferp, buf_sz, offset] () mutable {
 		std::string data(bufferp, buf_sz);
+		assert(hyc_likely(data.size() == (uint32_t)buf_sz));
 		client_->future_Write(vmdk_handle_, reqp->id, data, buf_sz, offset)
 		.then([this, reqp] (const WriteResult& result) mutable {
 			reqp->result = result.get_result();
@@ -602,10 +602,10 @@ RequestID RpcConnection::ScheduleWriteSame(const void* privatep, char* bufferp,
 	}
 
 	++this->requests_.pending_;
-	assert(hyc_likely(data.size() == (uint32_t)buf_sz));
 	base_->runInEventBaseThread([this, reqp, bufferp, buf_sz,
 				write_sz, offset] () mutable {
 		std::string data(bufferp, buf_sz);
+		assert(hyc_likely(data.size() == (uint32_t)buf_sz));
 		client_->future_WriteSame(vmdk_handle_, reqp->id, data, buf_sz,
 			write_sz, offset)
 		.then([this, reqp] (const WriteResult& result) mutable {
