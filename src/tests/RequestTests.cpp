@@ -67,7 +67,7 @@ TEST(RequestTest, ReadTest) {
 		ActiveVmdk vmdk(1, "1", nullptr, config.Serialize());
 		for (auto nblocks = 2; nblocks <= 10; ++nblocks) {
 			size_t buffer_size = blocks_size * nblocks;
-			auto bufferp = std::make_unique<RequestBuffer>(buffer_size);
+			auto bufferp = NewRequestBuffer(buffer_size);
 			for (auto i = kInvalidRequestID + 1; i <= 3000; ++i) {
 				Offset offset = i * kSectorSize;
 				Request r(i, &vmdk, Request::Type::kRead, bufferp->Payload(),
@@ -106,7 +106,7 @@ TEST(RequestTest, WriteTest) {
 		ActiveVmdk vmdk(1, "1", nullptr, config.Serialize());
 		for (auto nblocks = 2; nblocks <= 10; ++nblocks) {
 			size_t buffer_size = blocks_size * nblocks;
-			auto bufferp = std::make_unique<RequestBuffer>(buffer_size);
+			auto bufferp = NewRequestBuffer(buffer_size);
 			auto payload = bufferp->Payload();
 			::memset(payload, 'A', bufferp->Size());
 
@@ -159,7 +159,7 @@ TEST(RequestTest, WriteSameTest) {
 	config::VmdkConfig config;
 	DefaultVmdkConfig(config, blocks_size);
 	ActiveVmdk vmdk(1, "1", nullptr, config.Serialize());
-	auto bufferp = std::make_unique<RequestBuffer>(buffer_size);
+	auto bufferp = NewRequestBuffer(buffer_size);
 	auto payload = bufferp->Payload();
 	::memset(payload, 'A', bufferp->Size());
 
@@ -192,4 +192,58 @@ TEST(RequestTest, WriteSameTest) {
 	});
 	EXPECT_EQ(to_copy, 0);
 	EXPECT_EQ(cur_block-1, end);
+}
+
+TEST(RequestBuffer, WrappedBuffer) {
+	const char kSetChar{'A'};
+	auto buffer = new char[kPageSize];
+	::memset(buffer, kSetChar, kPageSize);
+	EXPECT_TRUE(buffer);
+
+	{
+		auto req_bufp = NewRequestBuffer(buffer, kPageSize);
+		EXPECT_TRUE(req_bufp);
+		EXPECT_EQ(kPageSize, req_bufp->Size());
+
+		auto p = req_bufp->Payload();
+		for (auto i = 0u; i < req_bufp->Size(); ++i, ++p) {
+			EXPECT_EQ(*p, kSetChar);
+		}
+	}
+
+	const char* p = buffer;
+	for (auto i = 0u; i < kPageSize; ++i, ++p) {
+		EXPECT_EQ(*p, kSetChar);
+	}
+	delete[] buffer;
+}
+
+TEST(RequestBuffer, Owned) {
+	const char kSetChar{'A'};
+	auto buffer = NewRequestBuffer(kPageSize);
+	::memset(buffer->Payload(), kSetChar, buffer->Size());
+	EXPECT_TRUE(buffer);
+
+	{
+		auto req_bufp = NewRequestBuffer(buffer->Payload(), buffer->Size());
+		EXPECT_TRUE(req_bufp);
+		EXPECT_EQ(buffer->Payload(), req_bufp->Payload());
+		EXPECT_EQ(buffer->Size(), req_bufp->Size());
+
+		auto p = req_bufp->Payload();
+		for (auto i = 0u; i < req_bufp->Size(); ++i, ++p) {
+			EXPECT_EQ(*p, kSetChar);
+		}
+	}
+
+	const char* p = buffer->Payload();
+	for (auto i = 0u; i < buffer->Size(); ++i, ++p) {
+		EXPECT_EQ(*p, kSetChar);
+	}
+}
+
+TEST(RequestBuffer, Aligned) {
+	auto buffer = NewAlignedRequestBuffer(kPageSize);
+	auto addr = buffer->Payload();
+	EXPECT_FALSE(reinterpret_cast<uintptr_t>(addr) & (kPageSize - 1));
 }

@@ -161,20 +161,27 @@ private:
 
 class RequestBuffer {
 public:
-	using Buffer = std::unique_ptr<char, void (*)(void*)> ;
+	enum class Type {
+		kWrapped,
+		kOwned,
+		kAligned,
+	};
 
-	RequestBuffer(size_t size, bool is_mem_align = false);
+	RequestBuffer(Type type, size_t size);
+	RequestBuffer(char* payloadp, size_t size);
+	~RequestBuffer();
 
 	size_t Size() const;
 	char* Payload();
 private:
-	void InitBuffer(bool is_mem_align);
+	void InitBuffer();
 private:
-	size_t size_;
-	Buffer data_{nullptr, ::free};
+	Type type_{Type::kWrapped};
+	size_t size_{0};
+	char* payloadp_{nullptr};
 };
 
-std::unique_ptr<RequestBuffer> NewRequestBuffer(size_t size,
-	bool is_mem_align = false);
-
+std::unique_ptr<RequestBuffer> NewRequestBuffer(size_t size);
+std::unique_ptr<RequestBuffer> NewAlignedRequestBuffer(size_t size);
+std::unique_ptr<RequestBuffer> NewRequestBuffer(char* payloadp, size_t size);
 }

@@ -87,7 +87,7 @@ Request::Request(RequestID id, ActiveVmdk *vmdkp, Request::Type type, void *buff
 void Request::InitWriteSameBuffer() {
 	log_assert(in_.type_ == Request::Type::kWriteSame);
 	log_assert(in_.transfer_size_ <= kMaxIoSize);
-	auto req_bufp = std::make_unique<RequestBuffer>(in_.transfer_size_);
+	auto req_bufp = NewRequestBuffer(in_.transfer_size_);
 	auto payload  = req_bufp->Payload();
 	auto copy     = in_.transfer_size_;
 	for (; copy > 0; copy -= in_.buffer_size_, payload += in_.buffer_size_) {
@@ -288,23 +288,47 @@ int RequestBlock::Complete() {
 	return ReadResultPrepare();
 }
 
-RequestBuffer::RequestBuffer(size_t size, bool is_mem_align) : size_(size) {
-	InitBuffer(is_mem_align);
+RequestBuffer::RequestBuffer(Type type, size_t size) : type_(type), size_(size) {
+	InitBuffer();
 }
 
-void RequestBuffer::InitBuffer(bool is_mem_align) {
-	void *buf = nullptr;
+RequestBuffer::RequestBuffer(char* payloadp, size_t size) :
+		type_(Type::kWrapped), size_(size), payloadp_(payloadp) {
+}
 
-	if (is_mem_align == false) {
- 		buf = ::malloc(size_);
- 	} else {
-		auto rc = ::posix_memalign(&buf, size_, size_);
-		(void) rc;
- 	}
-	if (buf == nullptr) {
+void RequestBuffer::InitBuffer() {
+	switch (type_) {
+	case Type::kWrapped:
+		log_assert(0);
+		break;
+	case Type::kOwned:
+		payloadp_ = reinterpret_cast<char*>(::malloc(size_));
+		break;
+	case Type::kAligned:
+		auto rc = ::posix_memalign(reinterpret_cast<void**>(&payloadp_),
+			kPageSize, size_);
+		if (pio_unlikely(rc < 0)) {
+			throw std::bad_alloc();
+		}
+		break;
+	}
+
+	if (payloadp_ == nullptr) {
 		throw std::bad_alloc();
 	}
-	data_ = Buffer(reinterpret_cast<char*>(buf), ::free);
+}
+
+RequestBuffer::~RequestBuffer() {
+	switch (type_) {
+	case Type::kWrapped:
+		break;
+	case Type::kOwned:
+	case Type::kAligned:
+		::free(payloadp_);
+		break;
+	}
+	payloadp_ = nullptr;
+	size_ = 0;
 }
 
 size_t RequestBuffer::Size() const {
@@ -312,12 +336,20 @@ size_t RequestBuffer::Size() const {
 }
 
 char* RequestBuffer::Payload() {
-	return data_.get();
+	return payloadp_;
 }
 
-std::unique_ptr<RequestBuffer> NewRequestBuffer(size_t size, bool align_mem) {
-	return std::make_unique<RequestBuffer>(size, align_mem);
+std::unique_ptr<RequestBuffer> NewRequestBuffer(size_t size) {
+	return std::make_unique<RequestBuffer>(RequestBuffer::Type::kOwned, size);
+}
 
+std::unique_ptr<RequestBuffer> NewAlignedRequestBuffer(size_t size) {
+	return std::make_unique<RequestBuffer>(RequestBuffer::Type::kAligned, size);
+}
+
+std::unique_ptr<RequestBuffer> NewRequestBuffer(char* payloadp, size_t size) {
+	log_assert(payloadp);
+	return std::make_unique<RequestBuffer>(payloadp, size);
 }
 
 }

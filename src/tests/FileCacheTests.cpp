@@ -59,7 +59,7 @@ protected:
 
 		Offset offset = (block << vmdkp->BlockShift()) + skip;
 		auto req_id = NextRequestID();
-		auto bufferp = NewRequestBuffer(size, true);
+		auto bufferp = NewAlignedRequestBuffer(size);
 		auto payload = bufferp->Payload();
 		::memset(payload, fillchar, bufferp->Size());
 
@@ -79,7 +79,7 @@ protected:
 
 		Offset offset = (block << vmdkp->BlockShift()) + skip;
 		auto req_id = NextRequestID();
-		auto bufferp = NewRequestBuffer(size, true);
+		auto bufferp = NewAlignedRequestBuffer(size);
 		auto payload = bufferp->Payload();
 
 		auto reqp = std::make_unique<Request>(req_id, vmdkp.get(),
@@ -124,7 +124,7 @@ TEST_F(FileCacheTest, FileCacheVerify) {
 			(const std::vector<folly::Try<std::unique_ptr<RequestBuffer>>>& tries) {
 		BlockID block = 0;
 
-		auto bufferp = NewRequestBuffer(vmdkp->BlockSize(), true);
+		auto bufferp = NewAlignedRequestBuffer(vmdkp->BlockSize());
 		auto payload = bufferp->Payload();
 
 		for (const auto& t : tries) {

@@ -51,7 +51,7 @@ folly::Future<int> FileCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	}
 
 	for (auto blockp : process) {
-		auto destp = NewRequestBuffer(vmdkp->BlockSize(), true);
+		auto destp = NewAlignedRequestBuffer(vmdkp->BlockSize());
 		ssize_t nread = 0;
 		while ((nread = ::pread(fd_, destp->Payload(), destp->Size(),
 				blockp->GetAlignedOffset())) < 0) {
@@ -89,7 +89,7 @@ folly::Future<int> FileCacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		log_assert(srcp->Size() == vmdkp->BlockSize());
 
 		// copy data to a mem-aligned buffer needed for directIO
-		auto bufp = NewRequestBuffer(vmdkp->BlockSize(), true);
+		auto bufp = NewAlignedRequestBuffer(vmdkp->BlockSize());
 		::memcpy(bufp->Payload(), srcp->Payload(), srcp->Size());
 
 		ssize_t nwrite = 0;
