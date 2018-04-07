@@ -81,7 +81,7 @@ private:
 
 private:
 	VirtualMachine *vmp_{nullptr};
-	Vmdk           *parentp_{nullptr};
+	//Vmdk           *parentp_{nullptr};
 	int            eventfd_{-1};
 
 	uint32_t block_shift_;
@@ -117,7 +117,7 @@ public:
 			Vmdk(handle, std::move(vmdk_id)) {
 	}
 private:
-	Vmdk*               parentp_{nullptr};
+	//Vmdk*               parentp_{nullptr};
 	std::vector<Vmdk *> chidren_;
 };
 

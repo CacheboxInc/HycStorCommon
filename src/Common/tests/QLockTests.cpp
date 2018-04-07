@@ -45,7 +45,7 @@ TEST(QLockTests, Contention) {
 
 	for (auto i = 0u; i < kMaxTasks; ++i) {
 		folly::Promise<int> promise;
-		futures.emplace_back(std::move(promise.getFuture()));
+		futures.emplace_back(promise.getFuture());
 		pool.AddTask([&, promise = std::move(promise)] () mutable {
 			for (auto i = 0ul; i < kMaxLocks; ++i) {
 				std::lock_guard<QLock> lock(mutex);

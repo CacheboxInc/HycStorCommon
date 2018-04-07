@@ -31,7 +31,7 @@ TEST(RangeLockTest, LockGuard_BasicConcurrent_InLock) {
 
 			auto f2 = lock_outside.Lock();
 			EXPECT_FALSE(f2.isReady());
-			return std::move(f2);
+			return f2;
 		};
 
 		auto f2 = lock_func();

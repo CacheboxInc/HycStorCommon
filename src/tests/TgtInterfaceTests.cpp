@@ -63,10 +63,9 @@ TEST_F(TgtInterfaceTest, AddRemoveVms) {
 	}
 	EXPECT_EQ(id, kMaxVms);
 
-	for (auto id = 0u; id < handles.size(); ++id) {
+	for (auto id = 0u; id < handles.size(); id += 2) {
 		auto handle = GetVmHandle(std::to_string(id).c_str());
 		EXPECT_EQ(handle, kInvalidVmHandle);
-		++id;
 	}
 }
 

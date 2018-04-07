@@ -92,6 +92,7 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp) {
 		return true;
 	});
 
+	++stats_.reads_in_progress_;
 	return headp_->Read(this, reqp, process, failed)
 	.then([this, reqp, process = std::move(process),
 			failed = std::move(failed)] (folly::Try<int>& result) mutable {
@@ -108,6 +109,7 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp) {
 			}
 		}
 
+		--stats_.reads_in_progress_;
 		return reqp->Complete();
 	});
 }
@@ -133,6 +135,7 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 		return true;
 	});
 
+	++stats_.writes_in_progress_;
 	return headp_->Write(this, reqp, ckpt_id, process, failed)
 	.then([this, reqp, process = std::move(process),
 			failed = std::move(failed)] (folly::Try<int>& result) mutable {
@@ -149,6 +152,7 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 			}
 		}
 
+		--stats_.writes_in_progress_;
 		return reqp->Complete();
 	});
 }
@@ -216,7 +220,7 @@ std::unique_ptr<RequestBuffer> CheckPoint::Serialize() const {
 	dp += sizeof(header);
 	blocks_bitset_->write(dp);
 
-	return std::move(bufferp);
+	return bufferp;
 }
 
 void CheckPoint::SetModifiedBlocks(std::unordered_set<BlockID>&& blocks,

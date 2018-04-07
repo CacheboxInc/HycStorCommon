@@ -22,7 +22,7 @@ public:
 	void unlock();
 
 private:
-	std::atomic_flag lock_flag_{ATOMIC_FLAG_INIT};
+	std::atomic_flag lock_flag_ = ATOMIC_FLAG_INIT;
 	struct {
 		SpinLock mutex_;
 		std::queue<folly::fibers::Baton *> queue_;

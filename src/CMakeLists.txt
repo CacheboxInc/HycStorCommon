@@ -36,6 +36,7 @@ set(LIBRARY_LIST
 	event
 	double-conversion
 	iberty
+	atomic
 	${ThriftLibs}
 )
 

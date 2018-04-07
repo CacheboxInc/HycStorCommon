@@ -118,7 +118,7 @@ std::string VmdkConfig::GetCompressionType() const {
 		type.clear();
 	}
 
-	return std::move(type);
+	return type;
 }
 
 uint16_t VmdkConfig::GetCompressionLevel() const {
@@ -164,7 +164,7 @@ std::string VmdkConfig::GetEncryptionKey() const {
 	if (not rc) {
 		e.clear();
 	}
-	return std::move(e);
+	return e;
 }
 
 void VmdkConfig::DisableRamCache() {
@@ -241,7 +241,7 @@ std::string VmdkConfig::GetFileCachePath() const {
 		fp.clear();
 	}
 
-	return std::move(fp);
+	return fp;
 }
 
 std::ostream& operator <<(std::ostream& os, const VmdkConfig::ErrorType& type) {

@@ -18,7 +18,7 @@ namespace pio {
 
 class Thread {
 public:
-	Thread(uint32_t id) noexcept;
+	Thread(uint32_t /* unused */) noexcept;
 	~Thread();
 
 	Thread(const Thread&) = delete;
@@ -38,8 +38,6 @@ private:
 	folly::EventBase* GetEventBase() const noexcept;
 
 private:
-	uint32_t id_;
-
 	struct {
 		mutable std::mutex mutex_;
 		mutable std::condition_variable cv_;

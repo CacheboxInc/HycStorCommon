@@ -54,7 +54,7 @@ ThreadPoolStats ThreadPool::Stats() const noexcept {
 	return stats;
 }
 
-Thread::Thread(uint32_t id) noexcept : id_(id) {
+Thread::Thread(uint32_t /* id unused */) noexcept {
 }
 
 Thread::~Thread() {

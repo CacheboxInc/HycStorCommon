@@ -186,8 +186,7 @@ TEST_F(UnalignedHandlerTest, AlignedWrite_UnalignedOverWrite) {
 
 	sect = 0;
 	folly::collectAll(std::move(read_futures))
-	.then([this, &sect]
-			(const std::vector<folly::Try<std::unique_ptr<RequestBuffer>>>& tries) {
+	.then([&sect] (const std::vector<folly::Try<std::unique_ptr<RequestBuffer>>>& tries) {
 		auto bufferp = NewRequestBuffer(kSectorSize);
 		auto payload = bufferp->Payload();
 
