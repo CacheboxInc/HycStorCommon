@@ -16,6 +16,9 @@ using namespace ::hyc_thrift;
 static constexpr int32_t kServerPort = 9876;
 static const std::string kServerIp = "127.0.0.1";
 
+extern std::string StordIp;
+extern uint16_t StordPort;
+
 extern RpcConnectHandle HycStorRpcServerConnectTest(uint32_t ping_secs);
 
 class StorRpcSimpleImpl : public virtual StorRpcSvIf {
@@ -124,6 +127,9 @@ TEST(TgtInterfaceImplTest, NoServerConnectFails) {
 }
 
 TEST(TgtInterfaceImplTest, ConnectDisconnect) {
+	StordIp.assign("127.0.0.1");
+	StordPort = 9876;
+
 	auto server = StartServer();
 	std::vector<std::thread> threads;
 	for (auto i = 0; i < 10; ++i) {
@@ -152,6 +158,9 @@ TEST(TgtInterfaceImplTest, ConnectDisconnect) {
 
 TEST(TgtInterfaceImplTest, Ping) {
 	auto kSleep = 5;
+	StordIp.assign("127.0.0.1");
+	StordPort = 9876;
+
 	auto si = std::make_shared<StorRpcSimpleImpl>();
 	auto ts = std::make_shared<ThriftServer>();
 	ts->setInterface(si);
@@ -174,6 +183,9 @@ TEST(TgtInterfaceImplTest, Read) {
 	std::string buf(4096, 'A');
 
 	auto server = StartServer();
+
+	StordIp.assign("127.0.0.1");
+	StordPort = 9876;
 
 	auto rpc = HycStorRpcServerConnect();
 	EXPECT_NE(rpc, kInvalidRpcHandle);
@@ -250,6 +262,9 @@ TEST(TgtInterfaceImplTest, PingFailure) {
 	ts->setAddress(kServerIp, kServerPort);
 	ts->setNumIOWorkerThreads(1);
 	auto server = std::make_shared<ScopedServerInterfaceThread>(ts);
+
+	StordIp.assign("127.0.0.1");
+	StordPort = 9876;
 
 	auto rpc = HycStorRpcServerConnect();
 	(void) rpc;
