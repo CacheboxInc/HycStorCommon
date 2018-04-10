@@ -37,7 +37,7 @@ using namespace folly;
 class ReschedulingTimeout : public AsyncTimeout {
 public:
 	ReschedulingTimeout(EventBase* basep, uint32_t milli) :
-			AsyncTimeout(basep), basep_(basep), milli_(milli) {
+			AsyncTimeout(basep), milli_(milli) {
 	}
 
 	~ReschedulingTimeout() {
@@ -63,7 +63,6 @@ public:
 	}
 
 private:
-	EventBase* basep_{nullptr};
 	uint32_t milli_{0};
 	std::function<bool (void)> func_;
 };
@@ -192,8 +191,7 @@ private:
 
 class PostRequestCompletionCallback : public EventBase::LoopCallback {
 public:
-	explicit PostRequestCompletionCallback(RpcConnection* rpcp,
-			folly::EventBase* basep) : rpcp_(rpcp), basep_(basep) {
+	explicit PostRequestCompletionCallback(RpcConnection* rpcp) : rpcp_(rpcp) {
 	}
 
 	void runLoopCallback() noexcept override {
@@ -214,7 +212,6 @@ public:
 	}
 private:
 	RpcConnection* rpcp_;
-	folly::EventBase* basep_;
 	std::atomic<bool> stop_{false};
 };
 
@@ -377,7 +374,7 @@ int32_t RpcConnection::Connect() {
 	this->base_->waitUntilRunning();
 	VLOG(1) << *this << " Connection Result " << result;
 	requests_.complete_cb_.cb_ =
-		std::make_unique<PostRequestCompletionCallback>(this, base_.get());
+		std::make_unique<PostRequestCompletionCallback>(this);
 	return 0;
 }
 
