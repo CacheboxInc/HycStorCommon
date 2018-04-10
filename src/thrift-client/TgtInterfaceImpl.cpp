@@ -25,8 +25,8 @@
 #include "TimePoint.h"
 #include "SpinLock.h"
 
-std::string StordIp;
-uint16_t StordPort;
+static std::string StordIp = "127.0.0.1";
+static uint16_t StordPort = 9876;
 
 namespace hyc {
 using namespace apache::thrift;
