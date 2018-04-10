@@ -16,6 +16,9 @@ using namespace ::hyc_thrift;
 static constexpr int32_t kServerPort = 9876;
 static const std::string kServerIp = "127.0.0.1";
 
+extern std::string StordIp;
+extern uint16_t StordPort;
+
 extern RpcConnectHandle HycStorRpcServerConnectTest(uint32_t ping_secs);
 
 class StorRpcSimpleImpl : public virtual StorRpcSvIf {
@@ -154,6 +157,7 @@ TEST(TgtInterfaceImplTest, ConnectDisconnect) {
 
 TEST(TgtInterfaceImplTest, Ping) {
 	auto kSleep = 5;
+
 	auto si = std::make_shared<StorRpcSimpleImpl>();
 	auto ts = std::make_shared<ThriftServer>();
 	ts->setInterface(si);

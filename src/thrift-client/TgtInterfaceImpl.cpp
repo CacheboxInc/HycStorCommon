@@ -25,14 +25,14 @@
 #include "TimePoint.h"
 #include "SpinLock.h"
 
+static std::string StordIp = "127.0.0.1";
+static uint16_t StordPort = 9876;
+
 namespace hyc {
 using namespace apache::thrift;
 using namespace apache::thrift::async;
 using namespace hyc_thrift;
 using namespace folly;
-
-static std::string StordIp;
-static uint16_t StordPort;
 
 class ReschedulingTimeout : public AsyncTimeout {
 public:
@@ -757,8 +757,8 @@ void HycStorInitialize(int argc, char *argv[], char *stord_ip,
 	FLAGS_v = 2;
 	folly::init(&argc, &argv);
 
-	hyc::StordIp.assign(stord_ip);
-	hyc::StordPort = stord_port;
+	StordIp.assign(stord_ip);
+	StordPort = stord_port;
 }
 
 RpcConnectHandle HycStorRpcServerConnect() {
