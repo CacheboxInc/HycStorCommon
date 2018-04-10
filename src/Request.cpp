@@ -116,11 +116,12 @@ void Request::InitRequestBlocks() {
 		auto io_size = block_size;
 		if (aligned == false) {
 			auto ao = AlignDownToBlockSize(offset, block_size);
-			io_size = block_size - offset - ao;
+			io_size = block_size - (offset - ao);
 		}
 		if (io_size > pending) {
 			io_size = pending;
 		}
+		log_assert(io_size <= vmdkp_->BlockSize());
 
 		auto blockp = std::make_unique<RequestBlock>(vmdkp_, this, bid,
 				in_.type_, iobufp, io_size, offset);
