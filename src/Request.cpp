@@ -184,8 +184,7 @@ void RequestBlock::InitRequestBuffer() {
 		break;
 	case Request::Type::kWriteSame:
 	case Request::Type::kWrite: {
-		auto bufp = NewRequestBuffer(in_.size_);
-		::memcpy(bufp->Payload(), in_.bufferp_, in_.size_);
+		auto bufp = NewRequestBuffer(reinterpret_cast<char*>(in_.bufferp_), in_.size_);
 		PushRequestBuffer(std::move(bufp));
 		break;
 	}}

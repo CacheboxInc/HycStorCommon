@@ -82,17 +82,21 @@ public:
 		auto vmp = vmdkp->GetVM();
 		assert(vmp != nullptr);
 
-		std::string data;
-		data.resize(size);
+		auto iobuf = folly::IOBuf::create(size);
+		iobuf->unshare();
+		iobuf->coalesce();
+		assert(pio_likely(not iobuf->isChained()));
+
 		auto reqp = std::make_unique<Request>(reqid, vmdkp, Request::Type::kRead,
-			data.data(), size, size, offset);
+			iobuf->writableData(), size, size, offset);
 
 		vmp->Read(vmdkp, reqp.get())
-		.then([data = std::move(data), cb = std::move(cb),
+		.then([iobuf = std::move(iobuf), cb = std::move(cb), size,
 				reqp = std::move(reqp)] (int rc) mutable {
+			iobuf->append(size);
 			auto read = std::make_unique<ReadResult>();
 			read->set_reqid(reqp->GetID());
-			read->set_data(std::move(data));
+			read->set_data(std::move(iobuf));
 			read->set_result(rc);
 			cb->result(std::move(read));
 		});
@@ -100,7 +104,7 @@ public:
 
 	void async_tm_Write(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
-			VmdkHandle vmdk, RequestId reqid, std::unique_ptr<std::string> data,
+			VmdkHandle vmdk, RequestId reqid, std::unique_ptr<IOBufPtr> data,
 			int32_t size, int64_t offset) override {
 		auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdk);
 		assert(pio_likely(p));
@@ -110,11 +114,16 @@ public:
 		auto vmp = vmdkp->GetVM();
 		assert(vmp != nullptr);
 
+		auto iobuf = std::move(*data);
+		iobuf->unshare();
+		iobuf->coalesce();
+		assert(pio_likely(not iobuf->isChained()));
+
 		auto reqp = std::make_unique<Request>(reqid, vmdkp, Request::Type::kWrite,
-			data->data(), size, size, offset);
+			iobuf->writableData(), size, size, offset);
 
 		vmp->Write(vmdkp, reqp.get())
-		.then([data = std::move(data), cb = std::move(cb),
+		.then([iobuf = std::move(iobuf), cb = std::move(cb),
 				reqp = std::move(reqp)] (int rc) mutable {
 			auto write = std::make_unique<WriteResult>();
 			write->set_reqid(reqp->GetID());
@@ -125,7 +134,7 @@ public:
 
 	void async_tm_WriteSame(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
-			VmdkHandle vmdk, RequestId reqid, std::unique_ptr<std::string> data,
+			VmdkHandle vmdk, RequestId reqid, std::unique_ptr<IOBufPtr> data,
 			int32_t data_size, int32_t write_size, int64_t offset) override {
 		auto write = std::make_unique<WriteResult>();
 		write->set_reqid(reqid);

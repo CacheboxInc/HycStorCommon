@@ -70,11 +70,11 @@ private:
 				transfer_size_(transfer_size), offset_(offset) {
 		}
 		RequestID req_id_;
-		Type      type_;
-		void      *bufferp_;
-		size_t    buffer_size_;
-		size_t    transfer_size_;
-		Offset    offset_;
+		Type type_;
+		void* bufferp_;
+		size_t buffer_size_;
+		size_t transfer_size_;
+		Offset offset_;
 	} in_;
 
 	std::unique_ptr<RequestBuffer> write_same_buffer_{nullptr};
