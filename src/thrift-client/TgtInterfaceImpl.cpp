@@ -37,7 +37,7 @@ using namespace folly;
 class ReschedulingTimeout : public AsyncTimeout {
 public:
 	ReschedulingTimeout(EventBase* basep, uint32_t milli) :
-			AsyncTimeout(basep), basep_(basep), milli_(milli) {
+			AsyncTimeout(basep), milli_(milli) {
 	}
 
 	~ReschedulingTimeout() {
@@ -63,7 +63,6 @@ public:
 	}
 
 private:
-	EventBase* basep_{nullptr};
 	uint32_t milli_{0};
 	std::function<bool (void)> func_;
 };
@@ -155,7 +154,7 @@ private:
 	int32_t Disconnect();
 	void UpdateStats(Request* reqp);
 	void PostRequestCompletion() const;
-
+	void ReadDataCopy(Request* reqp, const ReadResult& result);
 private:
 	RpcConnectHandle rpc_handle_{kInvalidRpcHandle};
 	std::string vmid_;
@@ -192,8 +191,7 @@ private:
 
 class PostRequestCompletionCallback : public EventBase::LoopCallback {
 public:
-	explicit PostRequestCompletionCallback(RpcConnection* rpcp,
-			folly::EventBase* basep) : rpcp_(rpcp), basep_(basep) {
+	explicit PostRequestCompletionCallback(RpcConnection* rpcp) : rpcp_(rpcp) {
 	}
 
 	void runLoopCallback() noexcept override {
@@ -214,7 +212,6 @@ public:
 	}
 private:
 	RpcConnection* rpcp_;
-	folly::EventBase* basep_;
 	std::atomic<bool> stop_{false};
 };
 
@@ -377,7 +374,7 @@ int32_t RpcConnection::Connect() {
 	this->base_->waitUntilRunning();
 	VLOG(1) << *this << " Connection Result " << result;
 	requests_.complete_cb_.cb_ =
-		std::make_unique<PostRequestCompletionCallback>(this, base_.get());
+		std::make_unique<PostRequestCompletionCallback>(this);
 	return 0;
 }
 
@@ -537,6 +534,23 @@ uint32_t RpcConnection::GetCompleteRequests(RequestResult* resultsp,
 	return tocopy;
 }
 
+void RpcConnection::ReadDataCopy(Request* reqp, const ReadResult& result) {
+	assert(hyc_likely(result.data->computeChainDataLength() ==
+		static_cast<size_t>(reqp->buf_sz)));
+
+	auto bufp = reqp->bufferp;
+	auto const* p = result.data.get();
+	auto e = result.data->countChainElements();
+	for (auto c = 0u; c < e; ++c, p = p->next()) {
+		auto l = p->length();
+		if (not l) {
+			continue;
+		}
+		::memcpy(bufp, p->data(), l);
+		bufp += l;
+	}
+}
+
 RequestID RpcConnection::ScheduleRead(const void* privatep, char* bufferp,
 		int32_t buf_sz, int64_t offset) {
 	assert(vmdk_handle_ != kInvalidVmdkHandle);
@@ -552,8 +566,7 @@ RequestID RpcConnection::ScheduleRead(const void* privatep, char* bufferp,
 		.then([this, reqp] (const ReadResult& result) mutable {
 			reqp->result = result.get_result();
 			if (hyc_likely(reqp->result == 0)) {
-				assert((uint32_t)reqp->buf_sz == result.get_data().size());
-				::memcpy(reqp->bufferp, result.get_data().data(), reqp->buf_sz);
+				ReadDataCopy(reqp, result);
 			}
 			RequestComplete(reqp);
 		})
@@ -577,10 +590,11 @@ RequestID RpcConnection::ScheduleWrite(const void* privatep, char* bufferp,
 	++this->requests_.pending_;
 
 	base_->runInEventBaseThread([this, reqp, bufferp, buf_sz, offset] () mutable {
-		std::string data(bufferp, buf_sz);
-		assert(hyc_likely(data.size() == (uint32_t)buf_sz));
+		auto data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
+			bufferp, buf_sz);
 		client_->future_Write(vmdk_handle_, reqp->id, data, buf_sz, offset)
-		.then([this, reqp] (const WriteResult& result) mutable {
+		.then([this, reqp, data = std::move(data)]
+				(const WriteResult& result) mutable {
 			reqp->result = result.get_result();
 			RequestComplete(reqp);
 		})
@@ -604,11 +618,12 @@ RequestID RpcConnection::ScheduleWriteSame(const void* privatep, char* bufferp,
 	++this->requests_.pending_;
 	base_->runInEventBaseThread([this, reqp, bufferp, buf_sz,
 				write_sz, offset] () mutable {
-		std::string data(bufferp, buf_sz);
-		assert(hyc_likely(data.size() == (uint32_t)buf_sz));
+		auto data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
+			bufferp, buf_sz);
 		client_->future_WriteSame(vmdk_handle_, reqp->id, data, buf_sz,
 			write_sz, offset)
-		.then([this, reqp] (const WriteResult& result) mutable {
+		.then([this, reqp, data = std::move(data)]
+				(const WriteResult& result) mutable {
 			reqp->result = result.get_result();
 			RequestComplete(reqp);
 		})
