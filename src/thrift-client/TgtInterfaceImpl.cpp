@@ -541,7 +541,7 @@ void RpcConnection::ReadDataCopy(Request* reqp, const ReadResult& result) {
 	auto bufp = reqp->bufferp;
 	auto const* p = result.data.get();
 	auto e = result.data->countChainElements();
-	for (auto c = 0u; c > e; ++c, p = p->next()) {
+	for (auto c = 0u; c < e; ++c, p = p->next()) {
 		auto l = p->length();
 		if (not l) {
 			continue;
