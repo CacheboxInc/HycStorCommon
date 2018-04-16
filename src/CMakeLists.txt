@@ -38,6 +38,8 @@ set(LIBRARY_LIST
 	iberty
 	atomic
 	${ThriftLibs}
+	aerospike
+	uv
 )
 
 set(StorageLayerFiles
@@ -45,6 +47,8 @@ set(StorageLayerFiles
 
 	VirtualMachine.cpp
 	VmConfig.cpp
+	AeroConfig.cpp
+	AeroConn.cpp
 	Vmdk.cpp
 	VmdkConfig.cpp
 	VmdkFactory.cpp
@@ -67,6 +71,7 @@ set(StorageLayerFiles
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/FileCacheHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/ErrorHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/SuccessHandler.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/AeroOps.cpp"
 )
 
 add_library(StorageLayer STATIC

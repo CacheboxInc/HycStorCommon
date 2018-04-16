@@ -19,6 +19,7 @@ target_link_libraries(StorageLayerTests
 	StorageLayer
 	gtest
 	lzma
+	ssl
 	${COMPRESS_LIBS}
 	${LIBRARY_LIST}
 	-Wl,--end-group

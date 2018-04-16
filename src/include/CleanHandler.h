@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RequestHandler.h"
+#include "AeroOps.h"
 
 namespace pio {
 class CleanHandler : public RequestHandler {
@@ -18,5 +19,6 @@ public:
 		std::vector<RequestBlock *>& failed) override;
 private:
 	std::unique_ptr<RequestHandler> headp_;
+	std::unique_ptr<AeroSpike> aero_obj_{nullptr};
 };
 }

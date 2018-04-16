@@ -7,7 +7,7 @@ using namespace pio::config;
 
 int main(int argc, char* argv[]) {
 	VmConfig config;
-	std::string vmid;
+	std::string vmid, cluster_id;
 	uint32_t tid;
 	std::string name;
 
@@ -18,10 +18,13 @@ int main(int argc, char* argv[]) {
 	std::cin >> tid;
 	std::cout << "Enter TargetName: ";
 	std::cin >> name;
+	std::cout << "Enter Aero Cluster ID: ";
+	std::cin >> cluster_id;
 
 	config.SetVmId(vmid);
 	config.SetTargetId(tid);
 	config.SetTargetName(name);
+	config.SetAeroClusterID(cluster_id);
 
 	std::cout << "VM Configuration\n\n"
 		<< config.Serialize() << std::endl;

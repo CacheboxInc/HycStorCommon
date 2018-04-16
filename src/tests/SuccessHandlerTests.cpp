@@ -36,7 +36,7 @@ protected:
 		config::VmdkConfig config;
 		DefaultVmdkConfig(config);
 
-		vmdkp = std::make_unique<ActiveVmdk>(1, "1", nullptr, config.Serialize());
+		vmdkp = std::make_unique<ActiveVmdk>(1, "1", nullptr, config.Serialize(), nullptr);
 		EXPECT_NE(vmdkp, nullptr);
 
 		auto h = std::make_unique<CacheHandler>(vmdkp->GetJsonConfig());

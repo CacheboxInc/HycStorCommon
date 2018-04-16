@@ -9,6 +9,7 @@
 
 #include "IDs.h"
 #include "DaemonCommon.h"
+#include "AeroConn.h"
 
 using namespace ::hyc_thrift;
 
@@ -47,6 +48,7 @@ private:
 	VmID vm_id_;
 	std::atomic<RequestID> request_id_{0};
 	std::unique_ptr<config::VmConfig> config_;
+	AeroSpikeConn  *aero_conn_{nullptr};
 
 	struct {
 		mutable std::mutex mutex_;

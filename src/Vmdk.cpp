@@ -30,8 +30,10 @@ VmdkHandle Vmdk::GetHandle() const noexcept {
 }
 
 ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
-		const std::string& config) : Vmdk(handle, std::move(id)), vmp_(vmp),
-		config_(std::make_unique<config::VmdkConfig>(config)) {
+		const std::string& config, std::shared_ptr<AeroSpikeConn> aero_conn)
+		: Vmdk(handle, std::move(id)), vmp_(vmp),
+		config_(std::make_unique<config::VmdkConfig>(config)),
+		aero_conn_(aero_conn) {
 	uint32_t block_size;
 	if (not config_->GetBlockSize(block_size)) {
 		block_size = kDefaultBlockSize;
@@ -54,6 +56,10 @@ size_t ActiveVmdk::BlockSize() const {
 
 size_t ActiveVmdk::BlockMask() const {
 	return BlockSize() - 1;
+}
+
+AeroSpikeConn* ActiveVmdk::GetAeroConnection() const noexcept {
+	return aero_conn_.get();
 }
 
 void ActiveVmdk::SetEventFd(int eventfd) noexcept {

@@ -17,7 +17,9 @@
 #include "CacheHandler.h"
 #include "VmdkConfig.h"
 #include "VmdkFactory.h"
+#include "VmConfig.h"
 #include "VmManager.h"
+#include "AeroConn.h"
 #include "Singleton.h"
 
 using namespace ::hyc_thrift;
@@ -28,6 +30,13 @@ using namespace folly;
 struct {
 	std::once_flag initialized_;
 } g_init_;
+
+struct {
+	std::mutex mutex_;
+	/* Using handle to just keep track of how many entries are added */
+	std::atomic<AeroClusterHandle> handle_{0};
+	std::unordered_map<AeroClusterID, std::shared_ptr<AeroSpikeConn>> ids_;
+} g_aero_clusters;
 
 int InitStordLib(void) {
 	try {
@@ -43,6 +52,106 @@ int InitStordLib(void) {
 
 int DeinitStordLib(void) {
 	return 0;
+}
+
+
+void AeroSpikeConnDisplay() {
+	std::lock_guard<std::mutex> lock(g_aero_clusters.mutex_);
+
+	LOG(INFO) << __func__  <<  "ALL entries";
+	for(auto it = g_aero_clusters.ids_.begin();
+			it != g_aero_clusters.ids_.end(); ++it) {
+		 LOG(INFO) << __func__ << it->first << ":::" <<
+			(it->second).get();
+	}
+}
+
+std::shared_ptr<AeroSpikeConn> AeroSpikeConnFromClusterID (AeroClusterID cluster_id) {
+	std::lock_guard<std::mutex> lock(g_aero_clusters.mutex_);
+	auto it = g_aero_clusters.ids_.find(cluster_id);
+	if (pio_unlikely(it == g_aero_clusters.ids_.end())) {
+		return nullptr;
+	}
+	return (it->second);
+}
+
+void RemoveAeroClusterLocked(AeroClusterID cluster_id) {
+	auto it = g_aero_clusters.ids_.find(cluster_id);
+	if (pio_unlikely(it != g_aero_clusters.ids_.end())) {
+		g_aero_clusters.ids_.erase(it);
+		g_aero_clusters.handle_--;
+	}
+}
+
+/*
+void RemoveAeroCluster(AeroClusterID cluster_id) {
+	std::lock_guard<std::mutex> lock(g_aero_clusters.mutex_);
+	RemoveAeroClusterLocked(cluster_id);
+}
+*/
+
+AeroClusterHandle NewAeroCluster(AeroClusterID cluster_id,
+		const std::string& config) {
+
+	LOG(INFO) << __func__ << "START::" << cluster_id << " config " << config;
+	std::lock_guard<std::mutex> lock(g_aero_clusters.mutex_);
+	try {
+		auto it = g_aero_clusters.ids_.find(cluster_id);
+		if (pio_unlikely(it != g_aero_clusters.ids_.end())) {
+			LOG(ERROR) << __func__ << "cluster_id " << cluster_id
+				<< " already present.";
+			return kInvalidAeroClusterHandle;
+		}
+
+		auto handle = ++g_aero_clusters.handle_;
+		auto aero_cluster_p =
+			std::make_shared<AeroSpikeConn>(cluster_id, config);
+
+		/*
+		 * Establish Connection with aerospike cluster and add in global
+		 * map in case of success (0 implies success).
+		 */
+
+		int ret = aero_cluster_p->Connect();
+		if (!ret) {
+			g_aero_clusters.ids_.insert(std::make_pair(cluster_id,
+					aero_cluster_p));
+			LOG(INFO) << __func__ <<  " cluster_id " << cluster_id
+				<< "... SUCCESS";
+			return handle;
+		}
+
+		return kInvalidAeroClusterHandle;
+	} catch (const std::bad_alloc& e) {
+		LOG(ERROR) << __func__ <<  " cluster_id " << cluster_id
+			<< " failed because of std::bad_alloc exception";
+		RemoveAeroClusterLocked(cluster_id);
+		return kInvalidAeroClusterHandle;
+	}
+}
+
+AeroClusterHandle DelAeroCluster(AeroClusterID cluster_id,
+	const std::string& config) {
+
+	LOG(INFO) << __func__ << "START:::" << cluster_id << " config ";
+	std::lock_guard<std::mutex> lock(g_aero_clusters.mutex_);
+	auto it = g_aero_clusters.ids_.find(cluster_id);
+	if (pio_unlikely(it == g_aero_clusters.ids_.end())) {
+		LOG(ERROR) << __func__ << "Cluster id " << cluster_id <<
+			" not found in connection map";
+		return kInvalidAeroClusterHandle;
+	}
+
+	/*
+	 * Destructor of shared pointer will take care of
+	 * cleaning aerospike connection object when last
+	 * reference will be dropped.
+	 */
+
+	g_aero_clusters.ids_.erase(it);
+	LOG(INFO) << __func__ << "Removed successfully cluster id "
+		<< cluster_id;
+	return kValidAeroClusterHandle;
 }
 
 VmHandle NewVm(VmID vmid, const std::string& config) {
@@ -73,8 +182,34 @@ VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 		return kInvalidVmdkHandle;
 	}
 
+	/* Get aerospike cluster ID */
+	auto vmp_conf = vmp->GetJsonConfig();
+	AeroClusterID aero_cluster_id;
+	auto ret = vmp_conf->GetAeroClusterID(aero_cluster_id);
+	if (ret) {
+		LOG(INFO) << __func__ << "Aero Cluster ID :::" <<  aero_cluster_id;
+	} else {
+		LOG(ERROR) << __func__ << "Unable to find aerospike cluster "
+			"id for given disk." " Please check JSON configuration "
+			"with associated VM. Moving ahead without"
+			" Aero connection object";
+		//return kInvalidVmdkHandle;
+	} 
+
+	/* Get aero connection object*/
+	auto aero_connection = AeroSpikeConnFromClusterID(aero_cluster_id);
+	if (aero_connection == nullptr) {
+		LOG(ERROR) << __func__ << "Unable to find aerospike " 
+				"connection details for given"
+		"cluster id :::" << aero_cluster_id;
+		AeroSpikeConnDisplay();
+		//return kInvalidVmdkHandle;
+	} else {
+		LOG(ERROR) << __func__ << "Got aerospike connection:::" << aero_connection;
+	}
+
 	auto handle = managerp->CreateInstance<ActiveVmdk>(std::move(vmdkid), vmp,
-		config);
+		config, aero_connection);
 	if (pio_unlikely(handle == kInvalidVmdkHandle)) {
 		return handle;
 	}

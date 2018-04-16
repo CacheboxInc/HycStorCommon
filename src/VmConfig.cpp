@@ -7,6 +7,7 @@ namespace pio { namespace config {
 const std::string VmConfig::kVmID = "VmID";
 const std::string VmConfig::kTargetID = "TargetID";
 const std::string VmConfig::kTargetName = "TargetName";
+const std::string VmConfig::kAeroClusterID = "AeroClusterID";
 
 VmConfig::VmConfig(const std::string& config) : JsonConfig(config) {
 }
@@ -41,6 +42,14 @@ std::string VmConfig::GetTargetName() const {
 		name.clear();
 	}
 	return name;
+}
+
+void VmConfig::SetAeroClusterID(const AeroClusterID& cluster_id) {
+	JsonConfig::SetKey(kAeroClusterID, cluster_id);
+}
+
+bool VmConfig::GetAeroClusterID(AeroClusterID& cluster_id) const {
+	return JsonConfig::GetKey(kAeroClusterID, cluster_id);
 }
 
 }}

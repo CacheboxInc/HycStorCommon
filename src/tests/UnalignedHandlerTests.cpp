@@ -34,7 +34,7 @@ protected:
 		config::VmdkConfig config;
 		DefaultVmdkConfig(config, kVmdkBlockSize);
 
-		vmdkp = std::make_unique<ActiveVmdk>(1, "1", nullptr, config.Serialize());
+		vmdkp = std::make_unique<ActiveVmdk>(1, "1", nullptr, config.Serialize(), nullptr);
 
 		auto unaligned_handler = std::make_unique<UnalignedHandler>();
 		auto lock_handler = std::make_unique<LockHandler>();

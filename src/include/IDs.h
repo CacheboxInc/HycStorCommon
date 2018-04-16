@@ -9,6 +9,7 @@ using CheckPointID = uint64_t;
 using SnapshotID = uint64_t;
 using VmdkID = std::string;
 using VmID = std::string;
+using AeroClusterID = std::string;
 using BlockID = uint64_t;
 using Offset = uint64_t;
 }

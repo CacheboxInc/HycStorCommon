@@ -154,7 +154,7 @@ int Request::Complete() {
 	return GetResult();
 }
 
-bool Request::IsAllReadMissed(const std::vector<RequestBlock *> blocks)
+bool Request::IsAllReadMissed(const std::vector<RequestBlock *>& blocks)
 		const noexcept {
 	for (const auto blockp : blocks) {
 		if (not blockp->IsReadMissed()) {
@@ -163,6 +163,17 @@ bool Request::IsAllReadMissed(const std::vector<RequestBlock *> blocks)
 	}
 	return true;
 }
+
+bool Request::IsAllReadHit(const std::vector<RequestBlock *>& blocks)
+		const noexcept {
+	for (const auto blockp : blocks) {
+		if (not blockp->IsReadHit()) {
+			return false;
+		}
+	}
+	return true;
+}
+
 
 RequestBlock::RequestBlock(ActiveVmdk *vmdkp, Request *requestp, BlockID block_id,
 		Request::Type type, void *bufferp, size_t size, Offset offset) :
@@ -217,6 +228,10 @@ bool RequestBlock::IsFailed() const noexcept {
 
 bool RequestBlock::IsReadMissed() const noexcept {
 	return GetStatus() == RequestStatus::kMiss;
+}
+
+bool RequestBlock::IsReadHit() const noexcept {
+	return GetStatus() == RequestStatus::kHit;
 }
 
 size_t RequestBlock::GetRequestBufferCount() const {

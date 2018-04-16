@@ -14,6 +14,7 @@ namespace pio {
 enum class RequestStatus {
 	kSuccess,
 	kMiss,
+	kHit,
 	kFailed,
 };
 
@@ -29,7 +30,8 @@ public:
 	Request(RequestID id, ActiveVmdk *vmdkp, Request::Type type, void *bufferp,
 		size_t buffer_size, size_t transfer_size, Offset offset);
 
-	bool IsAllReadMissed(const std::vector<RequestBlock *> blocks) const noexcept;
+	bool IsAllReadMissed(const std::vector<RequestBlock *>& blocks) const noexcept;
+	bool IsAllReadHit(const std::vector<RequestBlock *>& blocks) const noexcept;
 
 	int Complete();
 public:
@@ -91,6 +93,8 @@ private:
 	} status_;
 
 	std::vector<std::unique_ptr<RequestBlock>> request_blocks_;
+public:
+	std::string setp_{"dummy"};
 };
 
 class RequestBlock {
@@ -113,6 +117,7 @@ public:
 	RequestStatus GetStatus() const noexcept;
 	bool IsSuccess() const noexcept;
 	bool IsReadMissed() const noexcept;
+	bool IsReadHit() const noexcept;
 	bool IsFailed() const noexcept;
 
 	size_t GetRequestBufferCount() const;

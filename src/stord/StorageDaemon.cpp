@@ -32,6 +32,8 @@ static constexpr int32_t kServerPort = 9876;
 static const std::string kServerIp = "127.0.0.1";
 static const std::string kNewVm = "new_vm";
 static const std::string kNewVmdk = "new_vmdk";
+static const std::string kNewAero = "new_aero";
+static const std::string kDelAero = "del_aero";
 
 class StorRpcSvImpl : public virtual StorRpcSvIf {
 public:
@@ -90,6 +92,9 @@ public:
 		auto reqp = std::make_unique<Request>(reqid, vmdkp, Request::Type::kRead,
 			iobuf->writableData(), size, size, offset);
 
+		/* Set the Aerospike set name */
+		reqp->setp_ = (vmp->GetJsonConfig())->GetTargetName();
+
 		vmp->Read(vmdkp, reqp.get())
 		.then([iobuf = std::move(iobuf), cb = std::move(cb), size,
 				reqp = std::move(reqp)] (int rc) mutable {
@@ -121,6 +126,9 @@ public:
 
 		auto reqp = std::make_unique<Request>(reqid, vmdkp, Request::Type::kWrite,
 			iobuf->writableData(), size, size, offset);
+
+		/* Set the Aerospike set name */
+		reqp->setp_ = (vmp->GetJsonConfig())->GetTargetName();
 
 		vmp->Write(vmdkp, reqp.get())
 		.then([iobuf = std::move(iobuf), cb = std::move(cb),
@@ -184,6 +192,7 @@ enum StordSvcErr {
 	STORD_ERR_INVALID_VMDK,
 	STORD_ERR_INVALID_NO_DATA,
 	STORD_ERR_INVALID_PARAM,
+	STORD_ERR_INVALID_AERO,
 };
 
 void HaHeartbeat(void *userp) {
@@ -269,6 +278,81 @@ static int NewVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 
 	LOG(INFO) << "Added VmID " << vmid << " VmHandle " << vm_handle;
 	const auto res = std::to_string(vm_handle);
+
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+
+	return HA_CALLBACK_CONTINUE;
+}
+
+static int NewAeroCluster(const _ha_request *reqp, _ha_response *resp, 
+	void *userp ) {
+	auto param_valuep = ha_parameter_get(reqp, "aero-id");
+	if (param_valuep  == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"aero-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string aeroid(param_valuep);
+
+	auto data = ha_get_data(reqp);
+	if (data == nullptr) {
+		SetErrMsg(resp, STORD_ERR_INVALID_NO_DATA,
+			"Aero config not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string req_data(data);
+	LOG(INFO) << "Aerospike Configuration " << req_data;
+	::free(data);
+
+	auto aero_handle = pio::NewAeroCluster(aeroid, req_data);
+	if (aero_handle == kInvalidAeroClusterHandle) {
+		std::ostringstream es;
+		es << "Adding new AeroSpike cluster failed, Aero config: "
+			<< req_data;
+		SetErrMsg(resp, STORD_ERR_INVALID_AERO, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	LOG(INFO) << "Added AeroCluster successfully";
+	const auto res = std::to_string(aero_handle);
+
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+
+	return HA_CALLBACK_CONTINUE;
+}
+
+static int DelAeroCluster(const _ha_request *reqp, _ha_response *resp, 
+	void *userp ) {
+	auto param_valuep = ha_parameter_get(reqp, "aero-id");
+
+	if (param_valuep  == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"aero-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string aeroid(param_valuep);
+
+	auto data = ha_get_data(reqp);
+	if (data == nullptr) {
+		SetErrMsg(resp, STORD_ERR_INVALID_NO_DATA,
+			"Aero config invalid");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string req_data(data);
+	LOG(INFO) << "Aerospike Configuration " << req_data;
+	::free(data);
+
+	auto aero_handle = pio::DelAeroCluster(aeroid, req_data);
+	if (aero_handle == kInvalidAeroClusterHandle) {
+		std::ostringstream es;
+		es << "Adding new AeroSpike cluster failed, Aero config: "
+			<< req_data;
+		SetErrMsg(resp, STORD_ERR_INVALID_AERO, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	LOG(INFO) << "Added AeroCluster successfully";
+	const auto res = std::to_string(aero_handle);
 
 	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
 
@@ -371,7 +455,7 @@ int main(int argc, char* argv[])
 	std::signal(SIGUSR1, Usr1SignalHandler);
 
 #endif
-	auto size = sizeof(struct ha_handlers) + 2 * sizeof(struct ha_endpoint_handlers);
+	auto size = sizeof(struct ha_handlers) + 4 * sizeof(struct ha_endpoint_handlers);
 
 	auto handlers =
 		std::unique_ptr<struct ha_handlers,
@@ -382,20 +466,38 @@ int main(int argc, char* argv[])
 		return -ENOMEM;
 	}
 
-	// new_vm handler
-	handlers->ha_endpoints[0].ha_http_method = POST;
-	strncpy(handlers->ha_endpoints[0].ha_url_endpoint, kNewVm.c_str(),
-		kNewVm.size() + 1);
-	handlers->ha_endpoints[0].callback_function = NewVm;
-	handlers->ha_endpoints[0].ha_user_data = NULL;
-	handlers->ha_count = 1;
+	handlers->ha_count = 0;
 
-	// new_vmdk handler
-	handlers->ha_endpoints[1].ha_http_method = POST;
-	strncpy(handlers->ha_endpoints[1].ha_url_endpoint, kNewVmdk.c_str(),
-		strlen("new_vmdk") + 1);
-	handlers->ha_endpoints[1].callback_function = NewVmdk;
-	handlers->ha_endpoints[1].ha_user_data = NULL;
+	/* new_vm handler */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kNewVm.c_str(),
+		kNewVm.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = NewVm;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
+	/* new_vmdk handler */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kNewVmdk.c_str(),
+		kNewVmdk.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = NewVmdk;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
+	/* new_aero handler */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kNewAero.c_str(),
+			kNewAero.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = NewAeroCluster;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
+	/* del_aero handler */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kDelAero.c_str(),
+			kDelAero.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = DelAeroCluster;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
 	handlers->ha_count += 1;
 
 	g_thread_.ha_instance_ = ::ha_initialize(FLAGS_ha_svc_port,

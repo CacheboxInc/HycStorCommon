@@ -100,6 +100,7 @@ add_compile_options(
   -pipe
   -fdata-sections
   -ffunction-sections
+  -DAS_USE_LIBUV
 )
 
 # Include cppcheck target.  must come after compiler flags defined

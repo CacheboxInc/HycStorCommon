@@ -19,3 +19,13 @@ target_link_libraries(VmdkConfig
 	StorageLayer
 	${LIBRARY_LIST}
 )
+
+add_executable(AeroConfig
+	AeroConfig.cpp
+)
+
+target_link_libraries(AeroConfig
+	CommonLib
+	StorageLayer
+	${LIBRARY_LIST}
+)

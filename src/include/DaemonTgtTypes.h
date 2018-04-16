@@ -7,8 +7,13 @@ using namespace ::hyc_thrift;
 #endif
 
 #define kInvalidVmHandle   0
+#define kInvalidAeroClusterHandle   0
+#define kValidAeroClusterHandle   1
 #define kInvalidVmdkHandle 0
 #define kInvalidRequestID  0
+#define kInvalidCkptID 0
+
+typedef uint64_t AeroClusterHandle;
 
 #ifdef __cplusplus
 }
