@@ -60,7 +60,7 @@ folly::Future<int> DirtyHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 
 		/* Try to Remove corresponding entry from CLEAN namespace */
 		if (!rc) {
-			std::cout << "Attempting Aero Del" << std::endl;
+			VLOG(1) << "Attempting Aero Del";
 			aero_obj_->AeroDelCmdProcess(vmdkp, reqp, ckpt, process,
 				failed, kAsNamespaceCacheClean);
 		}
