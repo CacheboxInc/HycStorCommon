@@ -9,6 +9,11 @@
 namespace pio {
 EncryptHandler::EncryptHandler(const config::VmdkConfig* configp) :
 		RequestHandler(nullptr) {
+	enabled_ = configp->IsEncryptionEnabled();
+	if (not enabled_) {
+		return;
+	}
+
 	key_ = configp->GetEncryptionKey();
 	if (key_.empty()) {
 		enabled_ = false;
