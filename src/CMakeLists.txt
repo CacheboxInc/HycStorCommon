@@ -23,6 +23,11 @@ set(COMPRESS_LIBS
 	zstd
 )
 
+set(AEROSPIKE_LIBS
+	aerospike
+	uv
+)
+
 set(LIBRARY_LIST
 	gflags
 	glog
@@ -38,8 +43,6 @@ set(LIBRARY_LIST
 	iberty
 	atomic
 	${ThriftLibs}
-	aerospike
-	uv
 )
 
 set(StorageLayerFiles

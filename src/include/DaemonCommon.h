@@ -3,6 +3,7 @@
 #include <limits>
 
 #include "IDs.h"
+#include "DaemonTgtTypes.h"
 
 namespace pio {
 class Vmdk;
@@ -17,7 +18,7 @@ class CheckPoint;
 class ActiveVmdk;
 class SnapshotVmdk;
 
-static const CheckPointID kInvaluCheckPointID = 0;
+static const CheckPointID kInvalidCheckPointID = 0;
 static const SnapshotID   kInvalidSnapshotID  = 0;
 static const BlockID      kBlockIDMax         = std::numeric_limits<BlockID>::max();
 static const BlockID      kBlockIDMin         = std::numeric_limits<BlockID>::min();

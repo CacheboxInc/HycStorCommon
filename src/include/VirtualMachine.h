@@ -9,10 +9,8 @@
 
 #include "IDs.h"
 #include "DaemonCommon.h"
-#include "AeroConn.h"
 
 using namespace ::hyc_thrift;
-
 
 namespace pio {
 /* forward declaration for Pimpl */
@@ -48,11 +46,10 @@ private:
 	VmID vm_id_;
 	std::atomic<RequestID> request_id_{0};
 	std::unique_ptr<config::VmConfig> config_;
-	AeroSpikeConn  *aero_conn_{nullptr};
 
 	struct {
 		mutable std::mutex mutex_;
-		std::atomic<CheckPointID> checkpoint_id_{kInvaluCheckPointID};
+		std::atomic<CheckPointID> checkpoint_id_{kInvalidCheckPointID};
 		std::unordered_map<CheckPointID, std::atomic<uint64_t>> writes_per_checkpoint_;
 	} checkpoint_;
 

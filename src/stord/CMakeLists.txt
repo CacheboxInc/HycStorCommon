@@ -35,6 +35,7 @@ target_link_libraries(stord
 	${HA_LIBS}
 	${COMPRESS_LIBS}
 	${LIBRARY_LIST}
+	${AEROSPIKE_LIBS}
 	-Wl,--end-group
 )
 

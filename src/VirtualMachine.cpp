@@ -8,7 +8,6 @@
 #include "Vmdk.h"
 #include "VmConfig.h"
 
-
 namespace pio {
 
 VirtualMachine::VirtualMachine(VmHandle handle, VmID vm_id,

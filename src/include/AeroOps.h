@@ -2,11 +2,13 @@
 
 #include <vector>
 #include <memory>
+
 #include <folly/futures/Future.h>
+
+#include "DaemonCommon.h"
 #include "QLock.h"
 #include "Rendez.h"
 #include "AeroConn.h"
-#define kInvalidCkptID 0
 
 namespace pio {
 
@@ -47,7 +49,7 @@ struct WriteBatch {
 	QLock q_lock_;
 	Rendez rendez_;
 
-	CheckPointID  ckpt_{kInvalidCkptID};
+	CheckPointID  ckpt_{kInvalidCheckPointID};
 	AeroSpikeConn *aero_conn_{nullptr};
 
 	bool failed_{false};
@@ -83,7 +85,7 @@ struct ReadBatch {
 	as_status as_result_{AEROSPIKE_OK};
 	bool failed_{false};
 
-	CheckPointID ckpt_{kInvalidCkptID};
+	CheckPointID ckpt_{kInvalidCheckPointID};
 	AeroSpikeConn *aero_conn_{nullptr};
 };
 
@@ -115,7 +117,7 @@ struct DelBatch {
 	const VmdkID& pre_keyp_;
 	const std::string& ns_;
 
-	CheckPointID ckpt_{kInvalidCkptID};
+	CheckPointID ckpt_{kInvalidCheckPointID};
 	AeroSpikeConn *aero_conn_{nullptr};
 
 	QLock q_lock_;

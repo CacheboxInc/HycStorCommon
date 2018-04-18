@@ -22,6 +22,7 @@ target_link_libraries(StorageLayerTests
 	ssl
 	${COMPRESS_LIBS}
 	${LIBRARY_LIST}
+	${AEROSPIKE_LIBS}
 	-Wl,--end-group
 )
 
