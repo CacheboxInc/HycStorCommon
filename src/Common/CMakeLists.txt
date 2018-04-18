@@ -16,4 +16,4 @@ add_library(CommonLib STATIC
 add_subdirectory(tests)
 
 # Install the storage library
-install(TARGETS CommonLib DESTINATION "/usr/lib/hyc")
+#install(TARGETS CommonLib DESTINATION "/usr/lib/hyc")

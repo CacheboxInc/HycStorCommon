@@ -123,8 +123,8 @@ enable_testing()
 add_subdirectory(src)
 
 # Install the header files
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/include"
-  DESTINATION "${CMAKE_INSTALL_PREFIX}/include/hyc")
+#install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/include"
+#  DESTINATION "${CMAKE_INSTALL_PREFIX}/include/hyc")
 
 # Set compiler options
 # if (CMAKE_COMPILER_IS_GNUCXX)

@@ -37,3 +37,5 @@ target_link_libraries(stord
 	${LIBRARY_LIST}
 	-Wl,--end-group
 )
+
+install(TARGETS stord DESTINATION "${CMAKE_INSTALL_PREFIX}/hyc/bin")
