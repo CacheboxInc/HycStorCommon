@@ -100,4 +100,7 @@ TEST_F(TgtInterfaceTest, ReadWriteSuccess) {
 
 	auto vmdk_handle = AddVmdk(vm_handle, kVmdkid, config);
 	EXPECT_NE(vmdk_handle, kInvalidVmdkHandle);
+
+	RemoveVmdk(vmdk_handle);
+	RemoveVm(vm_handle);
 }
