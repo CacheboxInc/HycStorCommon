@@ -7,6 +7,7 @@ add_executable(CommonTests
 	QLockTests.cpp
 	SingletonTests.cpp
 	RendezTests.cpp
+	BackGroundWorkTests.cpp
 )
 
 target_link_libraries(CommonTests

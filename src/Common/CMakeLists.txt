@@ -7,6 +7,7 @@ set(CommonLibFiles
 	SpinLock.cpp
 	QLock.cpp
 	Rendez.cpp
+	BackGroundWorker.cpp
 )
 
 add_library(CommonLib STATIC
