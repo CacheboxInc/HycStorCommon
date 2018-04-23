@@ -29,7 +29,7 @@ using namespace ::hyc_thrift;
 using namespace pio;
 
 static constexpr int32_t kServerPort = 9876;
-static const std::string kServerIp = "127.0.0.1";
+static const std::string kServerIp = "0.0.0.0";
 static const std::string kNewVm = "new_vm";
 static const std::string kNewVmdk = "new_vmdk";
 static const std::string kNewAero = "new_aero";
