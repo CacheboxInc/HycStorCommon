@@ -57,9 +57,9 @@ folly::Future<int> UnalignedHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		return -EINVAL;
 	}
 
-	std::vector<RequestBlock *> read_blocks;
+	auto read_blocks = std::make_unique<std::vector<RequestBlock *>>();
 	try {
-		read_blocks.reserve(2);
+		read_blocks->reserve(2);
 	} catch (const std::bad_alloc& e) {
 		return -ENOMEM;
 	}
@@ -67,27 +67,27 @@ folly::Future<int> UnalignedHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 	auto blockp = process.front();
 	log_assert(blockp != nullptr);
 	if (blockp->IsPartial()) {
-		read_blocks.emplace_back(blockp);
+		read_blocks->emplace_back(blockp);
 	}
 	if (process.size() > 2) {
 		blockp = process.back();
 		log_assert(blockp != nullptr);
 		if (blockp->IsPartial()) {
-			read_blocks.emplace_back(blockp);
+			read_blocks->emplace_back(blockp);
 		}
 	}
 
-	if (read_blocks.empty()) {
+	if (read_blocks->empty()) {
 		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
 	}
 
-	return this->Read(vmdkp, reqp, read_blocks, failed)
+	return this->Read(vmdkp, reqp, *read_blocks, failed)
 	.then([this, vmdkp, reqp, &process, &failed, ckpt,
 			read_blocks = std::move(read_blocks)] (int rc) mutable {
 		if (pio_unlikely(not failed.empty() || rc < 0)) {
 			return folly::makeFuture(rc);
 		}
-		this->ReadModify(vmdkp, reqp, read_blocks);
+		this->ReadModify(vmdkp, reqp, *read_blocks);
 		return this->nextp_->Write(vmdkp, reqp, ckpt, process, failed);
 	});
 }
