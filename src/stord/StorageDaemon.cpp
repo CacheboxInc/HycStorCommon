@@ -504,7 +504,7 @@ int main(int argc, char* argv[])
 			FLAGS_etcd_ip.c_str(), FLAGS_svc_label.c_str(),
 			FLAGS_stord_version.c_str(), 120,
 			const_cast<const struct ha_handlers *> (handlers.get()),
-			StordHaStartCallback, StordHaStopCallback);
+			StordHaStartCallback, StordHaStopCallback, 0, NULL);
 
 	if (g_thread_.ha_instance_ == nullptr) {
 		LOG(ERROR) << "ha_initialize failed";
