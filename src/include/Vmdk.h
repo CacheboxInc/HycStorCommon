@@ -30,8 +30,7 @@ namespace config {
 class CheckPoint {
 public:
 	CheckPoint(VmdkID vmdk_id, CheckPointID id);
-	void SetModifiedBlocks(const std::unordered_set<BlockID>& blocks,
-		BlockID first, BlockID last);
+	void SetModifiedBlocks(const std::unordered_set<BlockID>& blocks);
 	std::unique_ptr<RequestBuffer> Serialize() const;
 	~CheckPoint();
 	bool operator < (const CheckPoint& rhs) const noexcept;
@@ -44,8 +43,8 @@ private:
 	CheckPointID self_;
 	Roaring blocks_bitset_;
 	struct {
-		BlockID first_;
-		BlockID last_;
+		BlockID first_{0};
+		BlockID last_{0};
 	} block_id_;
 };
 
@@ -86,9 +85,10 @@ public:
 
 private:
 	folly::Future<int> WriteCommon(Request* reqp, CheckPointID ckpt_id);
-	int WriteComplete(Request* reqp);
-	void CopyDirtyBlocksSet(std::unordered_set<BlockID>& blocks,
-		BlockID& start, BlockID& end);
+	int WriteComplete(Request* reqp, CheckPointID ckpt_id);
+	std::optional<std::unordered_set<BlockID>>
+		CopyDirtyBlocksSet(CheckPointID ckpt_id);
+	void RemoveDirtyBlockSet(CheckPointID ckpt_id);
 
 private:
 	VirtualMachine *vmp_{nullptr};
@@ -100,10 +100,8 @@ private:
 	std::shared_ptr<AeroSpikeConn> aero_conn_{nullptr};
 
 	struct {
-		std::mutex mutex_;
-		std::unordered_set<BlockID> modified_;
-		BlockID min_{kBlockIDMax};
-		BlockID max_{kBlockIDMin};
+		mutable std::mutex mutex_;
+		std::unordered_map<CheckPointID, std::unordered_set<BlockID>> modified_;
 	} blocks_;
 
 	struct {

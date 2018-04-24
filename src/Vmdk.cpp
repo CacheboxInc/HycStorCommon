@@ -127,7 +127,7 @@ folly::Future<int> ActiveVmdk::WriteSame(Request* reqp, CheckPointID ckpt_id) {
 	return WriteCommon(reqp, ckpt_id);
 }
 
-int ActiveVmdk::WriteComplete(Request* reqp) {
+int ActiveVmdk::WriteComplete(Request* reqp, CheckPointID ckpt_id) {
 	--stats_.writes_in_progress_;
 	auto rc = reqp->Complete();
 	if (pio_unlikely(rc < 0)) {
@@ -139,31 +139,36 @@ int ActiveVmdk::WriteComplete(Request* reqp) {
 	std::iota(modified.begin(), modified.end(), start);
 
 	std::lock_guard<std::mutex> lock(blocks_.mutex_);
-	blocks_.modified_.insert(modified.begin(), modified.end());
-	blocks_.min_ = std::min(blocks_.min_, start);
-	blocks_.max_ = std::max(blocks_.max_, end);
+	auto it = blocks_.modified_.find(ckpt_id);
+	if (pio_unlikely(it == blocks_.modified_.end())) {
+		blocks_.modified_.insert(std::make_pair(ckpt_id,
+			std::unordered_set<BlockID>()));
+		it = blocks_.modified_.find(ckpt_id);
+	}
+	log_assert(it != blocks_.modified_.end());
+
+	it->second.insert(modified.begin(), modified.end());
 	return 0;
 }
 
-void ActiveVmdk::CopyDirtyBlocksSet(std::unordered_set<BlockID>& blocks,
-		BlockID& start, BlockID& end) {
-	start = end = 0;
-	blocks.clear();
-
+std::optional<std::unordered_set<BlockID>>
+ActiveVmdk::CopyDirtyBlocksSet(CheckPointID ckpt_id) {
 	std::lock_guard<std::mutex> guard(blocks_.mutex_);
-	if (blocks_.modified_.empty()) {
-		log_assert(blocks_.min_ == kBlockIDMax and blocks_.max_ == kBlockIDMin);
+	auto it = blocks_.modified_.find(ckpt_id);
+	if (pio_unlikely(it == blocks_.modified_.end())) {
+		return {};
+	}
+
+	return it->second;
+}
+
+void ActiveVmdk::RemoveDirtyBlockSet(CheckPointID ckpt_id) {
+	std::lock_guard<std::mutex> guard(blocks_.mutex_);
+	auto it = blocks_.modified_.find(ckpt_id);
+	if (pio_unlikely(it == blocks_.modified_.end())) {
 		return;
 	}
-	log_assert(blocks_.min_ != kBlockIDMax);
-
-	std::exchange(blocks, blocks_.modified_);
-	start = blocks_.min_;
-	end = blocks_.max_;
-
-	blocks_.modified_.clear();
-	blocks_.min_ = kBlockIDMax;
-	blocks_.max_ = kBlockIDMin;
+	blocks_.modified_.erase(it);
 }
 
 folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) {
@@ -181,7 +186,7 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 
 	++stats_.writes_in_progress_;
 	return headp_->Write(this, reqp, ckpt_id, *process, *failed)
-	.then([this, reqp, process = std::move(process),
+	.then([this, reqp, ckpt_id, process = std::move(process),
 			failed = std::move(failed)] (folly::Try<int>& result) mutable {
 		if (result.hasException<std::exception>()) {
 			reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
@@ -196,20 +201,20 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 			}
 		}
 
-		return WriteComplete(reqp);
+		return WriteComplete(reqp, ckpt_id);
 	});
 }
 
 folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
-	std::unordered_set<BlockID> blocks;
-	BlockID start, end;
-	CopyDirtyBlocksSet(blocks, start, end);
-
+	auto blocks = CopyDirtyBlocksSet(ckpt_id);
 	auto checkpoint = std::make_unique<CheckPoint>(GetID(), ckpt_id);
 	if (pio_unlikely(not checkpoint)) {
 		return -ENOMEM;
 	}
-	checkpoint->SetModifiedBlocks(blocks, start, end);
+
+	if (pio_likely(blocks)) {
+		checkpoint->SetModifiedBlocks(std::move(blocks.value()));
+	}
 
 #if 0
 	/*
@@ -222,6 +227,7 @@ folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
 #endif
 
 	{
+		RemoveDirtyBlockSet(ckpt_id);
 		std::lock_guard<std::mutex> guard(checkpoints_.mutex_);
 		if (pio_likely(not checkpoints_.unflushed_.empty())) {
 			const auto& x = checkpoints_.unflushed_.back();
@@ -293,15 +299,14 @@ std::unique_ptr<RequestBuffer> CheckPoint::Serialize() const {
 	return bufferp;
 }
 
-void CheckPoint::SetModifiedBlocks(const std::unordered_set<BlockID>& blocks,
-		BlockID first, BlockID last) {
+void CheckPoint::SetModifiedBlocks(const std::unordered_set<BlockID>& blocks) {
 	log_assert(blocks_bitset_.isEmpty());
 	for (auto b : blocks) {
 		blocks_bitset_.add(b);
 	}
 	blocks_bitset_.runOptimize();
-	block_id_.first_ = first;
-	block_id_.last_ = last;
+	block_id_.first_ = blocks_bitset_.minimum();
+	block_id_.last_ = blocks_bitset_.maximum();
 }
 
 CheckPointID CheckPoint::ID() const noexcept {
