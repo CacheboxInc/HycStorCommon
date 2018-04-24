@@ -38,7 +38,7 @@ public:
 	CheckPointID ID() const noexcept;
 
 	std::pair<BlockID, BlockID> Blocks() const noexcept;
-	const Roaring& GetRoraringBitMap() const noexcept;
+	const Roaring& GetRoaringBitMap() const noexcept;
 private:
 	VmdkID vmdk_id_;
 	CheckPointID self_;

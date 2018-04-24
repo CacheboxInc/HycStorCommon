@@ -40,7 +40,7 @@ struct SuccessWork {
 			CheckPointID ckpt, std::vector<RequestBlock*>& process,
 			std::vector<RequestBlock*>& failed, Type type) : selfp_(selfp),
 			vmdkp_(vmdkp), reqp_(reqp), ckpt_(ckpt), process_(process),
-			failed_(failed) {
+			failed_(failed), type_(type) {
 	}
 
 	void DoWork() {

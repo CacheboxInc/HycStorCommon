@@ -316,7 +316,7 @@ std::pair<BlockID, BlockID> CheckPoint::Blocks() const noexcept {
 	return std::make_pair(block_id_.first_, block_id_.last_);
 }
 
-const Roaring& CheckPoint::GetRoraringBitMap() const noexcept {
+const Roaring& CheckPoint::GetRoaringBitMap() const noexcept {
 	return blocks_bitset_;
 }
 

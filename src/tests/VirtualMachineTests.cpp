@@ -119,7 +119,7 @@ TEST_F(VirtualMachineTest, CheckPointSingleIO) {
 		EXPECT_EQ(start, end);
 		EXPECT_EQ(start, i);
 
-		const auto& bitmap = ckptp->GetRoraringBitMap();
+		const auto& bitmap = ckptp->GetRoaringBitMap();
 		EXPECT_EQ(bitmap.minimum(), bitmap.maximum());
 		EXPECT_TRUE(bitmap.contains(i));
 		EXPECT_EQ(bitmap.cardinality(), 1);
@@ -218,7 +218,7 @@ TEST_F(VirtualMachineTest, CheckPointConcurrent) {
 		EXPECT_NE(ckptp, nullptr);
 		EXPECT_EQ(ckptp->ID(), i);
 
-		const auto& bitmap = ckptp->GetRoraringBitMap();
+		const auto& bitmap = ckptp->GetRoaringBitMap();
 		for (const auto& block : bitmap) {
 			EXPECT_TRUE(blocks.find(block) == blocks.end());
 			blocks.insert(block);
