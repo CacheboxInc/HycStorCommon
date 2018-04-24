@@ -1,11 +1,10 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <numeric>
 
 #include <cstdint>
 #include <sys/eventfd.h>
-
-#include <roaring/roaring.hh>
 
 #include "gen-cpp2/StorRpc_types.h"
 #include "IDs.h"
@@ -128,6 +127,45 @@ folly::Future<int> ActiveVmdk::WriteSame(Request* reqp, CheckPointID ckpt_id) {
 	return WriteCommon(reqp, ckpt_id);
 }
 
+int ActiveVmdk::WriteComplete(Request* reqp) {
+	--stats_.writes_in_progress_;
+	auto rc = reqp->Complete();
+	if (pio_unlikely(rc < 0)) {
+		return rc;
+	}
+
+	auto[start, end] = reqp->Blocks();
+	std::vector<decltype(start)> modified(end - start + 1);
+	std::iota(modified.begin(), modified.end(), start);
+
+	std::lock_guard<std::mutex> lock(blocks_.mutex_);
+	blocks_.modified_.insert(modified.begin(), modified.end());
+	blocks_.min_ = std::min(blocks_.min_, start);
+	blocks_.max_ = std::max(blocks_.max_, end);
+	return 0;
+}
+
+void ActiveVmdk::CopyDirtyBlocksSet(std::unordered_set<BlockID>& blocks,
+		BlockID& start, BlockID& end) {
+	start = end = 0;
+	blocks.clear();
+
+	std::lock_guard<std::mutex> guard(blocks_.mutex_);
+	if (blocks_.modified_.empty()) {
+		log_assert(blocks_.min_ == kBlockIDMax and blocks_.max_ == kBlockIDMin);
+		return;
+	}
+	log_assert(blocks_.min_ != kBlockIDMax);
+
+	std::exchange(blocks, blocks_.modified_);
+	start = blocks_.min_;
+	end = blocks_.max_;
+
+	blocks_.modified_.clear();
+	blocks_.min_ = kBlockIDMax;
+	blocks_.max_ = kBlockIDMin;
+}
+
 folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) {
 	if (pio_unlikely(not headp_)) {
 		return -ENXIO;
@@ -158,36 +196,62 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 			}
 		}
 
-		--stats_.writes_in_progress_;
-		return reqp->Complete();
+		return WriteComplete(reqp);
 	});
 }
 
 folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
 	std::unordered_set<BlockID> blocks;
 	BlockID start, end;
-
-	{
-		std::lock_guard<std::mutex> guard(blocks_.mutex_);
-		std::exchange(blocks, blocks_.modified_);
-		start = blocks_.min_;
-		end = blocks_.max_;
-		blocks_.modified_.clear();
-		blocks_.min_ = kBlockIDMax;
-		blocks_.max_ = kBlockIDMin;
-	}
+	CopyDirtyBlocksSet(blocks, start, end);
 
 	auto checkpoint = std::make_unique<CheckPoint>(GetID(), ckpt_id);
-	auto ckptp = checkpoint.get();
-	ckptp->SetModifiedBlocks(std::move(blocks), start, end);
+	if (pio_unlikely(not checkpoint)) {
+		return -ENOMEM;
+	}
+	checkpoint->SetModifiedBlocks(blocks, start, end);
 
-	auto s = ckptp->Serialize();
+#if 0
+	/*
+	 * TODO:
+	 * The CheckPoint serialize at the moment, creates a binary blob, this is
+	 * going to change to JSON.
+	 */
+	auto s = checkpoint->Serialize();
+	(void) s;
+#endif
 
 	{
 		std::lock_guard<std::mutex> guard(checkpoints_.mutex_);
+		if (pio_likely(not checkpoints_.unflushed_.empty())) {
+			const auto& x = checkpoints_.unflushed_.back();
+			log_assert(*x < *checkpoint);
+		}
 		checkpoints_.unflushed_.emplace_back(std::move(checkpoint));
 	}
 	return 0;
+}
+
+const CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
+	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
+	auto it1 = pio::BinarySearch(checkpoints_.unflushed_.begin(),
+		checkpoints_.unflushed_.end(), ckpt_id, []
+				(const std::unique_ptr<CheckPoint>& ckpt, CheckPointID ckpt_id) {
+			return ckpt->ID() < ckpt_id;
+		});
+	if (it1 != checkpoints_.unflushed_.end()) {
+		return it1->get();
+	}
+
+	auto it2 = pio::BinarySearch(checkpoints_.flushed_.begin(),
+		checkpoints_.flushed_.end(), ckpt_id, []
+				(const std::unique_ptr<CheckPoint>& ckpt, CheckPointID ckpt_id) {
+			return ckpt->ID() < ckpt_id;
+		});
+	if (it2 != checkpoints_.flushed_.end()) {
+		return it2->get();
+	}
+	return nullptr;
 }
 
 struct CheckPointHeader {
@@ -210,13 +274,13 @@ std::unique_ptr<RequestBuffer> CheckPoint::Serialize() const {
 	header.ckpt_id     = self_;
 	header.first       = block_id_.first_;
 	header.last        = block_id_.last_;
-	header.bitset_size = blocks_bitset_->getSizeInBytes();
+	header.bitset_size = blocks_bitset_.getSizeInBytes();
 
 	auto size = sizeof(header) + header.bitset_size;
 	size = AlignUpToBlockSize(size, kSectorSize);
 
 	auto bufferp = NewRequestBuffer(size);
-	if (pio_unlikely(bufferp)) {
+	if (pio_unlikely(not bufferp)) {
 		throw std::bad_alloc();
 	}
 	log_assert(bufferp->Size() >= size);
@@ -224,18 +288,36 @@ std::unique_ptr<RequestBuffer> CheckPoint::Serialize() const {
 	auto dp = bufferp->Payload();
 	::memcpy(dp, reinterpret_cast<void *>(&header), sizeof(header));
 	dp += sizeof(header);
-	blocks_bitset_->write(dp);
+	blocks_bitset_.write(dp);
 
 	return bufferp;
 }
 
-void CheckPoint::SetModifiedBlocks(std::unordered_set<BlockID>&& blocks,
+void CheckPoint::SetModifiedBlocks(const std::unordered_set<BlockID>& blocks,
 		BlockID first, BlockID last) {
-	blocks_bitset_ = std::make_unique<Roaring>();
+	log_assert(blocks_bitset_.isEmpty());
 	for (auto b : blocks) {
-		blocks_bitset_->add(b);
+		blocks_bitset_.add(b);
 	}
-	blocks_bitset_->runOptimize();
-	log_assert(blocks_bitset_->cardinality() == last - first + 1);
+	blocks_bitset_.runOptimize();
+	block_id_.first_ = first;
+	block_id_.last_ = last;
 }
+
+CheckPointID CheckPoint::ID() const noexcept {
+	return self_;
+}
+
+bool CheckPoint::operator < (const CheckPoint& rhs) const noexcept {
+	return self_ < rhs.self_;
+}
+
+std::pair<BlockID, BlockID> CheckPoint::Blocks() const noexcept {
+	return std::make_pair(block_id_.first_, block_id_.last_);
+}
+
+const Roaring& CheckPoint::GetRoraringBitMap() const noexcept {
+	return blocks_bitset_;
+}
+
 }

@@ -39,6 +39,7 @@ const std::map<VmdkConfig::ErrorType, std::string> VmdkConfig::kErrorToString = 
 };
 
 const std::string VmdkConfig::kSuccessHandler = "SuccessHandler";
+const std::string VmdkConfig::kDelay = "Delay";
 
 const std::string VmdkConfig::kTargetID = "TargetID";
 const std::string VmdkConfig::kLunID = "LunID";
@@ -376,6 +377,21 @@ bool VmdkConfig::IsSuccessHandlerEnabled() const {
 	bool enabled{false};
 	auto rc = JsonConfig::GetKey(key, enabled);
 	return rc and enabled;
+}
+
+void VmdkConfig::SetSuccessHandlerDelay(int32_t delay) {
+	std::string key;
+	StringDelimAppend(key, '.', {kSuccessHandler, kDelay});
+	JsonConfig::SetKey(key, delay);
+}
+
+int32_t VmdkConfig::GetSuccessHandlerDelay() const {
+	std::string key;
+	StringDelimAppend(key, '.', {kSuccessHandler, kDelay});
+
+	int32_t rv;
+	auto rc = JsonConfig::GetKey(key, rv);
+	return rc ? rv : 0;
 }
 
 void VmdkConfig::SetTargetId(uint32_t target_id) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <utility>
+#include <algorithm>
 
 #include "IDs.h"
 
@@ -24,6 +25,13 @@ void MoveLastElements(std::vector<T>& dst, std::vector<T>& src, size_t tomove) {
 	auto sit = std::prev(eit, tomove);
 	std::move(sit, eit, std::back_inserter(dst));
 	src.erase(sit, eit);
+}
+
+template <typename ForwardIt, typename T, typename Compare = std::less<>>
+ForwardIt BinarySearch(ForwardIt first, ForwardIt last, const T& value,
+		Compare comp = {}) {
+    first = std::lower_bound(first, last, value, comp);
+    return first != last and !comp(*first, value) ? first : last;
 }
 
 void StringDelimAppend(std::string& result, const char delim,

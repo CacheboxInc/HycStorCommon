@@ -7,6 +7,9 @@
 
 #include <cstdint>
 
+#include <folly/futures/Future.h>
+#include <folly/futures/FutureSplitter.h>
+
 #include "IDs.h"
 #include "DaemonCommon.h"
 
@@ -18,6 +21,15 @@ namespace config {
 	class VmConfig;
 }
 
+struct Stun {
+	Stun();
+	folly::Future<int> GetFuture();
+	void SetPromise(int result);
+	folly::Promise<int> promise;
+	folly::FutureSplitter<int> futures;
+};
+
+using CheckPointResult = std::pair<CheckPointID, int>;
 
 class VirtualMachine {
 public:
@@ -30,7 +42,8 @@ public:
 	folly::Future<int> Write(ActiveVmdk* vmdkp, Request* reqp);
 	folly::Future<int> WriteSame(ActiveVmdk* vmdkp, Request* reqp);
 	folly::Future<int> Read(ActiveVmdk* vmdkp, Request* reqp);
-	folly::Future<CheckPointID> TakeCheckPoint();
+	folly::Future<CheckPointResult> TakeCheckPoint();
+	folly::Future<int> Stun(CheckPointID ckpt_id);
 
 public:
 	const VmID& GetID() const noexcept;
@@ -40,6 +53,8 @@ public:
 private:
 	ActiveVmdk* FindVmdk(const VmdkID& vmdk_id) const;
 	ActiveVmdk* FindVmdk(VmdkHandle vmdk_handle) const;
+	void WriteComplete(CheckPointID ckpt_id);
+	void CheckPointComplete(CheckPointID ckpt_id);
 
 private:
 	VmdkHandle handle_;
@@ -48,9 +63,12 @@ private:
 	std::unique_ptr<config::VmConfig> config_;
 
 	struct {
+		std::atomic_flag in_progress_ = ATOMIC_FLAG_INIT;
+		std::atomic<CheckPointID> checkpoint_id_{kInvalidCheckPointID+1};
+
 		mutable std::mutex mutex_;
-		std::atomic<CheckPointID> checkpoint_id_{kInvalidCheckPointID};
 		std::unordered_map<CheckPointID, std::atomic<uint64_t>> writes_per_checkpoint_;
+		std::unordered_map<CheckPointID, std::unique_ptr<struct Stun>> stuns_;
 	} checkpoint_;
 
 	struct {

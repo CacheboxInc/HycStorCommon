@@ -10,6 +10,7 @@
 #include <cstdint>
 
 #include <folly/futures/Future.h>
+#include <roaring/roaring.hh>
 
 #include "DaemonCommon.h"
 #include "IDs.h"
@@ -17,8 +18,6 @@
 #include "Request.h"
 #include "RequestHandler.h"
 #include "AeroConn.h"
-
-class Roaring;
 
 namespace pio {
 
@@ -31,14 +30,19 @@ namespace config {
 class CheckPoint {
 public:
 	CheckPoint(VmdkID vmdk_id, CheckPointID id);
-	void SetModifiedBlocks(std::unordered_set<BlockID>&& blocks, BlockID first,
-			BlockID last);
+	void SetModifiedBlocks(const std::unordered_set<BlockID>& blocks,
+		BlockID first, BlockID last);
 	std::unique_ptr<RequestBuffer> Serialize() const;
 	~CheckPoint();
+	bool operator < (const CheckPoint& rhs) const noexcept;
+	CheckPointID ID() const noexcept;
+
+	std::pair<BlockID, BlockID> Blocks() const noexcept;
+	const Roaring& GetRoraringBitMap() const noexcept;
 private:
-	VmdkID                   vmdk_id_;
-	CheckPointID             self_;
-	std::unique_ptr<Roaring> blocks_bitset_;
+	VmdkID vmdk_id_;
+	CheckPointID self_;
+	Roaring blocks_bitset_;
 	struct {
 		BlockID first_;
 		BlockID last_;
@@ -70,6 +74,7 @@ public:
 	folly::Future<int> Write(Request* reqp, CheckPointID ckpt_id);
 	folly::Future<int> WriteSame(Request* reqp, CheckPointID ckpt_id);
 	folly::Future<int> TakeCheckPoint(CheckPointID check_point);
+	const CheckPoint* GetCheckPoint(CheckPointID ckpt_id) const;
 
 public:
 	size_t BlockSize() const;
@@ -81,32 +86,35 @@ public:
 
 private:
 	folly::Future<int> WriteCommon(Request* reqp, CheckPointID ckpt_id);
+	int WriteComplete(Request* reqp);
+	void CopyDirtyBlocksSet(std::unordered_set<BlockID>& blocks,
+		BlockID& start, BlockID& end);
 
 private:
 	VirtualMachine *vmp_{nullptr};
 	//Vmdk           *parentp_{nullptr};
 	int            eventfd_{-1};
 
-	uint32_t block_shift_;
+	uint32_t block_shift_{0};
 	std::unique_ptr<config::VmdkConfig> config_;
 	std::shared_ptr<AeroSpikeConn> aero_conn_{nullptr};
 
 	struct {
 		std::mutex mutex_;
 		std::unordered_set<BlockID> modified_;
-		BlockID min_;
-		BlockID max_;
+		BlockID min_{kBlockIDMax};
+		BlockID max_{kBlockIDMin};
 	} blocks_;
 
 	struct {
-		std::mutex mutex_;
+		mutable std::mutex mutex_;
 		std::vector<std::unique_ptr<CheckPoint>> unflushed_;
 		std::vector<std::unique_ptr<CheckPoint>> flushed_;
 	} checkpoints_;
 
 	struct {
-		std::atomic<uint64_t> writes_in_progress_;
-		std::atomic<uint64_t> reads_in_progress_;
+		std::atomic<uint64_t> writes_in_progress_{0};
+		std::atomic<uint64_t> reads_in_progress_{0};
 	} stats_;
 
 	std::unique_ptr<RequestHandler> headp_{nullptr};

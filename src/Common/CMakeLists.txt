@@ -7,6 +7,7 @@ set(CommonLibFiles
 	SpinLock.cpp
 	QLock.cpp
 	Rendez.cpp
+	TimePoint.cpp
 	BackGroundWorker.cpp
 )
 

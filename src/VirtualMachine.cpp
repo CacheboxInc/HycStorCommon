@@ -65,19 +65,46 @@ void VirtualMachine::AddVmdk(ActiveVmdk* vmdkp) {
 	vmdk_.list_.emplace_back(vmdkp);
 }
 
-folly::Future<CheckPointID> VirtualMachine::TakeCheckPoint() {
-	CheckPointID c = ++checkpoint_.checkpoint_id_;
+void VirtualMachine::CheckPointComplete(CheckPointID ckpt_id) {
+	log_assert(ckpt_id != kInvalidCheckPointID);
+	checkpoint_.in_progress_.clear();
+}
 
-	std::vector<folly::Future<int>> futures;
-	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
-	for (const auto& vmdkp : vmdk_.list_) {
-		auto fut = vmdkp->TakeCheckPoint(c - 1);
-		futures.emplace_back(std::move(fut));
+folly::Future<CheckPointResult> VirtualMachine::TakeCheckPoint() {
+	if (checkpoint_.in_progress_.test_and_set()) {
+		return std::make_pair(kInvalidCheckPointID, -EAGAIN);
 	}
 
-	return folly::collectAll(std::move(futures))
-	.then([&c] (const std::vector<folly::Try<int>>& results) {
-		return c - 1;
+	CheckPointID ckpt_id = (++checkpoint_.checkpoint_id_) - 1;
+	return Stun(ckpt_id)
+	.then([this, ckpt_id] (int rc) mutable -> folly::Future<CheckPointResult> {
+		if (pio_unlikely(rc < 0)) {
+			return std::make_pair(kInvalidCheckPointID, rc);
+		}
+
+		std::vector<folly::Future<int>> futures;
+		futures.reserve(vmdk_.list_.size());
+		{
+			std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+			for (const auto& vmdkp : vmdk_.list_) {
+				auto fut = vmdkp->TakeCheckPoint(ckpt_id);
+				futures.emplace_back(std::move(fut));
+			}
+		}
+
+		return folly::collectAll(std::move(futures))
+		.then([this, ckpt_id] (const std::vector<folly::Try<int>>& results)
+				-> folly::Future<CheckPointResult> {
+			for (auto& t : results) {
+				if (pio_likely(t.hasValue() and t.value() == 0)) {
+					continue;
+				} else {
+					return std::make_pair(kInvalidCheckPointID, t.value());
+				}
+			}
+			CheckPointComplete(ckpt_id);
+			return std::make_pair(ckpt_id, 0);;
+		});
 	});
 }
 
@@ -88,20 +115,15 @@ folly::Future<int> VirtualMachine::Write(ActiveVmdk* vmdkp, Request* reqp) {
 
 	auto ckpt_id = [this] () mutable -> CheckPointID {
 		std::lock_guard<std::mutex> guard(checkpoint_.mutex_);
-		++checkpoint_.writes_per_checkpoint_[checkpoint_.checkpoint_id_];
-		return checkpoint_.checkpoint_id_;
+		auto ckpt_id = checkpoint_.checkpoint_id_.load();
+		++checkpoint_.writes_per_checkpoint_[ckpt_id];
+		return ckpt_id;
 	} ();
 
-	stats_.writes_in_progress_.fetch_add(std::memory_order_relaxed);
+	++stats_.writes_in_progress_;
 	return vmdkp->Write(reqp, ckpt_id)
 	.then([this, ckpt_id] (int rc) mutable {
-		stats_.writes_in_progress_.fetch_sub(std::memory_order_relaxed);
-
-		std::lock_guard<std::mutex> guard(checkpoint_.mutex_);
-		auto c = --checkpoint_.writes_per_checkpoint_[ckpt_id];
-		if (not c && ckpt_id != checkpoint_.checkpoint_id_) {
-			checkpoint_.writes_per_checkpoint_.erase(ckpt_id);
-		}
+		WriteComplete(ckpt_id);
 		return rc;
 	});
 }
@@ -126,22 +148,67 @@ folly::Future<int> VirtualMachine::WriteSame(ActiveVmdk* vmdkp, Request* reqp) {
 
 	auto ckpt_id = [this] () mutable -> CheckPointID {
 		std::lock_guard<std::mutex> guard(checkpoint_.mutex_);
-		++checkpoint_.writes_per_checkpoint_[checkpoint_.checkpoint_id_];
-		return checkpoint_.checkpoint_id_;
+		auto ckpt_id = checkpoint_.checkpoint_id_.load();
+		++checkpoint_.writes_per_checkpoint_[ckpt_id];
+		return ckpt_id;
 	} ();
 
 	++stats_.writes_in_progress_;
 	return vmdkp->WriteSame(reqp, ckpt_id)
 	.then([this, ckpt_id] (int rc) mutable {
-		--stats_.writes_in_progress_;
-
-		std::lock_guard<std::mutex> guard(checkpoint_.mutex_);
-		auto c = --checkpoint_.writes_per_checkpoint_[ckpt_id];
-		if (not c && ckpt_id != checkpoint_.checkpoint_id_) {
-			checkpoint_.writes_per_checkpoint_.erase(ckpt_id);
-		}
+		WriteComplete(ckpt_id);
 		return rc;
 	});
+}
+
+void VirtualMachine::WriteComplete(CheckPointID ckpt_id) {
+	--stats_.writes_in_progress_;
+
+	std::lock_guard<std::mutex> guard(checkpoint_.mutex_);
+	log_assert(checkpoint_.writes_per_checkpoint_[ckpt_id] > 0);
+	auto c = --checkpoint_.writes_per_checkpoint_[ckpt_id];
+	if (pio_unlikely(not c and ckpt_id != checkpoint_.checkpoint_id_)) {
+		log_assert(ckpt_id < checkpoint_.checkpoint_id_);
+		auto it = checkpoint_.stuns_.find(ckpt_id);
+		if (pio_unlikely(it == checkpoint_.stuns_.end())) {
+			return;
+		}
+		auto stun = std::move(it->second);
+		checkpoint_.stuns_.erase(it);
+		stun->SetPromise(0);
+	}
+}
+
+folly::Future<int> VirtualMachine::Stun(CheckPointID ckpt_id) {
+	std::lock_guard<std::mutex> guard(checkpoint_.mutex_);
+	if (auto it = checkpoint_.writes_per_checkpoint_.find(ckpt_id);
+			it == checkpoint_.writes_per_checkpoint_.end() ||
+			it->second == 0) {
+		return 0;
+	} else {
+		log_assert(it->second > 0);
+	}
+
+	if (auto it = checkpoint_.stuns_.find(ckpt_id);
+			pio_likely(it == checkpoint_.stuns_.end())) {
+		auto stun = std::make_unique<struct Stun>();
+		auto fut = stun->GetFuture();
+		checkpoint_.stuns_.emplace(ckpt_id, std::move(stun));
+		return fut;
+	} else {
+		return it->second->GetFuture();
+	}
+}
+
+Stun::Stun() : promise(), futures(promise.getFuture()) {
+}
+
+folly::Future<int> Stun::GetFuture() {
+	return futures.getFuture();
+}
+
+void Stun::SetPromise(int result) {
+	promise.setValue(result);
 }
 
 }
