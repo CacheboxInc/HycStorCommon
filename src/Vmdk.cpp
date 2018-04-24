@@ -89,16 +89,16 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp) {
 		return -ENXIO;
 	}
 
-	std::vector<RequestBlock*> failed;
-	std::vector<RequestBlock*> process;
-	process.reserve(reqp->NumberOfRequestBlocks());
+	auto failed = std::make_unique<std::vector<RequestBlock*>>();
+	auto process = std::make_unique<std::vector<RequestBlock*>>();
+	process->reserve(reqp->NumberOfRequestBlocks());
 	reqp->ForEachRequestBlock([&process] (RequestBlock *blockp) mutable {
-		process.emplace_back(blockp);
+		process->emplace_back(blockp);
 		return true;
 	});
 
 	++stats_.reads_in_progress_;
-	return headp_->Read(this, reqp, process, failed)
+	return headp_->Read(this, reqp, *process, *failed)
 	.then([this, reqp, process = std::move(process),
 			failed = std::move(failed)] (folly::Try<int>& result) mutable {
 		if (result.hasException<std::exception>()) {
@@ -107,8 +107,8 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp) {
 			auto rc = result.value();
 			if (pio_unlikely(rc < 0)) {
 				reqp->SetResult(rc, RequestStatus::kFailed);
-			} else if (pio_unlikely(not failed.empty())) {
-				const auto blockp = failed.front();
+			} else if (pio_unlikely(not failed->empty())) {
+				const auto blockp = failed->front();
 				log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
 				reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
 			}
@@ -171,16 +171,16 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 		return -ENXIO;
 	}
 
-	std::vector<RequestBlock*> failed;
-	std::vector<RequestBlock*> process;
-	process.reserve(reqp->NumberOfRequestBlocks());
+	auto failed = std::make_unique<std::vector<RequestBlock*>>();
+	auto process = std::make_unique<std::vector<RequestBlock*>>();
+	process->reserve(reqp->NumberOfRequestBlocks());
 	reqp->ForEachRequestBlock([&process] (RequestBlock *blockp) mutable {
-		process.emplace_back(blockp);
+		process->emplace_back(blockp);
 		return true;
 	});
 
 	++stats_.writes_in_progress_;
-	return headp_->Write(this, reqp, ckpt_id, process, failed)
+	return headp_->Write(this, reqp, ckpt_id, *process, *failed)
 	.then([this, reqp, process = std::move(process),
 			failed = std::move(failed)] (folly::Try<int>& result) mutable {
 		if (result.hasException<std::exception>()) {
@@ -189,8 +189,8 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 			auto rc = result.value();
 			if (pio_unlikely(rc < 0)) {
 				reqp->SetResult(rc, RequestStatus::kFailed);
-			} else if (pio_unlikely(not failed.empty())) {
-				const auto blockp = failed.front();
+			} else if (pio_unlikely(not failed->empty())) {
+				const auto blockp = failed->front();
 				log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
 				reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
 			}
