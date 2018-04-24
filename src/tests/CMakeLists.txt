@@ -5,7 +5,7 @@ add_executable(StorageLayerTests
 	VmdkTests.cpp
 	RamCacheTests.cpp
 	UnalignedHandlerTests.cpp
-	#RoaringBitmapTest.cpp
+	RoaringBitmapTest.cpp
 	FileCacheTests.cpp
 	ErrorHandlerTests.cpp
 	SuccessHandlerTests.cpp

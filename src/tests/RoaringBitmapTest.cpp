@@ -28,27 +28,19 @@ TEST(RoaringBitmapSpaceBenchmark, Benchmark) {
 			Roaring bitmap;
 			InitializeBitmap(bitmap, set, unset);
 
-			auto stats1 = bitmap.getStats();
-			auto ds_sz1 = stats1.n_bytes_array_containers +
-				stats1.n_bytes_run_containers + stats1.n_bytes_bitset_containers;
 			auto seri_sz1 = bitmap.getSizeInBytes(false);
 
 			bitmap.runOptimize();
 			auto saved = bitmap.shrinkToFit();
 			(void) saved;
 
-			auto stats2 = bitmap.getStats();
-			auto ds_sz2 = stats2.n_bytes_array_containers +
-				stats2.n_bytes_run_containers + stats2.n_bytes_bitset_containers;
 			auto seri_sz2 = bitmap.getSizeInBytes(false);
 
 			VLOG(1) << set << ","
 				<< unset << ","
 				<< bitmap.cardinality() << ","
 				<< seri_sz1 << ","
-				<< ds_sz1 << ","
-				<< seri_sz2 << ","
-				<< ds_sz2;
+				<< seri_sz2;
 		}
 	}
 }
