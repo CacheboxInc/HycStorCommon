@@ -61,6 +61,8 @@ set(StorageLayerFiles
 	Request.cpp
 	RamCache.cpp
 
+	MetaDataKV.cpp
+
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/LockHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/RequestHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/UnalignedHandler.cpp"
@@ -85,6 +87,7 @@ add_library(StorageLayer STATIC
 target_link_libraries(StorageLayer
 	CommonLib
 	StorRpcLib
+	StorRpcMetaDataLib
 	${LIBRARY_LIST}
 )
 

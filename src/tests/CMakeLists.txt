@@ -18,6 +18,7 @@ target_link_libraries(StorageLayerTests
 	CommonLib
 	StorRpcLib
 	StorageLayer
+	StorRpcMetaDataLib
 	gtest
 	lzma
 	ssl

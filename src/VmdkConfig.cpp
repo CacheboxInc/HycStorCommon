@@ -45,6 +45,10 @@ const std::string VmdkConfig::kTargetID = "TargetID";
 const std::string VmdkConfig::kLunID = "LunID";
 const std::string VmdkConfig::kDevPath = "DevPath";
 
+const std::string VmdkConfig::kRamMetaDataKV = "RamMetaDataKV";
+const std::string VmdkConfig::kAeroMetaDataKV = "AeroMetaDataKV";
+const std::string VmdkConfig::kMetaDataKV = "MetaDataKV";
+
 VmdkConfig::VmdkConfig(const std::string& config) : JsonConfig(config) {
 }
 
@@ -422,4 +426,19 @@ std::string VmdkConfig::GetDevPath() const {
 	}
 	return dev_path;
 }
+
+void VmdkConfig::SetRamMetaDataKV() {
+	JsonConfig::SetKey(kMetaDataKV, kRamMetaDataKV);
+}
+
+bool VmdkConfig::IsRamMetaDataKV() {
+	std::string kv;
+	auto rc = JsonConfig::GetKey(kMetaDataKV, kv);
+	if (not rc) {
+		return false;
+	}
+
+	return kv == kRamMetaDataKV;
+}
+
 }}

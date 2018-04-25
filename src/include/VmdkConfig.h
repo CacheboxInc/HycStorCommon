@@ -64,6 +64,8 @@ public:
 	void SetDevPath(const std::string& dev_path);
 	std::string GetDevPath() const;
 
+	void SetRamMetaDataKV();
+	bool IsRamMetaDataKV();
 public:
 	static const std::string kEnabled;
 	static const std::string kVmdkID;
@@ -96,6 +98,9 @@ public:
 	static const std::string kTargetID;
 	static const std::string kLunID;
 	static const std::string kDevPath;
+	static const std::string kRamMetaDataKV;
+	static const std::string kAeroMetaDataKV;
+	static const std::string kMetaDataKV;
 };
 
 std::ostream& operator <<(std::ostream& os, const VmdkConfig::ErrorType& type);

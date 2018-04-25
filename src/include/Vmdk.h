@@ -18,6 +18,7 @@
 #include "Request.h"
 #include "RequestHandler.h"
 #include "AeroConn.h"
+#include "MetaDataKV.h"
 
 namespace pio {
 
@@ -31,13 +32,18 @@ class CheckPoint {
 public:
 	CheckPoint(VmdkID vmdk_id, CheckPointID id);
 	void SetModifiedBlocks(const std::unordered_set<BlockID>& blocks);
-	std::unique_ptr<RequestBuffer> Serialize() const;
+	std::string Serialize() const;
+	std::string SerializationKey() const;
 	~CheckPoint();
 	bool operator < (const CheckPoint& rhs) const noexcept;
 	CheckPointID ID() const noexcept;
 
 	std::pair<BlockID, BlockID> Blocks() const noexcept;
 	const Roaring& GetRoaringBitMap() const noexcept;
+	void SetSerialized() noexcept;
+	bool IsSerialized() const noexcept;
+	void SetFlushed() noexcept;
+	bool IsFlushed() const noexcept;
 private:
 	VmdkID vmdk_id_;
 	CheckPointID self_;
@@ -46,6 +52,11 @@ private:
 		BlockID first_{0};
 		BlockID last_{0};
 	} block_id_;
+
+	bool serialized_{false};
+	bool flushed_{false};
+public:
+	static const std::string kCheckPoint;
 };
 
 class Vmdk {
@@ -105,10 +116,14 @@ private:
 	} blocks_;
 
 	struct {
+		/* Last successful CheckPointID on VMDK */
+		std::atomic<CheckPointID> last_checkpoint_{kInvalidCheckPointID};
 		mutable std::mutex mutex_;
 		std::vector<std::unique_ptr<CheckPoint>> unflushed_;
 		std::vector<std::unique_ptr<CheckPoint>> flushed_;
 	} checkpoints_;
+
+	std::unique_ptr<MetaDataKV> metad_kv_{nullptr};
 
 	struct {
 		std::atomic<uint64_t> writes_in_progress_{0};

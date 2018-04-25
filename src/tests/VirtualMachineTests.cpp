@@ -64,6 +64,7 @@ public:
 		c.DisableErrorHandler();
 		c.EnableSuccessHandler();
 		c.SetSuccessHandlerDelay(10000);
+		c.SetRamMetaDataKV();
 		return NewActiveVmdk(vm_handle, kVmdkid.c_str(), c.Serialize().c_str());
 	}
 };
@@ -114,6 +115,8 @@ TEST_F(VirtualMachineTest, CheckPointSingleIO) {
 		auto ckptp = vmdkp->GetCheckPoint(i + 1);
 		EXPECT_NE(ckptp, nullptr);
 		EXPECT_EQ(ckptp->ID(), i+1);
+		EXPECT_TRUE(ckptp->IsSerialized());
+		EXPECT_FALSE(ckptp->IsFlushed());
 
 		auto [start, end] = ckptp->Blocks();
 		EXPECT_EQ(start, end);
@@ -165,7 +168,7 @@ TEST_F(VirtualMachineTest, CheckPointConcurrent) {
 			auto id = (ckpts * kWritesPerCheckpoint) + req;
 			auto reqp = std::make_unique<Request>(id, vmdkp,
 				Request::Type::kWrite, buffer, kBlockSize, kBlockSize,
-				id * kBlockSize);
+				(id-1) * kBlockSize);
 			auto fut = vmp->Write(vmdkp, reqp.get())
 			.then([reqp = std::move(reqp)] (int rc) mutable {
 				EXPECT_EQ(rc, 0);
@@ -212,16 +215,20 @@ TEST_F(VirtualMachineTest, CheckPointConcurrent) {
 	}).wait();
 
 	std::set<BlockID> blocks;
-	for (auto i = 1; i <= kCheckPoints+1; ++i) {
+	for (auto i = 1u, blockid = 0u; i <= kCheckPoints+1; ++i) {
 		auto ckptp = vmdkp->GetCheckPoint(i);
 		assert(ckptp != nullptr);
 		EXPECT_NE(ckptp, nullptr);
 		EXPECT_EQ(ckptp->ID(), i);
+		EXPECT_TRUE(ckptp->IsSerialized());
+		EXPECT_FALSE(ckptp->IsFlushed());
 
 		const auto& bitmap = ckptp->GetRoaringBitMap();
 		for (const auto& block : bitmap) {
 			EXPECT_TRUE(blocks.find(block) == blocks.end());
 			blocks.insert(block);
+			EXPECT_EQ(blockid, block);
+			++blockid;
 		}
 	}
 

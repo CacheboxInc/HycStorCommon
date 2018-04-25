@@ -31,6 +31,7 @@ target_link_libraries(stord
 	gssapi_krb5
 	CommonLib
 	StorRpcLib
+	StorRpcMetaDataLib
 	StorageLayer
 	${HA_LIBS}
 	${COMPRESS_LIBS}

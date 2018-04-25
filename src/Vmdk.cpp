@@ -6,6 +6,13 @@
 #include <cstdint>
 #include <sys/eventfd.h>
 
+#include <thrift/lib/cpp/protocol/TJSONProtocol.h>
+#include <thrift/lib/cpp/transport/TBufferTransports.h>
+#include <thrift/lib/cpp/util/ThriftSerializer.h>
+#include <thrift/lib/cpp2/protocol/JSONProtocol.h>
+#include <thrift/lib/cpp2/protocol/Serializer.h>
+
+#include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_types.h"
 #include "IDs.h"
 #include "DaemonUtils.h"
@@ -15,6 +22,9 @@
 #include "Vmdk.h"
 
 namespace pio {
+
+const std::string CheckPoint::kCheckPoint = "CheckPoint";
+
 Vmdk::Vmdk(VmdkHandle handle, VmdkID&& id) : handle_(handle), id_(std::move(id)) {
 }
 
@@ -41,6 +51,15 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 		throw std::invalid_argument("Block Size is not power of 2.");
 	}
 	block_shift_ = PopCount(block_size-1);
+
+	if (config_->IsRamMetaDataKV()) {
+		metad_kv_ = std::make_unique<RamMetaDataKV>();
+	} else {
+		metad_kv_ = std::make_unique<AeroMetaDataKV>();
+	}
+	if (not metad_kv_) {
+		throw std::bad_alloc();
+	}
 }
 
 ActiveVmdk::~ActiveVmdk() = default;
@@ -206,6 +225,12 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 }
 
 folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
+	if (pio_unlikely(ckpt_id != checkpoints_.last_checkpoint_ + 1)) {
+		LOG(ERROR) << "last_checkpoint_ " << checkpoints_.last_checkpoint_
+			<< " cannot checkpoint for " << ckpt_id;
+		return -EINVAL;
+	}
+
 	auto blocks = CopyDirtyBlocksSet(ckpt_id);
 	auto checkpoint = std::make_unique<CheckPoint>(GetID(), ckpt_id);
 	if (pio_unlikely(not checkpoint)) {
@@ -216,17 +241,17 @@ folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
 		checkpoint->SetModifiedBlocks(std::move(blocks.value()));
 	}
 
-#if 0
-	/*
-	 * TODO:
-	 * The CheckPoint serialize at the moment, creates a binary blob, this is
-	 * going to change to JSON.
-	 */
-	auto s = checkpoint->Serialize();
-	(void) s;
-#endif
+	auto json = checkpoint->Serialize();
+	auto key = checkpoint->SerializationKey();
 
-	{
+	return metad_kv_->Write(std::move(key), std::move(json))
+	.then([this, ckpt_id, checkpoint = std::move(checkpoint)] (int rc) mutable {
+		if (pio_unlikely(rc < 0)) {
+			/* ignore serialized write status */
+		} else {
+			checkpoint->SetSerialized();
+		}
+
 		RemoveDirtyBlockSet(ckpt_id);
 		std::lock_guard<std::mutex> guard(checkpoints_.mutex_);
 		if (pio_likely(not checkpoints_.unflushed_.empty())) {
@@ -234,8 +259,9 @@ folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
 			log_assert(*x < *checkpoint);
 		}
 		checkpoints_.unflushed_.emplace_back(std::move(checkpoint));
-	}
-	return 0;
+		checkpoints_.last_checkpoint_ = ckpt_id;
+		return 0;
+	});
 }
 
 const CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
@@ -260,30 +286,15 @@ const CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
 	return nullptr;
 }
 
-struct CheckPointHeader {
-	VmdkID       vmdk_id;
-	CheckPointID ckpt_id;
-	BlockID      first;
-	BlockID      last;
-	uint32_t     bitset_size;
-};
-
 CheckPoint::CheckPoint(VmdkID vmdk_id, CheckPointID id) :
 		vmdk_id_(std::move(vmdk_id)), self_(id) {
 }
 
 CheckPoint::~CheckPoint() = default;
 
-std::unique_ptr<RequestBuffer> CheckPoint::Serialize() const {
-	struct CheckPointHeader header;
-	header.vmdk_id     = vmdk_id_;
-	header.ckpt_id     = self_;
-	header.first       = block_id_.first_;
-	header.last        = block_id_.last_;
-	header.bitset_size = blocks_bitset_.getSizeInBytes();
-
-	auto size = sizeof(header) + header.bitset_size;
-	size = AlignUpToBlockSize(size, kSectorSize);
+std::string CheckPoint::Serialize() const {
+	auto bs = blocks_bitset_.getSizeInBytes();
+	auto size = AlignUpToBlockSize(bs, kSectorSize);
 
 	auto bufferp = NewRequestBuffer(size);
 	if (pio_unlikely(not bufferp)) {
@@ -291,12 +302,24 @@ std::unique_ptr<RequestBuffer> CheckPoint::Serialize() const {
 	}
 	log_assert(bufferp->Size() >= size);
 
-	auto dp = bufferp->Payload();
-	::memcpy(dp, reinterpret_cast<void *>(&header), sizeof(header));
-	dp += sizeof(header);
-	blocks_bitset_.write(dp);
+	auto bitmap = bufferp->Payload();
+	blocks_bitset_.write(bitmap);
 
-	return bufferp;
+	ondisk::CheckPointOnDisk ckpt_od;
+	ckpt_od.set_id(ID());
+	ckpt_od.set_vmdk_id(vmdk_id_);
+	ckpt_od.set_bitmap(std::string(bitmap, bs));
+	ckpt_od.set_start(block_id_.first_);
+	ckpt_od.set_end(block_id_.last_);
+
+	using S2 = apache::thrift::SimpleJSONSerializer;
+	return S2::serialize<std::string>(ckpt_od);
+}
+
+std::string CheckPoint::SerializationKey() const {
+	std::string key;
+	StringDelimAppend(key, ':', {kCheckPoint, vmdk_id_, std::to_string(ID())});
+	return key;
 }
 
 void CheckPoint::SetModifiedBlocks(const std::unordered_set<BlockID>& blocks) {
@@ -323,6 +346,22 @@ std::pair<BlockID, BlockID> CheckPoint::Blocks() const noexcept {
 
 const Roaring& CheckPoint::GetRoaringBitMap() const noexcept {
 	return blocks_bitset_;
+}
+
+void CheckPoint::SetSerialized() noexcept {
+	serialized_ = true;
+}
+
+bool CheckPoint::IsSerialized() const noexcept {
+	return serialized_;
+}
+
+void CheckPoint::SetFlushed() noexcept {
+	flushed_ = true;
+}
+
+bool CheckPoint::IsFlushed() const noexcept {
+	return flushed_;
 }
 
 }
