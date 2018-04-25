@@ -12,6 +12,7 @@ struct CheckPointOnDisk {
 	3: binary bitmap;
 	4: BlockID start;
 	5: BlockID end;
+	6: bool flushed;
 }
 
 struct ActiveVmdkOnDisk {

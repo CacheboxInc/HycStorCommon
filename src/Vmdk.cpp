@@ -311,6 +311,7 @@ std::string CheckPoint::Serialize() const {
 	ckpt_od.set_bitmap(std::string(bitmap, bs));
 	ckpt_od.set_start(block_id_.first_);
 	ckpt_od.set_end(block_id_.last_);
+	ckpt_od.set_flushed(false);
 
 	using S2 = apache::thrift::SimpleJSONSerializer;
 	return S2::serialize<std::string>(ckpt_od);
