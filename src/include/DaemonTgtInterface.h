@@ -16,6 +16,7 @@ VmHandle NewVm(pio::VmID vmid, const std::string& config);
 AeroClusterHandle NewAeroCluster(pio::AeroClusterID cluster_id, const std::string& config);
 AeroClusterHandle DelAeroCluster(pio::AeroClusterID cluster_id, const std::string& config);
 VmHandle GetVmHandle(const std::string& vmid);
+std::shared_ptr<AeroSpikeConn> GetAeroConn(ActiveVmdk *vmdkp);
 void RemoveVm(VmdkHandle vm_handle);
 
 VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,

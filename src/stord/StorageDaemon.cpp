@@ -22,6 +22,7 @@
 #include "halib.h"
 #include "VmdkFactory.h"
 #include "Singleton.h"
+#include "AeroFiberThreads.h"
 
 using namespace apache::thrift;
 using namespace apache::thrift::async;
@@ -92,9 +93,6 @@ public:
 		auto reqp = std::make_unique<Request>(reqid, vmdkp, Request::Type::kRead,
 			iobuf->writableData(), size, size, offset);
 
-		/* Set the Aerospike set name */
-		reqp->setp_ = (vmp->GetJsonConfig())->GetTargetName();
-
 		vmp->Read(vmdkp, reqp.get())
 		.then([iobuf = std::move(iobuf), cb = std::move(cb), size,
 				reqp = std::move(reqp)] (int rc) mutable {
@@ -126,9 +124,6 @@ public:
 
 		auto reqp = std::make_unique<Request>(reqid, vmdkp, Request::Type::kWrite,
 			iobuf->writableData(), size, size, offset);
-
-		/* Set the Aerospike set name */
-		reqp->setp_ = (vmp->GetJsonConfig())->GetTargetName();
 
 		vmp->Write(vmdkp, reqp.get())
 		.then([iobuf = std::move(iobuf), cb = std::move(cb),
@@ -512,6 +507,12 @@ int main(int argc, char* argv[])
 	}
 
 	InitStordLib();
+
+	/* Initialize threadpool for AeroSpike accesses */
+	auto rc = SingletonHolder<AeroFiberThreads>::GetInstance()
+					->CreateInstance();
+	log_assert(rc == 0);
+
 	auto si = std::make_shared<StorRpcSvImpl>();
 	thirft_server = std::make_shared<ThriftServer>();
 

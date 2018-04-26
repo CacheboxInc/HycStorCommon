@@ -93,8 +93,6 @@ private:
 	} status_;
 
 	std::vector<std::unique_ptr<RequestBlock>> request_blocks_;
-public:
-	std::string setp_{"dummy"};
 };
 
 class RequestBlock {

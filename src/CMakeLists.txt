@@ -56,6 +56,7 @@ set(StorageLayerFiles
 	VmdkConfig.cpp
 	VmdkFactory.cpp
 	VmManager.cpp
+	AeroFiberThreads.cpp
 
 	RangeLock.cpp
 	Request.cpp

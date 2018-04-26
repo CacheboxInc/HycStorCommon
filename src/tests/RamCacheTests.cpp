@@ -23,7 +23,7 @@ static void DefaultVmdkConfig(config::VmdkConfig& config, uint64_t block_size) {
 TEST(RamCacheTest, DataVerify) {
 	config::VmdkConfig config;
 	DefaultVmdkConfig(config, kVmdkBlockSize);
-	ActiveVmdk vmdk(1, "1", nullptr, config.Serialize(), nullptr);
+	ActiveVmdk vmdk(1, "1", nullptr, config.Serialize());
 	RamCache cache;
 
 	for (auto offset = 0, i = 0; i < 100; ++i, offset += vmdk.BlockSize()) {
@@ -54,7 +54,7 @@ TEST(RamCacheTest, ReadMiss) {
 	const Offset offset = 0;
 	config::VmdkConfig config;
 	DefaultVmdkConfig(config, kVmdkBlockSize);
-	ActiveVmdk vmdk(1, "1", nullptr, config.Serialize(), nullptr);
+	ActiveVmdk vmdk(1, "1", nullptr, config.Serialize());
 	RamCache cache;
 
 	auto zero_bufp = NewRequestBuffer(vmdk.BlockSize());
@@ -81,7 +81,7 @@ TEST(RamCacheTest, ReadMiss) {
 TEST(RamCacheTest, OverWrite) {
 	config::VmdkConfig config;
 	DefaultVmdkConfig(config, kVmdkBlockSize);
-	ActiveVmdk vmdk(1, "1", nullptr, config.Serialize(), nullptr);
+	ActiveVmdk vmdk(1, "1", nullptr, config.Serialize());
 	RamCache cache;
 
 	auto write_bufp = NewRequestBuffer(vmdk.BlockSize());

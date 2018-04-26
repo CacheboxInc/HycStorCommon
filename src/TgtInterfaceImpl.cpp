@@ -21,6 +21,7 @@
 #include "VmManager.h"
 #include "AeroConn.h"
 #include "Singleton.h"
+#include "AeroFiberThreads.h"
 
 using namespace ::hyc_thrift;
 
@@ -43,6 +44,7 @@ int InitStordLib(void) {
 		std::call_once(g_init_.initialized_, [=] () mutable {
 			SingletonHolder<VmdkManager>::CreateInstance();
 			SingletonHolder<VmManager>::CreateInstance();
+			SingletonHolder<AeroFiberThreads>::CreateInstance();
 		});
 	} catch (const std::exception& e) {
 		return -1;
@@ -93,7 +95,6 @@ void RemoveAeroCluster(AeroClusterID cluster_id) {
 AeroClusterHandle NewAeroCluster(AeroClusterID cluster_id,
 		const std::string& config) {
 
-	LOG(INFO) << __func__ << "START::" << cluster_id << " config " << config;
 	std::lock_guard<std::mutex> lock(g_aero_clusters.mutex_);
 	try {
 		auto it = g_aero_clusters.ids_.find(cluster_id);
@@ -133,7 +134,6 @@ AeroClusterHandle NewAeroCluster(AeroClusterID cluster_id,
 AeroClusterHandle DelAeroCluster(AeroClusterID cluster_id,
 	const std::string& config) {
 
-	LOG(INFO) << __func__ << "START:::" << cluster_id << " config ";
 	std::lock_guard<std::mutex> lock(g_aero_clusters.mutex_);
 	auto it = g_aero_clusters.ids_.find(cluster_id);
 	if (pio_unlikely(it == g_aero_clusters.ids_.end())) {
@@ -168,6 +168,25 @@ VmHandle NewVm(VmID vmid, const std::string& config) {
 	}
 }
 
+std::shared_ptr<AeroSpikeConn> GetAeroConn(ActiveVmdk *vmdkp) {
+
+	auto vm_confp = vmdkp->GetVM()->GetJsonConfig();
+	AeroClusterID aero_cluster_id;
+	auto ret = vm_confp->GetAeroClusterID(aero_cluster_id);
+	if (ret) {
+		LOG(INFO) << __func__ << "Aero Cluster ID :::" <<  aero_cluster_id;
+	} else {
+		LOG(ERROR) << __func__ << "Unable to find aerospike cluster "
+			"id for given disk." " Please check JSON configuration "
+			"with associated VM. Moving ahead without"
+			" Aero connection object";
+		return nullptr;
+	}
+
+	/* Get aero connection object*/
+	return  pio::AeroSpikeConnFromClusterID(aero_cluster_id);
+}
+
 VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 		const std::string& config) {
 	auto managerp = SingletonHolder<VmdkManager>::GetInstance();
@@ -182,34 +201,8 @@ VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 		return kInvalidVmdkHandle;
 	}
 
-	/* Get aerospike cluster ID */
-	auto vmp_conf = vmp->GetJsonConfig();
-	AeroClusterID aero_cluster_id;
-	auto ret = vmp_conf->GetAeroClusterID(aero_cluster_id);
-	if (ret) {
-		LOG(INFO) << __func__ << "Aero Cluster ID :::" <<  aero_cluster_id;
-	} else {
-		LOG(ERROR) << __func__ << "Unable to find aerospike cluster "
-			"id for given disk." " Please check JSON configuration "
-			"with associated VM. Moving ahead without"
-			" Aero connection object";
-		//return kInvalidVmdkHandle;
-	} 
-
-	/* Get aero connection object*/
-	auto aero_connection = AeroSpikeConnFromClusterID(aero_cluster_id);
-	if (aero_connection == nullptr) {
-		LOG(ERROR) << __func__ << "Unable to find aerospike " 
-				"connection details for given"
-		"cluster id :::" << aero_cluster_id;
-		AeroSpikeConnDisplay();
-		//return kInvalidVmdkHandle;
-	} else {
-		LOG(ERROR) << __func__ << "Got aerospike connection:::" << aero_connection;
-	}
-
 	auto handle = managerp->CreateInstance<ActiveVmdk>(std::move(vmdkid), vmp,
-		config, aero_connection);
+		config);
 	if (pio_unlikely(handle == kInvalidVmdkHandle)) {
 		return handle;
 	}

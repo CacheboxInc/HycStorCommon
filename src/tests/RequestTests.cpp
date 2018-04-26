@@ -22,7 +22,7 @@ TEST(RequestTest, Constructor_Exception) {
 	config::VmdkConfig config;
 	DefaultVmdkConfig(config, 4096);
 
-	ActiveVmdk vmdk(1, "1", nullptr, config.Serialize(), nullptr);
+	ActiveVmdk vmdk(1, "1", nullptr, config.Serialize());
 
 	/* RequestID == 0 */
 	EXPECT_THROW(
@@ -64,7 +64,7 @@ TEST(RequestTest, ReadTest) {
 	for (auto blocks_size = 512; blocks_size <= 4096; blocks_size <<= 1) {
 		config::VmdkConfig config;
 		DefaultVmdkConfig(config, blocks_size);
-		ActiveVmdk vmdk(1, "1", nullptr, config.Serialize(), nullptr);
+		ActiveVmdk vmdk(1, "1", nullptr, config.Serialize());
 		for (auto nblocks = 2; nblocks <= 10; ++nblocks) {
 			size_t buffer_size = blocks_size * nblocks;
 			auto bufferp = NewRequestBuffer(buffer_size);
@@ -103,7 +103,7 @@ TEST(RequestTest, WriteTest) {
 	for (auto blocks_size = 512; blocks_size <= 4096; blocks_size <<= 1) {
 		config::VmdkConfig config;
 		DefaultVmdkConfig(config, blocks_size);
-		ActiveVmdk vmdk(1, "1", nullptr, config.Serialize(), nullptr);
+		ActiveVmdk vmdk(1, "1", nullptr, config.Serialize());
 		for (auto nblocks = 2; nblocks <= 10; ++nblocks) {
 			size_t buffer_size = blocks_size * nblocks;
 			auto bufferp = NewRequestBuffer(buffer_size);
@@ -158,7 +158,7 @@ TEST(RequestTest, WriteSameTest) {
 
 	config::VmdkConfig config;
 	DefaultVmdkConfig(config, blocks_size);
-	ActiveVmdk vmdk(1, "1", nullptr, config.Serialize(), nullptr);
+	ActiveVmdk vmdk(1, "1", nullptr, config.Serialize());
 	auto bufferp = NewRequestBuffer(buffer_size);
 	auto payload = bufferp->Payload();
 	::memset(payload, 'A', bufferp->Size());

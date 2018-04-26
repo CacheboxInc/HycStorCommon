@@ -82,6 +82,11 @@ int SuccessHandler::ReadNow(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock *>& failed) {
 	failed.clear();
 	for (auto blockp : process) {
+		if (pio_unlikely(blockp->IsReadHit())) {
+			blockp->SetResult(0, RequestStatus::kSuccess);
+			continue;
+		}
+
 		auto destp = NewRequestBuffer(vmdkp->BlockSize());
 		if (pio_unlikely(not destp)) {
 			blockp->SetResult(-ENOMEM, RequestStatus::kFailed);

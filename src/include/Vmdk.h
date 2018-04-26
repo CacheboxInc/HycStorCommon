@@ -74,7 +74,7 @@ protected:
 class ActiveVmdk : public Vmdk {
 public:
 	ActiveVmdk(VmdkHandle handle, VmdkID vmdk_id, VirtualMachine *vmp,
-		const std::string& config, std::shared_ptr<AeroSpikeConn> aero_conn);
+		const std::string& config);
 	virtual ~ActiveVmdk();
 
 	void RegisterRequestHandler(std::unique_ptr<RequestHandler> handler);
@@ -92,7 +92,6 @@ public:
 	size_t BlockMask() const;
 	VirtualMachine* GetVM() const noexcept;
 	const config::VmdkConfig* GetJsonConfig() const noexcept;
-	AeroSpikeConn* GetAeroConnection() const noexcept;
 
 private:
 	folly::Future<int> WriteCommon(Request* reqp, CheckPointID ckpt_id);
@@ -108,7 +107,6 @@ private:
 
 	uint32_t block_shift_{0};
 	std::unique_ptr<config::VmdkConfig> config_;
-	std::shared_ptr<AeroSpikeConn> aero_conn_{nullptr};
 
 	struct {
 		mutable std::mutex mutex_;

@@ -9,6 +9,8 @@
 #include "QLock.h"
 #include "Rendez.h"
 #include "AeroConn.h"
+#include "AeroFiberThreads.h"
+#include "VmConfig.h"
 
 namespace pio {
 
@@ -31,11 +33,13 @@ public:
 };
 
 struct WriteBatch {
-	WriteBatch(Request* reqp, const VmdkID& vmdkid, const std::string& ns);
+	WriteBatch(Request* reqp, const VmdkID& vmdkid, const std::string& ns,
+			const std::string& set);
 
 	Request* req_{nullptr};
 	const VmdkID& pre_keyp_;
 	const std::string& ns_;
+	const std::string& setp_;
 
 	struct {
 		std::mutex lock_;
@@ -69,12 +73,14 @@ public:
 };
 
 struct ReadBatch {
-	ReadBatch(Request* reqp, const VmdkID& vmdkid, const std::string& ns);
+	ReadBatch(Request* reqp, const VmdkID& vmdkid, const std::string& ns,
+			const std::string& set);
 	~ReadBatch();
 
 	Request *req_{nullptr};
 	const std::string& ns_;
 	const VmdkID& pre_keyp_;
+	const std::string& setp_;
 
 	as_batch_read_records *aero_recordsp_{nullptr};
 	std::vector<std::unique_ptr<ReadRecord>> recordsp_;
@@ -102,7 +108,8 @@ struct DelRecord {
 };
 
 struct DelBatch {
-	DelBatch(Request* reqp, const VmdkID& vmdkid, const std::string& ns);
+	DelBatch(Request* reqp, const VmdkID& vmdkid, const std::string& ns,
+			const std::string& set);
 
 	struct {
 		std::mutex lock_;
@@ -116,6 +123,7 @@ struct DelBatch {
 	Request *req_{nullptr};
 	const VmdkID& pre_keyp_;
 	const std::string& ns_;
+	const std::string& setp_;
 
 	CheckPointID ckpt_{kInvalidCheckPointID};
 	AeroSpikeConn *aero_conn_{nullptr};
@@ -130,15 +138,18 @@ class AeroSpike {
 public:
 	AeroSpike();
 	~AeroSpike();
+	std::shared_ptr<AeroFiberThreads> instance_{nullptr};
 public:
 
-	int AeroReadCmdProcess(ActiveVmdk *vmdkp, Request *reqp,
+	folly::Future<int> AeroReadCmdProcess(ActiveVmdk *vmdkp, Request *reqp,
 		CheckPointID ckpt, std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock *>& failed, const std::string& ns);
+		std::vector<RequestBlock *>& failed, const std::string& ns,
+		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int AeroRead(ActiveVmdk *vmdkp, Request *reqp,
 		CheckPointID ckpt, std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock *>& failed, const std::string& ns);
+		std::vector<RequestBlock *>& failed, const std::string& ns,
+		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int CacheIoReadKeySet(ActiveVmdk *vmdkp, ReadRecord* rrecp,
 		Request *reqp, const std::string& ns, ReadBatch* r_batch_rec);
@@ -155,15 +166,18 @@ public:
 		ReadBatch *batchp, const std::string& ns);
 
 	int CacheIoWriteKeySet(ActiveVmdk *vmdkp,
-		WriteRecord *wrecp, Request *reqp, const std::string& nsp);
+		WriteRecord *wrecp, Request *reqp, const std::string& nsp,
+		const std::string& setp);
 
-	int AeroWriteCmdProcess(ActiveVmdk *vmdkp, Request *reqp,
+	folly::Future<int> AeroWriteCmdProcess(ActiveVmdk *vmdkp, Request *reqp,
 		CheckPointID ckpt, std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock *>& failed, const std::string& ns);
+		std::vector<RequestBlock *>& failed, const std::string& ns,
+		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int AeroWrite(ActiveVmdk *vmdkp, Request *reqp,
                 CheckPointID ckpt, std::vector<RequestBlock*>& process,
-                std::vector<RequestBlock *>& failed, const std::string& ns);
+                std::vector<RequestBlock *>& failed, const std::string& ns,
+		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int WriteBatchInit(ActiveVmdk *vmdkp,
 			std::vector<RequestBlock*>& process,
@@ -178,13 +192,15 @@ public:
 		std::vector<RequestBlock*>& process,
 		Request *reqp, WriteBatch *batchp, const std::string& ns);
 
-	int AeroDelCmdProcess(ActiveVmdk *vmdkp, Request *reqp,
+	folly::Future<int> AeroDelCmdProcess(ActiveVmdk *vmdkp, Request *reqp,
 		CheckPointID ckpt, std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock *>& failed, const std::string& ns);
+		std::vector<RequestBlock *>& failed, const std::string& ns,
+		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int AeroDel(ActiveVmdk *vmdkp, Request *reqp,
 		CheckPointID ckpt, std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock *>& failed, const std::string& ns);
+		std::vector<RequestBlock *>& failed, const std::string& ns,
+		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int DelBatchSubmit(ActiveVmdk *vmdkp,
 		std::vector<RequestBlock*>& process,
@@ -199,7 +215,8 @@ public:
 		DelBatch *d_batch_rec, const std::string& ns);
 
 	int CacheIoDelKeySet(ActiveVmdk *vmdkp, DelRecord* drecp,
-		Request *reqp, const std::string& ns);
+		Request *reqp, const std::string& ns,
+		const std::string& setp);
 
 };
 }
