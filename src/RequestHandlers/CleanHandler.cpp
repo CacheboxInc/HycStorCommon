@@ -28,43 +28,41 @@ folly::Future<int> CleanHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		return -ENODEV;
 	}
 
-	/* Get Aerospike connection corresponding to the given cluster ID */
 	auto aero_conn = pio::GetAeroConn(vmdkp);
-	if (aero_conn != nullptr) {
-
-		/* TBD : Read should come with ckpt ID, for now
-		 * assuming that checkpoint ID is 0
-		 */
-
-		CheckPointID ckpt = 0;
-		return aero_obj_->AeroReadCmdProcess(vmdkp, reqp, ckpt, process,
-				failed, kAsNamespaceCacheClean, aero_conn)
-		.then([this, vmdkp, reqp, &process, &failed, ckpt] (int rc)
-				mutable -> folly::Future<int> {
-			if (pio_likely(rc != 0)) {
-				return rc;
-			}
-
-			if (nextp_ != nullptr) {
-				return nextp_->Read(vmdkp, reqp, process, failed);
-			}
-
-			/* No layer below, move all the miss into failed list so
-			 * Miss layer can process it
-			 */
-
-			for (auto blockp : process) {
-				if (pio_likely(blockp->IsReadHit())) {
-					blockp->SetResult(0, RequestStatus::kSuccess);
-				} else {
-					failed.emplace_back(blockp);
-				}
-			}
-			return 0;
-		});
-	} else {
+	if (pio_unlikely(aero_conn == nullptr)) {
 		return nextp_->Read(vmdkp, reqp, process, failed);
 	}
+
+	/*
+	 * TBD : Read should come with ckpt ID, for now
+	 * assuming that checkpoint ID is 0
+	 */
+	CheckPointID ckpt = 0;
+	(void) ckpt;
+	return aero_obj_->AeroReadCmdProcess(vmdkp, reqp, ckpt, process,
+			failed, kAsNamespaceCacheClean, aero_conn)
+	.then([this, vmdkp, reqp, &process, &failed] (int rc)
+			mutable -> folly::Future<int> {
+		if (pio_likely(rc != 0)) {
+			return rc;
+		}
+
+		if (nextp_ != nullptr) {
+			return nextp_->Read(vmdkp, reqp, process, failed);
+		}
+
+		/* No layer below, move all the miss into failed list so
+		 * Miss layer can process it
+		 */
+		for (auto blockp : process) {
+			if (pio_likely(blockp->IsReadHit())) {
+				blockp->SetResult(0, RequestStatus::kSuccess);
+			} else {
+				failed.emplace_back(blockp);
+			}
+		}
+		return 0;
+	});
 }
 
 folly::Future<int> CleanHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
