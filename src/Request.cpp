@@ -177,7 +177,8 @@ bool Request::IsAllReadHit(const std::vector<RequestBlock *>& blocks)
 
 RequestBlock::RequestBlock(ActiveVmdk *vmdkp, Request *requestp, BlockID block_id,
 		Request::Type type, void *bufferp, size_t size, Offset offset) :
-		vmdkp_(vmdkp), in_(block_id, type, bufferp, size, offset) {
+		vmdkp_(vmdkp), requestp_(requestp),
+		in_(block_id, type, bufferp, size, offset) {
 	aligned_offset_ = in_.offset_;
 	partial_ = not IsBlockSizeAlgined(in_.offset_, vmdkp_->BlockSize());
 	if (partial_) {

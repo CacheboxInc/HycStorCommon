@@ -8,6 +8,8 @@
 
 using namespace pio;
 
+using Guard = RangeLock::LockGuard;
+
 TEST(RangeLockTest, LockGuard_Basic_InLoop) {
 	pio::RangeLock::RangeLock range_lock;
 
@@ -46,9 +48,10 @@ TEST(RangeLockTest, LockGuard_Future_Fullfilled) {
 	pio::RangeLock::RangeLock range_lock;
 	uint32_t locked = 0;
 	for (uint32_t i = 0; i < kLocks; ++i) {
-		pio::RangeLock::LockGuard guard(&range_lock, range.first, range.second);
-		auto fut = guard.Lock()
+		auto guard = std::make_unique<Guard>(&range_lock, range.first, range.second);
+		auto fut = guard->Lock()
 		.then([guard = std::move(guard), &locked] () {
+			EXPECT_TRUE(guard->IsLocked());
 			++locked;
 			return 0;
 		});
@@ -88,10 +91,11 @@ static void thread_lock_range(struct ThreadArgs *argsp, size_t thread_index) {
 	size_t to_lock = argsp->ntimes_to_lock;
 
 	for (; to_lock > 0; --to_lock) {
-		pio::RangeLock::LockGuard guard(range_lockp, first, last);
-		auto f = guard.Lock()
+		auto guard = std::make_unique<Guard>(range_lockp, first, last);
+		auto f = guard->Lock()
 		.then([guard = std::move(guard), &counter_vecp, &thread_index, &argsp]
 					(int rc) mutable {
+			EXPECT_TRUE(guard->IsLocked());
 			EXPECT_FALSE(argsp->is_locked);
 			argsp->is_locked = true;
 			counter_vecp[thread_index] += 1;

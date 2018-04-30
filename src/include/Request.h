@@ -71,20 +71,20 @@ private:
 				bufferp_(bufferp), buffer_size_(buffer_size),
 				transfer_size_(transfer_size), offset_(offset) {
 		}
-		RequestID req_id_;
-		Type type_;
-		void* bufferp_;
-		size_t buffer_size_;
-		size_t transfer_size_;
-		Offset offset_;
+		RequestID req_id_{kInvalidRequestID};
+		Type type_{Request::Type::kUnknown};
+		void* bufferp_{nullptr};
+		size_t buffer_size_{0};
+		size_t transfer_size_{0};
+		Offset offset_{0};
 	} in_;
 
 	std::unique_ptr<RequestBuffer> write_same_buffer_{nullptr};
 
 	struct {
-		BlockID  start_;
-		BlockID  end_;
-		uint32_t nblocks_;
+		BlockID  start_{0};
+		BlockID  end_{0};
+		uint32_t nblocks_{0};
 	} block_;
 
 	struct {
@@ -135,8 +135,8 @@ private:
 	void InitRequestBuffer();
 	int ReadResultPrepare();
 private:
-	ActiveVmdk *vmdkp_;
-	Request    *requestp_;
+	ActiveVmdk *vmdkp_{nullptr};
+	Request    *requestp_{nullptr};
 
 	struct Input {
 		Input(BlockID block_id, Request::Type type, void *bufferp, size_t size,
@@ -144,15 +144,15 @@ private:
 				bufferp_(bufferp), size_(size), offset_(offset) {
 
 		}
-		BlockID       block_id_;
-		Request::Type type_;
-		void          *bufferp_;
-		size_t        size_;
-		Offset        offset_;
+		BlockID       block_id_{0};
+		Request::Type type_{Request::Type::kUnknown};
+		void          *bufferp_{nullptr};
+		size_t        size_{0};
+		Offset        offset_{0};
 	} in_;
 
 	bool   partial_{false};
-	Offset aligned_offset_;
+	Offset aligned_offset_{0};
 
 	struct {
 		RequestStatus status_{RequestStatus::kSuccess};

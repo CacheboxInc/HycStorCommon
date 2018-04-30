@@ -63,12 +63,13 @@ class LockGuard {
 public:
 	LockGuard(RangeLock* lockp, uint64_t start, uint64_t end);
 	LockGuard(LockGuard& rhs) = delete;
-	LockGuard(LockGuard&& rhs);
+	LockGuard(LockGuard&& rhs) = delete;
 	LockGuard& operator = (const LockGuard& rhs) = delete;
-	LockGuard& operator == (LockGuard&& rhs);
+	LockGuard& operator == (LockGuard&& rhs) = delete;
 
 	~LockGuard();
 	folly::Future<int> Lock();
+	bool IsLocked() const noexcept;
 private:
 	RangeLock* lockp_{nullptr};
 	bool       is_locked_{false};

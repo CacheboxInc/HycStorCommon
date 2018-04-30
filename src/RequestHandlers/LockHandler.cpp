@@ -12,6 +12,8 @@
 
 namespace pio {
 
+using Guard = RangeLock::LockGuard;
+
 LockHandler::LockHandler() : RequestHandler(nullptr),
 		range_lock_(std::make_unique<RangeLock::RangeLock>()) {
 }
@@ -25,9 +27,10 @@ folly::Future<int> LockHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock *>& failed) {
 	auto[start, end] = reqp->Blocks();
 
-	RangeLock::LockGuard g(range_lock_.get(), start, end);
-	return g.Lock()
+	auto g = std::make_unique<Guard>(range_lock_.get(), start, end);
+	return g->Lock()
 	.then([g = std::move(g), vmdkp, reqp, &process, &failed, this] () mutable {
+		log_assert(g->IsLocked());
 		if (not nextp_) {
 			return folly::makeFuture(0);
 		}
@@ -40,10 +43,10 @@ folly::Future<int> LockHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock *>& failed) {
 	auto[start, end] = reqp->Blocks();
 
-	RangeLock::LockGuard g(range_lock_.get(), start, end);
-	return g.Lock()
-	.then([g = std::move(g), vmdkp, reqp, &process, &failed, this, ckpt]
-			() mutable {
+	auto g = std::make_unique<Guard>(range_lock_.get(), start, end);
+	return g->Lock()
+	.then([g = std::move(g), vmdkp, reqp, &process, &failed, this, ckpt] () mutable {
+		log_assert(g->IsLocked());
 		if (not nextp_) {
 			return folly::makeFuture(0);
 		}
@@ -56,10 +59,10 @@ folly::Future<int> LockHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock *>& failed) {
 	auto[start, end] = reqp->Blocks();
 
-	RangeLock::LockGuard g(range_lock_.get(), start, end);
-	return g.Lock()
-	.then([g = std::move(g), vmdkp, reqp, &process, &failed, this]
-			() mutable {
+	auto g = std::make_unique<Guard>(range_lock_.get(), start, end);
+	return g->Lock()
+	.then([g = std::move(g), vmdkp, reqp, &process, &failed, this] () mutable {
+		log_assert(g->IsLocked());
 		if (not nextp_) {
 			return folly::makeFuture(0);
 		}

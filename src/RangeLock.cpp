@@ -99,29 +99,6 @@ LockGuard::LockGuard(RangeLock* lockp, uint64_t start, uint64_t end) :
 		lockp_(lockp), range_(start, end) {
 }
 
-LockGuard::LockGuard(LockGuard&& rhs) {
-	if (is_locked_) {
-		lockp_->Unlock(range_);
-	}
-
-	lockp_         = rhs.lockp_;
-	range_         = rhs.range_;
-	is_locked_     = rhs.is_locked_;
-	rhs.is_locked_ = false;
-}
-
-LockGuard& LockGuard::operator == (LockGuard&& rhs) {
-	if (is_locked_) {
-		lockp_->Unlock(range_);
-	}
-
-	lockp_         = rhs.lockp_;
-	range_         = rhs.range_;
-	is_locked_     = rhs.is_locked_;
-	rhs.is_locked_ = false;
-	return *this;
-}
-
 LockGuard::~LockGuard() {
 	if (is_locked_) {
 		lockp_->Unlock(range_);
@@ -135,6 +112,10 @@ folly::Future<int> LockGuard::Lock() {
 		this->is_locked_ = true;
 		return rc;
 	});
+}
+
+bool LockGuard::IsLocked() const noexcept {
+	return is_locked_;
 }
 
 }}
