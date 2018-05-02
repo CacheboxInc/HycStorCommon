@@ -51,31 +51,31 @@ folly::Future<int> RamCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	}
 
 	failed.clear();
-	std::vector<RequestBlock*> missed;
+	auto missed = std::make_unique<std::vector<RequestBlock*>>();
 	for (auto blockp : process) {
 		auto destp   = NewRequestBuffer(vmdkp->BlockSize());
 		auto payload = destp->Payload();
 
 		auto rc = cache_->Read(vmdkp, payload, blockp->GetAlignedOffset());
 		if (rc == false) {
-			missed.emplace_back(blockp);
+			missed->emplace_back(blockp);
 			continue;
 		}
 
 		blockp->PushRequestBuffer(std::move(destp));
 	}
 
-	if (missed.empty()) {
+	if (missed->empty()) {
 		return 0;
 	}
 
 	if (pio_unlikely(not nextp_)) {
-		failed.reserve(missed.size());
-		std::copy(missed.begin(), missed.end(), std::back_inserter(failed));
+		failed.reserve(missed->size());
+		std::copy(missed->begin(), missed->end(), std::back_inserter(failed));
 		return -ENODEV;
 	}
 
-	return nextp_->Read(vmdkp, reqp, missed, failed)
+	return nextp_->Read(vmdkp, reqp, *missed, failed)
 	.then([&, missed = std::move(missed)] (int rc) mutable {
 		if (pio_unlikely(not failed.empty() || rc < 0)) {
 			return rc;
