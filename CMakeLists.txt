@@ -103,6 +103,10 @@ add_compile_options(
   -DAS_USE_LIBUV
 )
 
+set(CMAKE_EXE_LINKER_FLAGS
+  "-Xlinker -zmuldefs"
+)
+
 # Include cppcheck target.  must come after compiler flags defined
 include(cppcheck)
 include(clang-format)
