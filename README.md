@@ -21,7 +21,7 @@ Complete setup steps :
 	There are 2 third party dependency modules linked as submodules in
 	hyc-storage-layer/thirdparty,
 		- CRoaring
-		- restbed
+		- ha-lib
 
 2. hyc-storage-layer depends on facebooks folly library.
 
@@ -32,19 +32,21 @@ Complete setup steps :
 	Building hyc-storage-layer first requires to build all the thirdparty
 	dependencies,
 		i. CRoaring build
-			#cd hyc-storage-layer/thirdparty/CRoaring
-			#mkdir build
-			#cd build
+			# cd hyc-storage-layer/thirdparty/CRoaring
+			# mkdir build
+			# cd build
+			# cmake ..
+			# make -j $(nproc)
+			# make install
+		ii. ha-lib build
+			# cd hyc-storage-layer/thirdparty/ha-lib
+			# cd third-party
+			# make
+			# cd ..
+			# mkdir build
+			# cd build
 			#cmake ..
 			#make -j $(nproc)
-			#make install
-		ii. restbed build
-			#cd hyc-storage-layer/thirdparty/restbed
-			#mkdir build
-			#cd build
-			#cmake ..
-			#make -j $(nproc)
-			#make install
 
 	hyc-storage-layer build
 		#cd hyc-storage-layer
