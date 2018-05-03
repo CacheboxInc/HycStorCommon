@@ -42,7 +42,7 @@ int AeroSpike::CacheIoWriteKeySet(ActiveVmdk *vmdkp, WriteRecord* wrecp,
 }
 
 int AeroSpike::WriteBatchInit(ActiveVmdk *vmdkp,
-		std::vector<RequestBlock*>& process, WriteBatch *w_batch_rec,
+		const std::vector<RequestBlock*>& process, WriteBatch *w_batch_rec,
 		const std::string& ns) {
 	w_batch_rec->batch.recordsp_.reserve(process.size());
 
@@ -61,7 +61,7 @@ int AeroSpike::WriteBatchInit(ActiveVmdk *vmdkp,
 }
 
 int AeroSpike::WriteBatchPrepare(ActiveVmdk *vmdkp,
-		std::vector<RequestBlock*>& process, Request *reqp,
+		const std::vector<RequestBlock*>& process, Request *reqp,
 		WriteBatch *w_batch_rec, const std::string& ns) {
 	WriteBatchInit(vmdkp, process, w_batch_rec, ns);
 	for (auto& v_record : w_batch_rec->batch.recordsp_) {
@@ -186,7 +186,7 @@ static void WritePipeListener(void *udatap, as_event_loop *lp) {
 }
 
 int AeroSpike::WriteBatchSubmit(ActiveVmdk *vmdkp,
-	std::vector<RequestBlock*>& process,
+	const std::vector<RequestBlock*>& process,
 	Request *reqp, WriteBatch *batchp, const std::string& ns) {
 
 	as_event_loop    *lp = NULL;
@@ -305,7 +305,7 @@ retry:
 }
 
 int AeroSpike::AeroWrite(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
@@ -331,7 +331,7 @@ int AeroSpike::AeroWrite(ActiveVmdk *vmdkp, Request *reqp,
 
 folly::Future<int> AeroSpike::AeroWriteCmdProcess(ActiveVmdk *vmdkp,
 		Request *reqp, CheckPointID ckpt,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
@@ -375,7 +375,7 @@ int AeroSpike::CacheIoReadKeySet(ActiveVmdk *vmdkp, ReadRecord* rrecp,
 }
 
 int AeroSpike::ReadBatchInit(ActiveVmdk *vmdkp,
-		std::vector<RequestBlock*>& process, ReadBatch *r_batch_rec,
+		const std::vector<RequestBlock*>& process, ReadBatch *r_batch_rec,
 		Request *reqp, const std::string& ns) {
 	/* Allocate only to what is needed to serve the misses */
 	unsigned int count = 0;
@@ -422,7 +422,7 @@ int AeroSpike::ReadBatchInit(ActiveVmdk *vmdkp,
 }
 
 int AeroSpike::ReadBatchPrepare(ActiveVmdk *vmdkp,
-		std::vector<RequestBlock*>& process, Request *reqp,
+		const std::vector<RequestBlock*>& process, Request *reqp,
 		ReadBatch *r_batch_rec, const std::string& ns) {
 	ReadBatchInit(vmdkp, process, r_batch_rec, reqp, ns);
 	return 0;
@@ -450,7 +450,7 @@ static void ReadListener(as_error *errp, as_batch_read_records *records,
 }
 
 int AeroSpike::ReadBatchSubmit(ActiveVmdk *vmdkp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		Request *reqp, ReadBatch *batchp, const std::string& ns) {
 
 	as_event_loop    *loopp = NULL;
@@ -535,7 +535,7 @@ retry:
 }
 
 int AeroSpike::AeroRead(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
@@ -612,7 +612,7 @@ int AeroSpike::AeroRead(ActiveVmdk *vmdkp, Request *reqp,
 
 folly::Future<int> AeroSpike::AeroReadCmdProcess(ActiveVmdk *vmdkp,
 		Request *reqp, CheckPointID ckpt,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
@@ -665,7 +665,7 @@ int AeroSpike::CacheIoDelKeySet(ActiveVmdk *vmdkp, DelRecord* drecp,
 }
 
 int AeroSpike::DelBatchInit(ActiveVmdk *vmdkp,
-	std::vector<RequestBlock*>& process, DelBatch *d_batch_rec,
+	const std::vector<RequestBlock*>& process, DelBatch *d_batch_rec,
 	const std::string& ns) {
 
 	d_batch_rec->batch.recordsp_.reserve(process.size());
@@ -683,7 +683,7 @@ int AeroSpike::DelBatchInit(ActiveVmdk *vmdkp,
 }
 
 int AeroSpike::DelBatchPrepare(ActiveVmdk *vmdkp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		Request *reqp, DelBatch *d_batch_rec, const std::string& ns) {
 	auto rc = DelBatchInit(vmdkp, process, d_batch_rec, ns);
 	if (pio_unlikely(rc < 0)) {
@@ -795,7 +795,7 @@ static void DelPipeListener(void *udatap, as_event_loop *lp) {
 }
 
 int AeroSpike::DelBatchSubmit(ActiveVmdk *vmdkp,
-	std::vector<RequestBlock*>& process,
+	const std::vector<RequestBlock*>& process,
 	Request *reqp, DelBatch *batchp, const std::string& ns) {
 
 	as_event_loop    *loopp = NULL;
@@ -914,7 +914,7 @@ retry:
 }
 
 int AeroSpike::AeroDel(ActiveVmdk *vmdkp, Request *reqp, CheckPointID ckpt,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
@@ -940,7 +940,7 @@ int AeroSpike::AeroDel(ActiveVmdk *vmdkp, Request *reqp, CheckPointID ckpt,
 
 folly::Future<int> AeroSpike::AeroDelCmdProcess(ActiveVmdk *vmdkp,
 		Request *reqp, CheckPointID ckpt,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 

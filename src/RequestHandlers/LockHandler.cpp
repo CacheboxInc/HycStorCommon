@@ -23,7 +23,7 @@ LockHandler::~LockHandler() {
 }
 
 folly::Future<int> LockHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	auto[start, end] = reqp->Blocks();
 
@@ -39,7 +39,7 @@ folly::Future<int> LockHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> LockHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	auto[start, end] = reqp->Blocks();
 
@@ -55,7 +55,7 @@ folly::Future<int> LockHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> LockHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	auto[start, end] = reqp->Blocks();
 

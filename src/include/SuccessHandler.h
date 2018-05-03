@@ -15,28 +15,28 @@ public:
 	SuccessHandler(const config::VmdkConfig* configp);
 	~SuccessHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 	virtual folly::Future<int> Write(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 	virtual folly::Future<int> ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 
 	int ReadNow(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed);
 
 	int WriteNow(ActiveVmdk *vmdkp, Request *reqp, CheckPointID ckpt,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed);
 private:
 	folly::Future<int> WriteDelayed(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed);
 	folly::Future<int> ReadDelayed(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed);
 private:
 	bool enabled_{false};

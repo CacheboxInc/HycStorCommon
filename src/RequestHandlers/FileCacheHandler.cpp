@@ -43,7 +43,7 @@ const std::string& FileCacheHandler::GetFileCachePath() const {
 }
 
 folly::Future<int> FileCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 	int ret = 0;
 	if (pio_unlikely(not failed.empty() || process.empty())) {
@@ -75,7 +75,7 @@ folly::Future<int> FileCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> FileCacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 	int ret = 0;
 	if (pio_unlikely(not failed.empty() || process.empty())) {
@@ -112,7 +112,7 @@ folly::Future<int> FileCacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> FileCacheHandler::ReadPopulate(ActiveVmdk *vmdkp,
-		Request *reqp, std::vector<RequestBlock*>& process,
+		Request *reqp, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	failed.clear();
 	if (pio_unlikely(not nextp_)) {

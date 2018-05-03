@@ -31,13 +31,13 @@ struct SuccessWork {
 	ActiveVmdk* vmdkp_;
 	Request* reqp_;
 	CheckPointID ckpt_;
-	std::vector<RequestBlock*>& process_;
+	const std::vector<RequestBlock*>& process_;
 	std::vector<RequestBlock *>& failed_;
 	Type type_;
 	folly::Promise<int> promise_;
 
 	SuccessWork(SuccessHandler* selfp, ActiveVmdk* vmdkp, Request* reqp,
-			CheckPointID ckpt, std::vector<RequestBlock*>& process,
+			CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 			std::vector<RequestBlock*>& failed, Type type) : selfp_(selfp),
 			vmdkp_(vmdkp), reqp_(reqp), ckpt_(ckpt), process_(process),
 			failed_(failed), type_(type) {
@@ -78,7 +78,7 @@ SuccessHandler::~SuccessHandler() {
 }
 
 int SuccessHandler::ReadNow(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	failed.clear();
 	for (auto blockp : process) {
@@ -102,7 +102,7 @@ int SuccessHandler::ReadNow(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> SuccessHandler::ReadDelayed(ActiveVmdk *vmdkp,
-		Request *reqp, std::vector<RequestBlock*>& process,
+		Request *reqp, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	auto usec = distr_(gen_);
 	assert(usec > 0);
@@ -118,7 +118,7 @@ folly::Future<int> SuccessHandler::ReadDelayed(ActiveVmdk *vmdkp,
 }
 
 folly::Future<int> SuccessHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	if (pio_likely(not enabled_)) {
 		return nextp_->Read(vmdkp, reqp, process, failed);
@@ -132,7 +132,7 @@ folly::Future<int> SuccessHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 int SuccessHandler::WriteNow(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	failed.clear();
 	for (auto blockp : process) {
@@ -142,7 +142,7 @@ int SuccessHandler::WriteNow(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> SuccessHandler::WriteDelayed(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	auto usec = distr_(gen_);
 	assert(usec > 0);
@@ -158,7 +158,7 @@ folly::Future<int> SuccessHandler::WriteDelayed(ActiveVmdk *vmdkp, Request *reqp
 }
 
 folly::Future<int> SuccessHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	if (pio_likely(not enabled_)) {
 		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
@@ -173,7 +173,7 @@ folly::Future<int> SuccessHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> SuccessHandler::ReadPopulate(ActiveVmdk *vmdkp,
-		Request *reqp, std::vector<RequestBlock*>& process,
+		Request *reqp, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	if (pio_likely(not enabled_)) {
 		return nextp_->ReadPopulate(vmdkp, reqp, process, failed);

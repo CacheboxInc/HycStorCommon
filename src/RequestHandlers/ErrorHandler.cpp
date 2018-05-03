@@ -37,7 +37,7 @@ bool ErrorHandler::FailOperation() {
 }
 
 folly::Future<int> ErrorHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	if (pio_likely(not enabled_)) {
 		return nextp_->Read(vmdkp, reqp, process, failed);
@@ -74,7 +74,7 @@ folly::Future<int> ErrorHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> ErrorHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	if (pio_likely(not enabled_)) {
 		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
@@ -100,7 +100,7 @@ folly::Future<int> ErrorHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> ErrorHandler::ReadPopulate(ActiveVmdk *vmdkp,
-		Request *reqp, std::vector<RequestBlock*>& process,
+		Request *reqp, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	if (pio_likely(not enabled_)) {
 		return nextp_->ReadPopulate(vmdkp, reqp, process, failed);

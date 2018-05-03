@@ -20,7 +20,7 @@ UnalignedHandler::~UnalignedHandler() {
 }
 
 folly::Future<int> UnalignedHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	if (pio_unlikely(not nextp_)) {
 		return 0;
@@ -49,7 +49,7 @@ void UnalignedHandler::ReadModify(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> UnalignedHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	if (pio_unlikely(not nextp_)) {
 		return 0;
@@ -93,7 +93,7 @@ folly::Future<int> UnalignedHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> UnalignedHandler::ReadPopulate(ActiveVmdk *vmdkp,
-		Request *reqp, std::vector<RequestBlock*>& process,
+		Request *reqp, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	if (pio_unlikely(not nextp_)) {
 		return 0;
@@ -110,6 +110,5 @@ folly::Future<int> UnalignedHandler::ReadPopulate(ActiveVmdk *vmdkp,
 
 	return this->ReadPopulate(vmdkp, reqp, process, failed);
 }
-
 
 }

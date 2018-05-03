@@ -33,7 +33,7 @@ RamCacheHandler::~RamCacheHandler() {
 }
 
 folly::Future<int> RamCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	if (pio_unlikely(not failed.empty() || process.empty())) {
 		return -EINVAL;
@@ -87,7 +87,7 @@ folly::Future<int> RamCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> RamCacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	if (pio_unlikely(not failed.empty() || process.empty())) {
 		return -EINVAL;
@@ -120,7 +120,7 @@ folly::Future<int> RamCacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> RamCacheHandler::ReadPopulate(ActiveVmdk *vmdkp,
-		Request *reqp, std::vector<RequestBlock*>& process,
+		Request *reqp, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	if (pio_unlikely(not failed.empty() || process.empty())) {
 		return -EINVAL;

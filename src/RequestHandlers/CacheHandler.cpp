@@ -56,7 +56,7 @@ CacheHandler::~CacheHandler() {
 }
 
 folly::Future<int> CacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	log_assert(headp_);
 	return headp_->Read(vmdkp, reqp, process, failed)
@@ -75,13 +75,16 @@ folly::Future<int> CacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		}
 
 		/* Read Miss */
-		process.clear();
-		MoveLastElements(process, failed, failed.size());
-		log_assert(failed.empty());
+		auto read_missed = std::make_unique<
+			std::remove_reference<decltype(failed)>::type>();
+		read_missed->swap(failed);
+		failed.clear();
 
 		/* Read from next StorageLayer - probably Network or File */
-		return nextp_->Read(vmdkp, reqp, process, failed)
-		.then([&] (int rc) mutable -> folly::Future<int> {
+		return nextp_->Read(vmdkp, reqp, *read_missed, failed)
+		.then([this, &failed, vmdkp, reqp,
+				read_missed = std::move(read_missed)] (int rc)
+				mutable -> folly::Future<int> {
 			if (pio_unlikely(rc != 0)) {
 				log_assert(not failed.empty());
 				return rc;
@@ -89,20 +92,24 @@ folly::Future<int> CacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 			log_assert(failed.empty());
 
 			/* now read populate */
-			return this->ReadPopulate(vmdkp, reqp, process, failed);
+			return this->ReadPopulate(vmdkp, reqp, *read_missed, failed)
+			.then([read_missed = std::move(read_missed)] (int rc)
+					-> folly::Future<int> {
+				return rc;
+			});
 		});
 	});
 }
 
 folly::Future<int> CacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	log_assert(headp_);
 	return headp_->Write(vmdkp, reqp, ckpt, process, failed);
 }
 
 folly::Future<int> CacheHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	log_assert(headp_);
 	return headp_->ReadPopulate(vmdkp, reqp, process, failed);

@@ -142,27 +142,28 @@ public:
 public:
 
 	folly::Future<int> AeroReadCmdProcess(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int AeroRead(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int CacheIoReadKeySet(ActiveVmdk *vmdkp, ReadRecord* rrecp,
 		Request *reqp, const std::string& ns, ReadBatch* r_batch_rec);
 
-	int ReadBatchInit(ActiveVmdk *vmdkp, std::vector<RequestBlock*>& process,
-		ReadBatch *r_batch_rec,	Request *reqp, const std::string& ns);
+	int ReadBatchInit(ActiveVmdk *vmdkp,
+		const std::vector<RequestBlock*>& process, ReadBatch *r_batch_rec,
+		Request *reqp, const std::string& ns);
 
 	int ReadBatchPrepare(ActiveVmdk *vmdkp,
-		std::vector<RequestBlock*>& process,
-		Request *reqp, ReadBatch *r_batch_rec, const std::string& ns);
+		const std::vector<RequestBlock*>& process, Request *reqp,
+		ReadBatch *r_batch_rec, const std::string& ns);
 
  	int ReadBatchSubmit(ActiveVmdk *vmdkp,
-		std::vector<RequestBlock*>& process, Request *reqp,
+		const std::vector<RequestBlock*>& process, Request *reqp,
 		ReadBatch *batchp, const std::string& ns);
 
 	int CacheIoWriteKeySet(ActiveVmdk *vmdkp,
@@ -170,48 +171,48 @@ public:
 		const std::string& setp);
 
 	folly::Future<int> AeroWriteCmdProcess(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int AeroWrite(ActiveVmdk *vmdkp, Request *reqp,
-                CheckPointID ckpt, std::vector<RequestBlock*>& process,
+                CheckPointID ckpt, const std::vector<RequestBlock*>& process,
                 std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int WriteBatchInit(ActiveVmdk *vmdkp,
-			std::vector<RequestBlock*>& process,
+			const std::vector<RequestBlock*>& process,
 			WriteBatch *w_batch_rec, const std::string& ns);
 
 	int WriteBatchPrepare(ActiveVmdk *vmdkp,
-			std::vector<RequestBlock*>& process,
+			const std::vector<RequestBlock*>& process,
 			Request *reqp, WriteBatch *w_batch_rec,
 			const std::string& ns);
 
 	int WriteBatchSubmit(ActiveVmdk *vmdkp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		Request *reqp, WriteBatch *batchp, const std::string& ns);
 
 	folly::Future<int> AeroDelCmdProcess(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int AeroDel(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, std::vector<RequestBlock*>& process,
+		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int DelBatchSubmit(ActiveVmdk *vmdkp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		Request *reqp, DelBatch *batchp, const std::string& ns);
 
 	int DelBatchPrepare(ActiveVmdk *vmdkp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		Request *reqp, DelBatch *d_batch_rec, const std::string& ns);
 
 	int DelBatchInit(ActiveVmdk *vmdkp,
-		std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		DelBatch *d_batch_rec, const std::string& ns);
 
 	int CacheIoDelKeySet(ActiveVmdk *vmdkp, DelRecord* drecp,
