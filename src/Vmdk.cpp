@@ -41,7 +41,7 @@ VmdkHandle Vmdk::GetHandle() const noexcept {
 ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 		const std::string& config)
 		: Vmdk(handle, std::move(id)), vmp_(vmp),
-		config_(std::make_unique<config::VmdkConfig>(config)) { 
+		config_(std::make_unique<config::VmdkConfig>(config)) {
 	uint32_t block_size;
 	if (not config_->GetBlockSize(block_size)) {
 		block_size = kDefaultBlockSize;
@@ -96,9 +96,61 @@ void ActiveVmdk::RegisterRequestHandler(std::unique_ptr<RequestHandler> handler)
 	headp_->RegisterNextRequestHandler(std::move(handler));
 }
 
-folly::Future<int> ActiveVmdk::Read(Request* reqp) {
-	assert(reqp);
+CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
+		const CheckPoints& min_max) const {
+	auto [min, max] = min_max;
+	log_assert(min > kInvalidCheckPointID);
 
+	{
+		std::lock_guard<std::mutex> lock(blocks_.mutex_);
+		for (; min <= max; --max) {
+			if (auto it = blocks_.modified_.find(max);
+					it == blocks_.modified_.end()) {
+				break;
+			} else {
+				const auto& blocks = it->second;
+				if (blocks.find(block) != blocks.end()) {
+					return max;
+				}
+			}
+		}
+	}
+
+	for (auto ckpt = max; min <= ckpt; --ckpt) {
+		auto ckptp = GetCheckPoint(ckpt);
+		if (not ckptp) {
+			log_assert(ckpt == min_max.second);
+			continue;
+		}
+		const auto& bitmap = ckptp->GetRoaringBitMap();
+		if (bitmap.contains(block)) {
+			return ckptp->ID();
+		}
+	}
+
+	/*
+	 * FIXME:
+	 * - Take initial CheckPoint when VMDK is first added
+	 *   - Since code to take initial CheckPoint is missing, we return
+	 *     kInvalidCheckPointID + 1 from this function for now
+	 * - Return kInvalidCheckPointID from here
+	 */
+	return kInvalidCheckPointID + 1;
+}
+
+void ActiveVmdk::SetReadCheckPointId(const std::vector<RequestBlock*>& blockps,
+		const CheckPoints& min_max) const {
+	for (auto blockp : blockps) {
+		auto block = blockp->GetBlockID();
+		/* find latest checkpoint in which the block is modified */
+		auto ckpt_id = GetModifiedCheckPoint(block, min_max);
+		log_assert(ckpt_id != kInvalidCheckPointID);
+		blockp->SetReadCheckPointId(ckpt_id);
+	}
+}
+
+folly::Future<int> ActiveVmdk::Read(Request* reqp, const CheckPoints& min_max) {
+	assert(reqp);
 	if (pio_unlikely(not headp_)) {
 		return -ENXIO;
 	}
@@ -110,6 +162,7 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp) {
 		process->emplace_back(blockp);
 		return true;
 	});
+	SetReadCheckPointId(*process, min_max);
 
 	++stats_.reads_in_progress_;
 	return headp_->Read(this, reqp, *process, *failed)

@@ -95,7 +95,7 @@ protected:
 			Request::Type::kRead, payload, bufferp->Size(), bufferp->Size(),
 			offset);
 
-		return vmdkp->Read(reqp.get())
+		return vmdkp->Read(reqp.get(), std::make_pair(1,1))
 		.then([bufferp = std::move(bufferp), reqp = std::move(reqp)] (int rc) mutable {
 			return rc;
 		});

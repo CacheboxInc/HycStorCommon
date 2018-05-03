@@ -28,6 +28,8 @@ namespace config {
 	class AeroConfig;
 }
 
+using CheckPoints = std::pair<CheckPointID, CheckPointID>;
+
 class CheckPoint {
 public:
 	CheckPoint(VmdkID vmdk_id, CheckPointID id);
@@ -80,7 +82,7 @@ public:
 	void RegisterRequestHandler(std::unique_ptr<RequestHandler> handler);
 	void SetEventFd(int eventfd) noexcept;
 
-	folly::Future<int> Read(Request* reqp);
+	folly::Future<int> Read(Request* reqp, const CheckPoints& min_max);
 	folly::Future<int> Write(Request* reqp, CheckPointID ckpt_id);
 	folly::Future<int> WriteSame(Request* reqp, CheckPointID ckpt_id);
 	folly::Future<int> TakeCheckPoint(CheckPointID check_point);
@@ -99,6 +101,10 @@ private:
 	std::optional<std::unordered_set<BlockID>>
 		CopyDirtyBlocksSet(CheckPointID ckpt_id);
 	void RemoveDirtyBlockSet(CheckPointID ckpt_id);
+	CheckPointID GetModifiedCheckPoint(BlockID block,
+		const CheckPoints& min_max) const;
+	void SetReadCheckPointId(const std::vector<RequestBlock*>& blockps,
+		const CheckPoints& min_max) const;
 
 private:
 	VirtualMachine *vmp_{nullptr};

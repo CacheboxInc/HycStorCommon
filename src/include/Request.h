@@ -118,6 +118,9 @@ public:
 	bool IsReadHit() const noexcept;
 	bool IsFailed() const noexcept;
 
+	void SetReadCheckPointId(CheckPointID ckpt_id) noexcept;
+	CheckPointID GetReadCheckPointId() const noexcept;
+
 	size_t GetRequestBufferCount() const;
 	RequestBuffer* GetRequestBufferAtBack();
 	RequestBuffer* GetRequestBufferAt(size_t index);
@@ -137,6 +140,7 @@ private:
 private:
 	ActiveVmdk *vmdkp_{nullptr};
 	Request    *requestp_{nullptr};
+	CheckPointID read_ckpt_id_{kInvalidRequestID};
 
 	struct Input {
 		Input(BlockID block_id, Request::Type type, void *bufferp, size_t size,

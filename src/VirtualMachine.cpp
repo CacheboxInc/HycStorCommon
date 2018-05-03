@@ -133,8 +133,10 @@ folly::Future<int> VirtualMachine::Read(ActiveVmdk* vmdkp, Request* reqp) {
 		throw std::invalid_argument("VMDK not attached to VM");
 	}
 
+	auto ckpts = std::make_pair(kInvalidCheckPointID + 1,
+		checkpoint_.checkpoint_id_.load());
 	++stats_.reads_in_progress_;
-	return vmdkp->Read(reqp)
+	return vmdkp->Read(reqp, ckpts)
 	.then([this] (int rc) {
 		--stats_.reads_in_progress_;
 		return rc;

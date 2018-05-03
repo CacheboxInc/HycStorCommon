@@ -263,6 +263,14 @@ Offset RequestBlock::GetAlignedOffset() const {
 	return aligned_offset_;
 }
 
+void RequestBlock::SetReadCheckPointId(CheckPointID ckpt_id) noexcept {
+	read_ckpt_id_ = ckpt_id;
+}
+
+CheckPointID RequestBlock::GetReadCheckPointId() const noexcept {
+	return read_ckpt_id_;
+}
+
 bool RequestBlock::IsPartial() const {
 	log_assert((not partial_ && in_.offset_ == aligned_offset_) ||
 		(partial_ &&
