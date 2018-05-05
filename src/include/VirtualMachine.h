@@ -42,7 +42,9 @@ public:
 	folly::Future<int> Write(ActiveVmdk* vmdkp, Request* reqp);
 	folly::Future<int> WriteSame(ActiveVmdk* vmdkp, Request* reqp);
 	folly::Future<int> Read(ActiveVmdk* vmdkp, Request* reqp);
+	folly::Future<int> Flush(ActiveVmdk* vmdkp, Request* reqp, const CheckPoints& min_max);
 	folly::Future<CheckPointResult> TakeCheckPoint();
+	int FlushStart(CheckPointID ckpt_id);
 	folly::Future<int> Stun(CheckPointID ckpt_id);
 
 public:
@@ -55,6 +57,7 @@ private:
 	ActiveVmdk* FindVmdk(VmdkHandle vmdk_handle) const;
 	void WriteComplete(CheckPointID ckpt_id);
 	void CheckPointComplete(CheckPointID ckpt_id);
+	void FlushComplete(CheckPointID ckpt_id);
 
 private:
 	VmdkHandle handle_;
@@ -79,6 +82,9 @@ private:
 	struct {
 		std::atomic<uint64_t> writes_in_progress_{0};
 		std::atomic<uint64_t> reads_in_progress_{0};
+		std::atomic<uint64_t> flushs_in_progress_{0};
 	} stats_;
+
+	std::atomic_flag flush_in_progress_ = ATOMIC_FLAG_INIT;
 };
 }

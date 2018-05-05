@@ -535,7 +535,7 @@ retry:
 }
 
 int AeroSpike::AeroRead(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
@@ -543,7 +543,6 @@ int AeroSpike::AeroRead(ActiveVmdk *vmdkp, Request *reqp,
 			vmdkp->GetVM()->GetJsonConfig()->GetTargetName());
 	log_assert(r_batch_rec != nullptr);
 
-	r_batch_rec->ckpt_ = ckpt;
 	r_batch_rec->aero_conn_ = aero_conn.get();
 	log_assert(r_batch_rec->aero_conn_ != nullptr);
 
@@ -611,8 +610,7 @@ int AeroSpike::AeroRead(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> AeroSpike::AeroReadCmdProcess(ActiveVmdk *vmdkp,
-		Request *reqp, CheckPointID ckpt,
-		const std::vector<RequestBlock*>& process,
+		Request *reqp, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
@@ -643,11 +641,11 @@ folly::Future<int> AeroSpike::AeroReadCmdProcess(ActiveVmdk *vmdkp,
 	folly::Promise<int> promise;
 	auto fut = promise.getFuture();
 	instance_->threadpool_.pool_->AddTask([this, vmdkp, reqp, &process,
-		&failed, ckpt, ns, promise = std::move(promise),
+		&failed, ns, promise = std::move(promise),
 		aero_conn] () mutable {
 
 		failed.clear();
-		int rc = this->AeroRead(vmdkp, reqp, ckpt, process, failed,
+		int rc = this->AeroRead(vmdkp, reqp, process, failed,
 				ns, aero_conn);
 		promise.setValue(rc);
 	});
@@ -984,7 +982,7 @@ ReadRecord::ReadRecord(RequestBlock* blockp, ReadBatch* batchp) :
 		rq_block_(blockp), batchp_(batchp) {
 	std::ostringstream os;
 	os << batchp->pre_keyp_ << ":"
-		<< std::to_string(batchp->ckpt_) << ":"
+		<< std::to_string(blockp->GetReadCheckPointId()) << ":"
 		<< std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
 	key_val_ = os.str();
 }

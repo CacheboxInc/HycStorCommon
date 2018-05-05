@@ -21,6 +21,10 @@ public:
 	virtual folly::Future<int> ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
+	virtual folly::Future<int> Flush(ActiveVmdk *vmdkp, Request *reqp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed) override;
+	
 private:
 	void InitializeRequestHandlers(const config::VmdkConfig* configp);
 private:

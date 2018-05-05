@@ -22,6 +22,8 @@
 #include "AeroConn.h"
 #include "Singleton.h"
 #include "AeroFiberThreads.h"
+#include "FlushManager.h"
+#include "FlushInstance.h"
 
 using namespace ::hyc_thrift;
 
@@ -45,6 +47,7 @@ int InitStordLib(void) {
 			SingletonHolder<VmdkManager>::CreateInstance();
 			SingletonHolder<VmManager>::CreateInstance();
 			SingletonHolder<AeroFiberThreads>::CreateInstance();
+			SingletonHolder<FlushManager>::CreateInstance();
 		});
 	} catch (const std::exception& e) {
 		return -1;
@@ -152,6 +155,35 @@ AeroClusterHandle DelAeroCluster(AeroClusterID cluster_id,
 	LOG(INFO) << __func__ << "Removed successfully cluster id "
 		<< cluster_id;
 	return kValidAeroClusterHandle;
+}
+
+int NewFlushReq(VmID vmid) {
+	auto managerp = SingletonHolder<FlushManager>::GetInstance();
+	auto ptr = managerp->GetInstance(vmid);
+	if (ptr != nullptr) {
+		LOG(ERROR) << "Flush is already running for given VM";
+		return -EAGAIN;
+	}
+
+	try {
+		auto rc = managerp->NewInstance(vmid);
+		if (pio_unlikely(rc)) {
+			return -ENOMEM;
+		}
+
+		auto fi = managerp->GetInstance(vmid);
+		managerp->threadpool_.pool_->AddTask([managerp, vmid, fi]()
+					mutable {
+			auto rc = fi->StartFlush(vmid);
+			/* Remove fi Instance */
+			managerp->FreeInstance(vmid);
+			return rc;
+		});
+	} catch (...) {
+		return -ENOMEM;
+	}
+
+	return 0;
 }
 
 VmHandle NewVm(VmID vmid, const std::string& config) {

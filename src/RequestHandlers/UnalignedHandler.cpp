@@ -110,5 +110,4 @@ folly::Future<int> UnalignedHandler::ReadPopulate(ActiveVmdk *vmdkp,
 
 	return this->ReadPopulate(vmdkp, reqp, process, failed);
 }
-
 }

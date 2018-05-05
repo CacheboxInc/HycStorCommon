@@ -26,4 +26,10 @@ void RequestHandler::RegisterNextRequestHandler(
 	nextp_->RegisterNextRequestHandler(std::move(handlerp));
 }
 
+folly::Future<int> RequestHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed) {
+	log_assert(0);
+	return 0;
+}
 }

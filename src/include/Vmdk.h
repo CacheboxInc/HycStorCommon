@@ -19,6 +19,8 @@
 #include "RequestHandler.h"
 #include "AeroConn.h"
 #include "MetaDataKV.h"
+#include "QLock.h"
+#include "Rendez.h"
 
 namespace pio {
 
@@ -61,6 +63,28 @@ public:
 	static const std::string kCheckPoint;
 };
 
+class FlushData {
+public:
+	QLock flush_lock_;
+	Rendez flush_rendez_;
+	uint64_t pending_cnt_{0};
+	uint64_t flushed_blks_{0};
+	bool sleeping_{false};
+	bool done_{false};
+	bool failed_{false};
+	uint64_t reqid_{0};
+public:
+	void InitState() {
+		/* TBD: rendez reset */
+		pending_cnt_ = 0;
+		sleeping_ = false;
+		done_ = false;
+		reqid_ = 0;
+		flushed_blks_ = 0;
+	}
+};
+
+
 class Vmdk {
 public:
 	Vmdk(VmdkHandle handle, VmdkID&& vmdk_id);
@@ -83,9 +107,11 @@ public:
 	void SetEventFd(int eventfd) noexcept;
 
 	folly::Future<int> Read(Request* reqp, const CheckPoints& min_max);
+	folly::Future<int> Flush(Request* reqp, const CheckPoints& min_max);
 	folly::Future<int> Write(Request* reqp, CheckPointID ckpt_id);
 	folly::Future<int> WriteSame(Request* reqp, CheckPointID ckpt_id);
 	folly::Future<int> TakeCheckPoint(CheckPointID check_point);
+	int FlushStart(CheckPointID check_point);
 	const CheckPoint* GetCheckPoint(CheckPointID ckpt_id) const;
 
 public:
@@ -132,9 +158,11 @@ private:
 	struct {
 		std::atomic<uint64_t> writes_in_progress_{0};
 		std::atomic<uint64_t> reads_in_progress_{0};
+		std::atomic<uint64_t> flushs_in_progress_{0};
 	} stats_;
 
 	std::unique_ptr<RequestHandler> headp_{nullptr};
+	std::unique_ptr<FlushData> flush_str_{nullptr};
 
 private:
 	static constexpr uint32_t kDefaultBlockSize{4096};

@@ -21,6 +21,9 @@ public:
 	virtual folly::Future<int> ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) = 0;
+	virtual folly::Future<int> Flush(ActiveVmdk *vmdkp, Request *reqp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed);
 protected:
 	void *udatap_;
 	std::unique_ptr<RequestHandler> nextp_;

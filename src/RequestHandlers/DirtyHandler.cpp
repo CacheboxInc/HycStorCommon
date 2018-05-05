@@ -37,18 +37,34 @@ folly::Future<int> DirtyHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		return nextp_->Read(vmdkp, reqp, process, failed);
 	}
 
-	/* TBD : Read should also come with ckpt ID, For now
-	 * assuming that checkpoint ID is 0 */
-	CheckPointID ckpt = 0;
-	(void) ckpt;
-	return aero_obj_->AeroReadCmdProcess(vmdkp, reqp, ckpt, process, failed,
+	return aero_obj_->AeroReadCmdProcess(vmdkp, reqp, process, failed,
 		kAsNamespaceCacheDirty, aero_conn)
 	.then([this, vmdkp, reqp, &process, &failed] (int rc) mutable
 			-> folly::Future<int> {
 		if (pio_likely(rc != 0)) {
 			return rc;
 		}
-		return nextp_->Read(vmdkp, reqp, process, failed);
+
+		/*
+		 * For Flush IO reads don't need to go to CLEAN layer,
+		 * return from here
+		 */
+
+		if (reqp->IsFlushReq()) {
+			auto rc = 0;
+			for (auto blockp : process) {
+				if (pio_unlikely(blockp->IsReadHit())) {
+					blockp->SetResult(0, RequestStatus::kSuccess);
+				} else {
+					blockp->SetResult(-ENOMEM, RequestStatus::kFailed);
+					failed.emplace_back(blockp);
+					rc = 1;
+				}
+			}
+			return rc;
+		} else {
+			return nextp_->Read(vmdkp, reqp, process, failed);
+		}
 	});
 }
 

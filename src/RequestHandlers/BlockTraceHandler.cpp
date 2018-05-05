@@ -53,4 +53,17 @@ folly::Future<int> BlockTraceHandler::ReadPopulate(ActiveVmdk *vmdkp,
 	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
+folly::Future<int> BlockTraceHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed) {
+	failed.clear();
+	if (pio_unlikely(not nextp_)) {
+		failed.reserve(process.size());
+		std::copy(process.begin(), process.end(), std::back_inserter(failed));
+		return -ENODEV;
+	}
+
+	return nextp_->Flush(vmdkp, reqp, process, failed);
+}
+
 }

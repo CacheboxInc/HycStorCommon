@@ -56,6 +56,8 @@ set(StorageLayerFiles
 	VmdkConfig.cpp
 	VmdkFactory.cpp
 	VmManager.cpp
+	FlushManager.cpp
+	FlushInstance.cpp
 	AeroFiberThreads.cpp
 
 	RangeLock.cpp

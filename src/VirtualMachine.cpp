@@ -7,6 +7,8 @@
 #include "VirtualMachine.h"
 #include "Vmdk.h"
 #include "VmConfig.h"
+#include "FlushManager.h"
+#include "Singleton.h"
 
 namespace pio {
 
@@ -70,6 +72,11 @@ void VirtualMachine::CheckPointComplete(CheckPointID ckpt_id) {
 	checkpoint_.in_progress_.clear();
 }
 
+void VirtualMachine::FlushComplete(CheckPointID ckpt_id) {
+	log_assert(ckpt_id != kInvalidCheckPointID);
+	flush_in_progress_.clear();
+}
+
 folly::Future<CheckPointResult> VirtualMachine::TakeCheckPoint() {
 	if (checkpoint_.in_progress_.test_and_set()) {
 		return std::make_pair(kInvalidCheckPointID, -EAGAIN);
@@ -108,6 +115,50 @@ folly::Future<CheckPointResult> VirtualMachine::TakeCheckPoint() {
 	});
 }
 
+int VirtualMachine::FlushStart(CheckPointID ckpt_id) {
+	if (flush_in_progress_.test_and_set()) {
+		return -EAGAIN;
+	}
+
+	auto managerp = SingletonHolder<FlushManager>::GetInstance();
+	std::vector<folly::Future<int>> futures;
+
+	/*
+	 * TBD : If flush for any disk is failing then
+	 * it should halt the flush of all the disks
+	 */
+
+	futures.reserve(vmdk_.list_.size());
+	{
+		std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+		for (const auto& vmdkp : vmdk_.list_) {
+			/* TBD : ckpt id as args */
+			folly::Promise<int> promise;
+			auto fut = promise.getFuture();
+			managerp->threadpool_.pool_->AddTask([vmdkp, ckpt_id,
+				promise = std::move(promise)]() mutable {
+				auto rc = vmdkp->FlushStart(ckpt_id);
+				promise.setValue(rc);
+			});
+
+			futures.emplace_back(std::move(fut));
+		}
+	}
+
+	int rc = 0;
+	folly::collectAll(std::move(futures))
+	.then([this, ckpt_id, &rc] (const std::vector<folly::Try<int>>& results) {
+		for (auto& t : results) {
+			if (pio_likely(t.hasValue() and t.value() != 0)) {
+				rc = t.value();
+			}
+		}
+	})
+	.wait();
+	FlushComplete(ckpt_id);
+	return rc;
+}
+
 folly::Future<int> VirtualMachine::Write(ActiveVmdk* vmdkp, Request* reqp) {
 	if (pio_unlikely(not FindVmdk(vmdkp->GetHandle()))) {
 		throw std::invalid_argument("VMDK not attached to VM");
@@ -142,6 +193,20 @@ folly::Future<int> VirtualMachine::Read(ActiveVmdk* vmdkp, Request* reqp) {
 		return rc;
 	});
 }
+
+folly::Future<int> VirtualMachine::Flush(ActiveVmdk* vmdkp, Request* reqp, const CheckPoints& min_max) {
+	if (pio_unlikely(not FindVmdk(vmdkp->GetHandle()))) {
+		throw std::invalid_argument("VMDK not attached to VM");
+	}
+
+	++stats_.flushs_in_progress_;
+	return vmdkp->Flush(reqp, min_max)
+	.then([this] (int rc) {
+		--stats_.flushs_in_progress_;
+		return rc;
+	});
+}
+
 
 folly::Future<int> VirtualMachine::WriteSame(ActiveVmdk* vmdkp, Request* reqp) {
 	if (pio_unlikely(not FindVmdk(vmdkp->GetHandle()))) {

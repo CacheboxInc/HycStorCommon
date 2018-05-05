@@ -91,7 +91,6 @@ struct ReadBatch {
 	as_status as_result_{AEROSPIKE_OK};
 	bool failed_{false};
 
-	CheckPointID ckpt_{kInvalidCheckPointID};
 	AeroSpikeConn *aero_conn_{nullptr};
 };
 
@@ -142,12 +141,12 @@ public:
 public:
 
 	folly::Future<int> AeroReadCmdProcess(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int AeroRead(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 

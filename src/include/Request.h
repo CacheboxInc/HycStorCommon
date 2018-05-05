@@ -46,6 +46,26 @@ public:
 	bool IsSuccess() const noexcept;
 	bool IsFailed() const noexcept;
 	int GetResult() const noexcept;
+
+	bool IsFlushReq() {
+		return FlushReq_;
+	}
+	void SetFlushReq() {
+		FlushReq_ = true;
+	}
+
+	CheckPointID GetFlushStartCkptID() {
+		return FlushCkptID_;
+	}
+
+	CheckPointID GetFlushEndCkptID() {
+ 		return FlushCkptID_;
+ 	}
+
+	void SetFlushCkptID(CheckPointID ckpt_id) {
+		FlushCkptID_ = ckpt_id;
+	}
+
 	void SetResult(int return_value, RequestStatus status) noexcept;
 
 public:
@@ -93,6 +113,8 @@ private:
 	} status_;
 
 	std::vector<std::unique_ptr<RequestBlock>> request_blocks_;
+	bool FlushReq_{false};
+	CheckPointID FlushCkptID_{1}; //Should it be 0
 };
 
 class RequestBlock {

@@ -23,6 +23,7 @@ static const SnapshotID   kInvalidSnapshotID  = 0;
 static const BlockID      kBlockIDMax         = std::numeric_limits<BlockID>::max();
 static const BlockID      kBlockIDMin         = std::numeric_limits<BlockID>::min();
 
+using CheckPoints = std::pair<CheckPointID, CheckPointID>;
 static const size_t kMBShift     = 20;
 static const size_t kMaxIoSize   = 4 << kMBShift;
 static const size_t kSectorShift = 9;

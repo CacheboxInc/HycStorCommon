@@ -23,6 +23,7 @@
 #include "VmdkFactory.h"
 #include "Singleton.h"
 #include "AeroFiberThreads.h"
+#include "FlushManager.h"
 
 using namespace apache::thrift;
 using namespace apache::thrift::async;
@@ -35,6 +36,7 @@ static const std::string kNewVm = "new_vm";
 static const std::string kNewVmdk = "new_vmdk";
 static const std::string kNewAero = "new_aero";
 static const std::string kDelAero = "del_aero";
+static const std::string kFlushReq = "flush_req";
 
 class StorRpcSvImpl : public virtual StorRpcSvIf {
 public:
@@ -188,6 +190,7 @@ enum StordSvcErr {
 	STORD_ERR_INVALID_NO_DATA,
 	STORD_ERR_INVALID_PARAM,
 	STORD_ERR_INVALID_AERO,
+	STORD_ERR_INVALID_FLUSH,
 };
 
 void HaHeartbeat(void *userp) {
@@ -279,7 +282,7 @@ static int NewVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int NewAeroCluster(const _ha_request *reqp, _ha_response *resp, 
+static int NewAeroCluster(const _ha_request *reqp, _ha_response *resp,
 	void *userp ) {
 	auto param_valuep = ha_parameter_get(reqp, "aero-id");
 	if (param_valuep  == NULL) {
@@ -316,7 +319,7 @@ static int NewAeroCluster(const _ha_request *reqp, _ha_response *resp,
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int DelAeroCluster(const _ha_request *reqp, _ha_response *resp, 
+static int DelAeroCluster(const _ha_request *reqp, _ha_response *resp,
 	void *userp ) {
 	auto param_valuep = ha_parameter_get(reqp, "aero-id");
 
@@ -410,6 +413,45 @@ static int NewVmdk(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 	return HA_CALLBACK_CONTINUE;
 }
 
+static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp ) {
+
+	LOG(INFO) << "START stage1";
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	LOG(INFO) << "START stage2";
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == kInvalidVmHandle) {
+		std::ostringstream es;
+		LOG(ERROR) << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		es << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	LOG(INFO) << "START stage3";
+	auto ret = pio::NewFlushReq(vmid);
+	if (ret) {
+		std::ostringstream es;
+		LOG(ERROR) << "Staring flush request for VMID::"  << vmid << "Failed";
+		es << "Staring flush request for VMID::"  << vmid << " Failed";
+		SetErrMsg(resp, STORD_ERR_INVALID_FLUSH, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	LOG(INFO) << "Flush for VM:" << vmid << "started successfully. Please run "
+		"flush_status to get the progress";
+
+	const auto res = std::to_string(ret);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+	return HA_CALLBACK_CONTINUE;
+}
+
 int main(int argc, char* argv[])
 {
 	FLAGS_v = 2;
@@ -450,7 +492,7 @@ int main(int argc, char* argv[])
 	std::signal(SIGUSR1, Usr1SignalHandler);
 
 #endif
-	auto size = sizeof(struct ha_handlers) + 4 * sizeof(struct ha_endpoint_handlers);
+	auto size = sizeof(struct ha_handlers) + 5 * sizeof(struct ha_endpoint_handlers);
 
 	auto handlers =
 		std::unique_ptr<struct ha_handlers,
@@ -479,7 +521,7 @@ int main(int argc, char* argv[])
 	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
 	handlers->ha_count += 1;
 
-	/* new_aero handler */
+	/* new_aero Cluster */
 	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
 	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kNewAero.c_str(),
 			kNewAero.size() + 1);
@@ -487,11 +529,19 @@ int main(int argc, char* argv[])
 	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
 	handlers->ha_count += 1;
 
-	/* del_aero handler */
+	/* del_aero cluster */
 	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
 	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kDelAero.c_str(),
 			kDelAero.size() + 1);
 	handlers->ha_endpoints[handlers->ha_count].callback_function = DelAeroCluster;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
+	/* Flush Request */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kFlushReq.c_str(),
+			kFlushReq.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = NewFlushReq;
 	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
 	handlers->ha_count += 1;
 
@@ -500,6 +550,7 @@ int main(int argc, char* argv[])
 			FLAGS_stord_version.c_str(), 120,
 			const_cast<const struct ha_handlers *> (handlers.get()),
 			StordHaStartCallback, StordHaStopCallback, 0, NULL);
+	handlers->ha_count += 1;
 
 	if (g_thread_.ha_instance_ == nullptr) {
 		LOG(ERROR) << "ha_initialize failed";
@@ -510,6 +561,11 @@ int main(int argc, char* argv[])
 
 	/* Initialize threadpool for AeroSpike accesses */
 	auto rc = SingletonHolder<AeroFiberThreads>::GetInstance()
+					->CreateInstance();
+	log_assert(rc == 0);
+
+	/* Initialize threadpool for Flush processing */
+	rc = SingletonHolder<FlushManager>::GetInstance()
 					->CreateInstance();
 	log_assert(rc == 0);
 

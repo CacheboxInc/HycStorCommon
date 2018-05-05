@@ -115,4 +115,30 @@ folly::Future<int> CacheHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 	return headp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
+folly::Future<int> CacheHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed) {
+	log_assert(headp_);
+	/* Read from DIRTY NAMESPACE only */
+	return headp_->Read(vmdkp, reqp, process, failed)
+	.then([&] (int rc) mutable -> folly::Future<int> {
+		/* Read from CacheLayer complete */
+		if(pio_unlikely(rc != 0)) {
+			return rc;
+		}
+
+		if(pio_unlikely(failed.size())) {
+
+			/* TBD: - failure, do we need to move all Request
+			 * blocks in failed vector. Get the error code
+			 * from layers below
+			 */
+
+			return -EIO;
+		}
+
+		return 0;
+	});
+}
+
 }

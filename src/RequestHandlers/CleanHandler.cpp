@@ -33,13 +33,7 @@ folly::Future<int> CleanHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		return nextp_->Read(vmdkp, reqp, process, failed);
 	}
 
-	/*
-	 * TBD : Read should come with ckpt ID, for now
-	 * assuming that checkpoint ID is 0
-	 */
-	CheckPointID ckpt = 0;
-	(void) ckpt;
-	return aero_obj_->AeroReadCmdProcess(vmdkp, reqp, ckpt, process,
+	return aero_obj_->AeroReadCmdProcess(vmdkp, reqp, process,
 			failed, kAsNamespaceCacheClean, aero_conn)
 	.then([this, vmdkp, reqp, &process, &failed] (int rc)
 			mutable -> folly::Future<int> {

@@ -19,11 +19,14 @@
 #include "DaemonTgtTypes.h"
 #include "VmdkConfig.h"
 #include "RequestHandler.h"
+#include "FlushManager.h"
+#include "FlushInstance.h"
 #include "Vmdk.h"
 
 namespace pio {
 
 const std::string CheckPoint::kCheckPoint = "CheckPoint";
+uint32_t kFlushPendingLimit = 32;
 
 Vmdk::Vmdk(VmdkHandle handle, VmdkID&& id) : handle_(handle), id_(std::move(id)) {
 }
@@ -57,6 +60,11 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 		metad_kv_ = std::make_unique<AeroMetaDataKV>();
 	}
 	if (not metad_kv_) {
+		throw std::bad_alloc();
+	}
+
+	flush_str_ = std::make_unique<FlushData>();
+	if (not flush_str_) {
 		throw std::bad_alloc();
 	}
 }
@@ -186,6 +194,46 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp, const CheckPoints& min_max) {
 	});
 }
 
+folly::Future<int> ActiveVmdk::Flush(Request* reqp, const CheckPoints& min_max) {
+	assert(reqp);
+
+	if (pio_unlikely(not headp_)) {
+		return -ENXIO;
+	}
+
+	auto failed = std::make_unique<std::vector<RequestBlock*>>();
+	auto process = std::make_unique<std::vector<RequestBlock*>>();
+
+	process->reserve(reqp->NumberOfRequestBlocks());
+	reqp->ForEachRequestBlock([&process] (RequestBlock *blockp) mutable {
+		process->emplace_back(blockp);
+		return true;
+	});
+
+	SetReadCheckPointId(*process, min_max);
+
+	++stats_.flushs_in_progress_;
+	return headp_->Flush(this, reqp, *process, *failed)
+	.then([this, reqp, process = std::move(process),
+			failed = std::move(failed)] (folly::Try<int>& result) mutable {
+		if (result.hasException<std::exception>()) {
+			reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
+		} else {
+			auto rc = result.value();
+			if (pio_unlikely(rc < 0)) {
+				reqp->SetResult(rc, RequestStatus::kFailed);
+			} else if (pio_unlikely(not failed->empty())) {
+				const auto blockp = failed->front();
+				log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
+				reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
+			}
+		}
+
+		--stats_.flushs_in_progress_;
+		return reqp->Complete();
+	});
+}
+
 folly::Future<int> ActiveVmdk::Write(Request* reqp, CheckPointID ckpt_id) {
 	return WriteCommon(reqp, ckpt_id);
 }
@@ -270,6 +318,107 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 
 		return WriteComplete(reqp, ckpt_id);
 	});
+}
+
+int ActiveVmdk::FlushStart(CheckPointID ckpt_id) {
+
+	/*
+	 * TBD :- Since a fix number of requests can under process
+	 * at time, we can create those records upfront to avoid
+	 * creation of strs again and again
+	 */
+
+	flush_str_->InitState();
+	int32_t size = BlockSize();
+
+	auto ckptp = GetCheckPoint(ckpt_id);
+	log_assert(ckptp != nullptr);
+	log_assert(ckptp->IsFlushed() == false);
+
+	auto min_max = std::make_pair(ckpt_id, ckpt_id);
+
+	const auto& bitmap = ckptp->GetRoaringBitMap();
+	for (const auto& block : bitmap) {
+
+		flush_str_->flush_lock_.lock();
+		if (flush_str_->failed_) {
+			flush_str_->flush_lock_.unlock();
+			break;
+		}
+
+		if (flush_str_->pending_cnt_ >= kFlushPendingLimit) {
+			/* Already submmited too much, wait for a completion */
+			flush_str_->sleeping_ = true;
+			flush_str_->flush_rendez_.TaskSleep(&flush_str_->flush_lock_);
+			if (flush_str_->failed_) {
+				flush_str_->flush_lock_.unlock();
+				break;
+			}
+		}
+
+		flush_str_->pending_cnt_++;
+		flush_str_->flush_lock_.unlock();
+		auto iobuf = NewRequestBuffer(size);
+		if (pio_unlikely(not iobuf)) {
+			throw std::bad_alloc();
+		}
+
+		++flush_str_->reqid_;
+		auto reqp = std::make_unique<Request>(flush_str_->reqid_, this,
+				Request::Type::kRead,
+				iobuf->Payload(), size, size, block * BlockSize());
+		reqp->SetFlushReq();
+		reqp->SetFlushCkptID(ckpt_id);
+
+		this->Flush(reqp.get(), min_max)
+		.then([this, iobuf = std::move(iobuf), reqp = std::move(reqp)] (int rc) mutable {
+
+			/* TBD : Free the created IO buffer */
+			this->flush_str_->flush_lock_.lock();
+			flush_str_->pending_cnt_--;
+
+			/* If some of the requests has failed then don't submit new ones */
+			if (pio_unlikely(rc)) {
+				LOG(ERROR) << "Some of the flush request failed";
+				flush_str_->failed_ = true;
+			}
+
+			if (flush_str_->sleeping_) {
+
+				/*
+				 * Sleeping in done context then wakeup from
+				 * last completion otherwise wakeup to continue
+				 * the pipeline
+				 */
+
+				if (flush_str_->done_) {
+					if (!flush_str_->pending_cnt_) {
+						flush_str_->sleeping_ = false;
+						flush_str_->flush_rendez_.TaskWakeUp();
+					}
+				} else {
+					flush_str_->sleeping_ = false;
+					flush_str_->flush_rendez_.TaskWakeUp();
+				}
+			}
+
+			++flush_str_->flushed_blks_;
+			flush_str_->flush_lock_.unlock();
+		});
+	}
+
+	/* Set done and wait for completion of all */
+	flush_str_->flush_lock_.lock();
+	flush_str_->done_ = true;
+	if (flush_str_->pending_cnt_) {
+		flush_str_->sleeping_ = true;
+		flush_str_->flush_rendez_.TaskSleep(&flush_str_->flush_lock_);
+	}
+
+	log_assert(flush_str_->sleeping_ == false);
+	log_assert(flush_str_->pending_cnt_ == 0);
+	flush_str_->flush_lock_.unlock();
+	return flush_str_->failed_;
 }
 
 folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
