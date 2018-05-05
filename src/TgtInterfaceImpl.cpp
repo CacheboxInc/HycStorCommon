@@ -201,13 +201,15 @@ VmHandle NewVm(VmID vmid, const std::string& config) {
 }
 
 std::shared_ptr<AeroSpikeConn> GetAeroConn(ActiveVmdk *vmdkp) {
+	auto vmp = vmdkp->GetVM();
+	if (pio_unlikely(vmp == nullptr)) {
+		return nullptr;
+	}
 
-	auto vm_confp = vmdkp->GetVM()->GetJsonConfig();
+	auto vm_confp = vmp->GetJsonConfig();
 	AeroClusterID aero_cluster_id;
 	auto ret = vm_confp->GetAeroClusterID(aero_cluster_id);
-	if (ret) {
-		LOG(INFO) << __func__ << "Aero Cluster ID :::" <<  aero_cluster_id;
-	} else {
+	if (pio_unlikely(ret == 0)) {
 		LOG(ERROR) << __func__ << "Unable to find aerospike cluster "
 			"id for given disk." " Please check JSON configuration "
 			"with associated VM. Moving ahead without"
