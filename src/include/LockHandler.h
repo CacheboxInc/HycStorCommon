@@ -19,6 +19,9 @@ public:
 	virtual folly::Future<int> ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
+	virtual folly::Future<int> Move(ActiveVmdk *vmdkp, Request *reqp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed) override;
 private:
 	const std::unique_ptr<RangeLock::RangeLock> range_lock_;
 };

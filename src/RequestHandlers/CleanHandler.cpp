@@ -86,4 +86,11 @@ folly::Future<int> CleanHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
+folly::Future<int> CleanHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed) {
+	/* Should not be here */
+	log_assert(0);
+	return 0;
+}
 }

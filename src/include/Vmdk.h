@@ -63,12 +63,12 @@ public:
 	static const std::string kCheckPoint;
 };
 
-class FlushData {
+class FlushAuxData {
 public:
-	QLock flush_lock_;
-	Rendez flush_rendez_;
+	QLock lock_;
+	Rendez rendez_;
 	uint64_t pending_cnt_{0};
-	uint64_t flushed_blks_{0};
+	uint64_t processed_blks_{0};
 	bool sleeping_{false};
 	bool done_{false};
 	bool failed_{false};
@@ -80,7 +80,7 @@ public:
 		sleeping_ = false;
 		done_ = false;
 		reqid_ = 0;
-		flushed_blks_ = 0;
+		processed_blks_ = 0;
 	}
 };
 
@@ -108,10 +108,13 @@ public:
 
 	folly::Future<int> Read(Request* reqp, const CheckPoints& min_max);
 	folly::Future<int> Flush(Request* reqp, const CheckPoints& min_max);
+	folly::Future<int> Move(Request* reqp, const CheckPoints& min_max);
 	folly::Future<int> Write(Request* reqp, CheckPointID ckpt_id);
 	folly::Future<int> WriteSame(Request* reqp, CheckPointID ckpt_id);
 	folly::Future<int> TakeCheckPoint(CheckPointID check_point);
-	int FlushStart(CheckPointID check_point);
+	int FlushStages(CheckPointID check_point);
+	int FlushStage(CheckPointID check_point);
+	int MoveStage(CheckPointID check_point);
 	const CheckPoint* GetCheckPoint(CheckPointID ckpt_id) const;
 
 public:
@@ -158,11 +161,12 @@ private:
 	struct {
 		std::atomic<uint64_t> writes_in_progress_{0};
 		std::atomic<uint64_t> reads_in_progress_{0};
-		std::atomic<uint64_t> flushs_in_progress_{0};
+		std::atomic<uint64_t> flushes_in_progress_{0};
+		std::atomic<uint64_t> moves_in_progress_{0};
 	} stats_;
 
 	std::unique_ptr<RequestHandler> headp_{nullptr};
-	std::unique_ptr<FlushData> flush_str_{nullptr};
+	std::unique_ptr<FlushAuxData> aux_info_{nullptr};
 
 private:
 	static constexpr uint32_t kDefaultBlockSize{4096};

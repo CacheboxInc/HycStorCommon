@@ -137,7 +137,7 @@ int VirtualMachine::FlushStart(CheckPointID ckpt_id) {
 			auto fut = promise.getFuture();
 			managerp->threadpool_.pool_->AddTask([vmdkp, ckpt_id,
 				promise = std::move(promise)]() mutable {
-				auto rc = vmdkp->FlushStart(ckpt_id);
+				auto rc = vmdkp->FlushStages(ckpt_id);
 				promise.setValue(rc);
 			});
 

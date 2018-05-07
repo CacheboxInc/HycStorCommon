@@ -25,6 +25,7 @@ public:
 		kRead,
 		kWrite,
 		kWriteSame,
+		kMove,
 	};
 
 	Request(RequestID id, ActiveVmdk *vmdkp, Request::Type type, void *bufferp,
@@ -52,6 +53,10 @@ public:
 	}
 	void SetFlushReq() {
 		FlushReq_ = true;
+	}
+
+	CheckPointID GetFlushCkptID() {
+		return FlushCkptID_;
 	}
 
 	CheckPointID GetFlushStartCkptID() {

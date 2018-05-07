@@ -70,4 +70,19 @@ folly::Future<int> LockHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 	});
 }
 
+folly::Future<int> LockHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed) {
+	auto[start, end] = reqp->Blocks();
+
+	auto g = std::make_unique<Guard>(range_lock_.get(), start, end);
+	return g->Lock()
+	.then([g = std::move(g), vmdkp, reqp, &process, &failed, this] () mutable {
+		log_assert(g->IsLocked());
+		if (pio_unlikely(not nextp_)) {
+			return folly::makeFuture(0);
+		}
+		return nextp_->Move(vmdkp, reqp, process, failed);
+	});
+}
 }

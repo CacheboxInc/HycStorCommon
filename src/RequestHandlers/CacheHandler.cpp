@@ -141,4 +141,10 @@ folly::Future<int> CacheHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
 	});
 }
 
+folly::Future<int> CacheHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed) {
+	log_assert(headp_);
+	return headp_->Move(vmdkp, reqp, process, failed);
+}
 }

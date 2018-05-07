@@ -32,4 +32,17 @@ folly::Future<int> RequestHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
 	log_assert(0);
 	return 0;
 }
+
+folly::Future<int> RequestHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed) {
+	failed.clear();
+	if (pio_unlikely(not nextp_)) {
+		failed.reserve(process.size());
+		std::copy(process.begin(), process.end(), std::back_inserter(failed));
+		return -ENODEV;
+	}
+
+	return nextp_->Move(vmdkp, reqp, process, failed);
+}
 }

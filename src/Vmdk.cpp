@@ -63,8 +63,8 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 		throw std::bad_alloc();
 	}
 
-	flush_str_ = std::make_unique<FlushData>();
-	if (not flush_str_) {
+	aux_info_ = std::make_unique<FlushAuxData>();
+	if (not aux_info_) {
 		throw std::bad_alloc();
 	}
 }
@@ -212,7 +212,7 @@ folly::Future<int> ActiveVmdk::Flush(Request* reqp, const CheckPoints& min_max) 
 
 	SetReadCheckPointId(*process, min_max);
 
-	++stats_.flushs_in_progress_;
+	++stats_.flushes_in_progress_;
 	return headp_->Flush(this, reqp, *process, *failed)
 	.then([this, reqp, process = std::move(process),
 			failed = std::move(failed)] (folly::Try<int>& result) mutable {
@@ -229,7 +229,46 @@ folly::Future<int> ActiveVmdk::Flush(Request* reqp, const CheckPoints& min_max) 
 			}
 		}
 
-		--stats_.flushs_in_progress_;
+		--stats_.flushes_in_progress_;
+		return reqp->Complete();
+	});
+}
+
+folly::Future<int> ActiveVmdk::Move(Request* reqp, const CheckPoints& min_max) {
+	assert(reqp);
+
+	if (pio_unlikely(not headp_)) {
+		return -ENXIO;
+	}
+
+	auto failed = std::make_unique<std::vector<RequestBlock*>>();
+	auto process = std::make_unique<std::vector<RequestBlock*>>();
+
+	process->reserve(reqp->NumberOfRequestBlocks());
+	reqp->ForEachRequestBlock([&process] (RequestBlock *blockp) mutable {
+		process->emplace_back(blockp);
+		return true;
+	});
+
+	SetReadCheckPointId(*process, min_max);
+	++stats_.moves_in_progress_;
+	return headp_->Move(this, reqp, *process, *failed)
+	.then([this, reqp, process = std::move(process),
+			failed = std::move(failed)] (folly::Try<int>& result) mutable {
+		if (result.hasException<std::exception>()) {
+			reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
+		} else {
+			auto rc = result.value();
+			if (pio_unlikely(rc < 0)) {
+				reqp->SetResult(rc, RequestStatus::kFailed);
+			} else if (pio_unlikely(not failed->empty())) {
+				const auto blockp = failed->front();
+				log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
+				reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
+			}
+		}
+
+		--stats_.moves_in_progress_;
 		return reqp->Complete();
 	});
 }
@@ -320,15 +359,145 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 	});
 }
 
-int ActiveVmdk::FlushStart(CheckPointID ckpt_id) {
+int ActiveVmdk::FlushStages(CheckPointID ckpt_id) {
+
+	auto rc = FlushStage(ckpt_id);
+	if (rc) {
+		return rc;
+	}
+
+	/* TBD: At this point searalize information at persistent storage
+	 * specifying that flush stage is done and in case of failure retry
+	 * we don't have to do it again.
+	 *
+	 * We should more relax about error conditions in Move stage because
+	 * in context of retry we may not find some blocks in DIRTY namespace
+	 * (already moved from DIRTY to CLEAN in previous attempts). A check
+	 * can be added that the blocks those are not present in DIRTY
+	 * should be in CLEAN namespace with same checkpoint id and in that
+	 * case we can ignore errors.
+	 */
+
+	rc = MoveStage(ckpt_id);
+	if (rc) {
+		return rc;
+	}
+
+	/* TBD: Mark flush done for this checkpoint and searalize this
+	 * information.
+	 */
+
+	return 0;
+}
+
+int ActiveVmdk::MoveStage(CheckPointID ckpt_id) {
 
 	/*
 	 * TBD :- Since a fix number of requests can under process
-	 * at time, we can create those records upfront to avoid
-	 * creation of strs again and again
+	 * at time, we can create those many records upfront to avoid
+	 * creating and destroying it again and again (slab)
 	 */
 
-	flush_str_->InitState();
+	aux_info_->InitState();
+	int32_t size = BlockSize();
+
+	auto ckptp = GetCheckPoint(ckpt_id);
+	log_assert(ckptp != nullptr);
+	log_assert(ckptp->IsFlushed() == false);
+
+	auto min_max = std::make_pair(ckpt_id, ckpt_id);
+	const auto& bitmap = ckptp->GetRoaringBitMap();
+	for (const auto& block : bitmap) {
+		aux_info_->lock_.lock();
+		if (aux_info_->failed_) {
+			aux_info_->lock_.unlock();
+			break;
+		}
+
+		if(aux_info_->pending_cnt_ >= kFlushPendingLimit) {
+			/* Already submitted too much, wait for completion */
+			aux_info_->sleeping_ = true;
+			aux_info_->rendez_.TaskSleep(&aux_info_->lock_);
+			if (aux_info_->failed_) {
+				aux_info_->lock_.unlock();
+				break;
+			}
+		}
+
+		aux_info_->pending_cnt_++;
+		aux_info_->lock_.unlock();
+		auto iobuf = NewRequestBuffer(size);
+		if (pio_unlikely(not iobuf)) {
+			throw std::bad_alloc();
+		}
+
+		++aux_info_->reqid_;
+		auto reqp = std::make_unique<Request>(aux_info_->reqid_, this,
+				Request::Type::kMove,
+				iobuf->Payload(), size, size, block * BlockSize());
+		reqp->SetFlushReq();
+		reqp->SetFlushCkptID(ckpt_id);
+
+		this->Move(reqp.get(), min_max)
+		.then([this, iobuf = std::move(iobuf), reqp = std::move(reqp)] (int rc) mutable {
+
+			/* TBD : Free the created IO buffer */
+			this->aux_info_->lock_.lock();
+			aux_info_->pending_cnt_--;
+
+			/* If some of the requests has failed then don't submit new ones */
+			if (pio_unlikely(rc)) {
+				LOG(ERROR) << "Some of the Move request failed";
+				aux_info_->failed_ = true;
+			}
+
+			if (aux_info_->sleeping_) {
+
+				/*
+				 * Sleeping in done context then wakeup from
+				 * last completion otherwise wakeup to continue
+				 * the pipeline
+				 */
+
+				if (aux_info_->done_) {
+					if (!aux_info_->pending_cnt_) {
+						aux_info_->sleeping_ = false;
+						aux_info_->rendez_.TaskWakeUp();
+					}
+				} else {
+					aux_info_->sleeping_ = false;
+					aux_info_->rendez_.TaskWakeUp();
+				}
+			}
+
+			++aux_info_->processed_blks_;
+			aux_info_->lock_.unlock();
+		});
+	}
+
+	/* Set done and wait for completion of all */
+	aux_info_->lock_.lock();
+	aux_info_->done_ = true;
+	if (aux_info_->pending_cnt_) {
+		aux_info_->sleeping_ = true;
+		aux_info_->rendez_.TaskSleep(&aux_info_->lock_);
+	}
+
+	log_assert(aux_info_->sleeping_ == false);
+	log_assert(aux_info_->pending_cnt_ == 0);
+	aux_info_->lock_.unlock();
+	return aux_info_->failed_;
+}
+
+int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
+
+	/*
+	 * TBD :- Since a fix number of requests can under process
+	 * at time, we can create those many records upfront to avoid
+	 * creating and destroying it again and again (slab)
+	 */
+
+	aux_info_->InitState();
 	int32_t size = BlockSize();
 
 	auto ckptp = GetCheckPoint(ckpt_id);
@@ -340,31 +509,37 @@ int ActiveVmdk::FlushStart(CheckPointID ckpt_id) {
 	const auto& bitmap = ckptp->GetRoaringBitMap();
 	for (const auto& block : bitmap) {
 
-		flush_str_->flush_lock_.lock();
-		if (flush_str_->failed_) {
-			flush_str_->flush_lock_.unlock();
+		/* TBD: Try to generate WAN (as well as on prem disk) 
+		 * friendly IO's by doing look ahead in checkpoint 
+		 * bitmap and probably generating large sequential 
+		 * requests.
+		 */
+
+		aux_info_->lock_.lock();
+		if (aux_info_->failed_) {
+			aux_info_->lock_.unlock();
 			break;
 		}
 
-		if (flush_str_->pending_cnt_ >= kFlushPendingLimit) {
-			/* Already submmited too much, wait for a completion */
-			flush_str_->sleeping_ = true;
-			flush_str_->flush_rendez_.TaskSleep(&flush_str_->flush_lock_);
-			if (flush_str_->failed_) {
-				flush_str_->flush_lock_.unlock();
+		if (aux_info_->pending_cnt_ >= kFlushPendingLimit) {
+			/* Already submitted too much, wait for a completion */
+			aux_info_->sleeping_ = true;
+			aux_info_->rendez_.TaskSleep(&aux_info_->lock_);
+			if (aux_info_->failed_) {
+				aux_info_->lock_.unlock();
 				break;
 			}
 		}
 
-		flush_str_->pending_cnt_++;
-		flush_str_->flush_lock_.unlock();
+		aux_info_->pending_cnt_++;
+		aux_info_->lock_.unlock();
 		auto iobuf = NewRequestBuffer(size);
 		if (pio_unlikely(not iobuf)) {
 			throw std::bad_alloc();
 		}
 
-		++flush_str_->reqid_;
-		auto reqp = std::make_unique<Request>(flush_str_->reqid_, this,
+		++aux_info_->reqid_;
+		auto reqp = std::make_unique<Request>(aux_info_->reqid_, this,
 				Request::Type::kRead,
 				iobuf->Payload(), size, size, block * BlockSize());
 		reqp->SetFlushReq();
@@ -374,16 +549,16 @@ int ActiveVmdk::FlushStart(CheckPointID ckpt_id) {
 		.then([this, iobuf = std::move(iobuf), reqp = std::move(reqp)] (int rc) mutable {
 
 			/* TBD : Free the created IO buffer */
-			this->flush_str_->flush_lock_.lock();
-			flush_str_->pending_cnt_--;
+			this->aux_info_->lock_.lock();
+			aux_info_->pending_cnt_--;
 
 			/* If some of the requests has failed then don't submit new ones */
 			if (pio_unlikely(rc)) {
 				LOG(ERROR) << "Some of the flush request failed";
-				flush_str_->failed_ = true;
+				aux_info_->failed_ = true;
 			}
 
-			if (flush_str_->sleeping_) {
+			if (aux_info_->sleeping_) {
 
 				/*
 				 * Sleeping in done context then wakeup from
@@ -391,34 +566,34 @@ int ActiveVmdk::FlushStart(CheckPointID ckpt_id) {
 				 * the pipeline
 				 */
 
-				if (flush_str_->done_) {
-					if (!flush_str_->pending_cnt_) {
-						flush_str_->sleeping_ = false;
-						flush_str_->flush_rendez_.TaskWakeUp();
+				if (aux_info_->done_) {
+					if (!aux_info_->pending_cnt_) {
+						aux_info_->sleeping_ = false;
+						aux_info_->rendez_.TaskWakeUp();
 					}
 				} else {
-					flush_str_->sleeping_ = false;
-					flush_str_->flush_rendez_.TaskWakeUp();
+					aux_info_->sleeping_ = false;
+					aux_info_->rendez_.TaskWakeUp();
 				}
 			}
 
-			++flush_str_->flushed_blks_;
-			flush_str_->flush_lock_.unlock();
+			++aux_info_->processed_blks_;
+			aux_info_->lock_.unlock();
 		});
 	}
 
 	/* Set done and wait for completion of all */
-	flush_str_->flush_lock_.lock();
-	flush_str_->done_ = true;
-	if (flush_str_->pending_cnt_) {
-		flush_str_->sleeping_ = true;
-		flush_str_->flush_rendez_.TaskSleep(&flush_str_->flush_lock_);
+	aux_info_->lock_.lock();
+	aux_info_->done_ = true;
+	if (aux_info_->pending_cnt_) {
+		aux_info_->sleeping_ = true;
+		aux_info_->rendez_.TaskSleep(&aux_info_->lock_);
 	}
 
-	log_assert(flush_str_->sleeping_ == false);
-	log_assert(flush_str_->pending_cnt_ == 0);
-	flush_str_->flush_lock_.unlock();
-	return flush_str_->failed_;
+	log_assert(aux_info_->sleeping_ == false);
+	log_assert(aux_info_->pending_cnt_ == 0);
+	aux_info_->lock_.unlock();
+	return aux_info_->failed_;
 }
 
 folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
