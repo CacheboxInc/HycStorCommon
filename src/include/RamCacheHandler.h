@@ -19,6 +19,9 @@ public:
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 private:
+	int ReadModifyWrite(ActiveVmdk* vmdkp, RequestBlock* blockp,
+		RequestBuffer* bufferp);
+private:
 	std::unique_ptr<RamCache> cache_;
 	bool enabled_{false};
 	uint16_t memory_mb_{0};

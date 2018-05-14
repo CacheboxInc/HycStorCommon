@@ -86,6 +86,25 @@ folly::Future<int> RamCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	});
 }
 
+int RamCacheHandler::ReadModifyWrite(ActiveVmdk* vmdkp, RequestBlock* blockp,
+		RequestBuffer* bufferp) {
+	log_assert(bufferp->Size() < vmdkp->BlockSize());
+	auto new_bufferp = NewRequestBuffer(vmdkp->BlockSize());
+	if (pio_unlikely(not new_bufferp)) {
+		return -ENOMEM;
+	}
+
+	auto aligned = blockp->GetAlignedOffset();
+	auto rc = cache_->Read(vmdkp, new_bufferp->Payload(), aligned);
+	(void) rc;
+
+	auto gap = blockp->GetOffset() - aligned;
+	log_assert(gap + bufferp->Size() <= new_bufferp->Size());
+	::memcpy(new_bufferp->Payload() + gap, bufferp->Payload(), bufferp->Size());
+	cache_->Write(vmdkp, new_bufferp->Payload(), blockp->GetAlignedOffset());
+	return 0;
+}
+
 folly::Future<int> RamCacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
@@ -107,12 +126,17 @@ folly::Future<int> RamCacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 	failed.clear();
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
-		log_assert(srcp->Size() == vmdkp->BlockSize());
+		if (srcp->Size() != vmdkp->BlockSize()) {
+			log_assert(srcp->Size() < vmdkp->BlockSize());
+			auto rc = ReadModifyWrite(vmdkp, blockp, srcp);
+			log_assert(rc == 0);
+			continue;
+		}
 
 		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset());
 	}
 
-	if (pio_unlikely(not nextp_)) {
+	if (pio_likely(not nextp_)) {
 		return 0;
 	}
 

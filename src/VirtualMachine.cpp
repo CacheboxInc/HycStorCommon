@@ -147,7 +147,7 @@ int VirtualMachine::FlushStart(CheckPointID ckpt_id) {
 
 	int rc = 0;
 	folly::collectAll(std::move(futures))
-	.then([this, ckpt_id, &rc] (const std::vector<folly::Try<int>>& results) {
+	.then([&rc] (const std::vector<folly::Try<int>>& results) {
 		for (auto& t : results) {
 			if (pio_likely(t.hasValue() and t.value() != 0)) {
 				rc = t.value();
