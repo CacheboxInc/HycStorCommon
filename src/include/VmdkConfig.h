@@ -2,20 +2,21 @@
 
 #include <string>
 #include <vector>
+#include <map>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "IDs.h"
 #include "JsonConfig.h"
-#include <map>
 
 namespace pio { namespace config {
 class VmdkConfig : public JsonConfig {
 public:
 	VmdkConfig(const std::string& config);
 	VmdkConfig();
-	void SetVmdkId(const VmdkID& id);
-	bool GetVmdkId(VmdkID& id) const;
-	void SetVmId(const VmID& id);
-	bool GetVmId(VmID& id) const;
+	void SetVmdkId(const ::ondisk::VmdkID& id);
+	bool GetVmdkId(::ondisk::VmdkID& id) const;
+	void SetVmId(const ::ondisk::VmID& id);
+	bool GetVmId(::ondisk::VmID& id) const;
 	void SetBlockSize(uint32_t size);
 	bool GetBlockSize(uint32_t& size) const;
 

@@ -5,9 +5,7 @@
 #include <string>
 
 #include "gen-cpp2/StorRpc_types.h"
-#include "IDs.h"
-#include "DaemonTgtTypes.h"
-#include "DaemonCommon.h"
+#include "gen-cpp2/MetaData_types.h"
 #include "SpinLock.h"
 #include "ThreadPool.h"
 #include "FlushInstance.h"
@@ -23,11 +21,11 @@ public:
 	int InitFlushManager();
 	void DeinitFlushManager();
 	int CreateInstance();
-	int NewInstance(VmID vmid);
-	FlushInstance* GetInstance(const VmID& vmid);
-	void FreeInstance(const VmID& vmid);
+	int NewInstance(::ondisk::VmID vmid);
+	FlushInstance* GetInstance(const ::ondisk::VmID& vmid);
+	void FreeInstance(const ::ondisk::VmID& vmid);
 private:
 	SpinLock mutex_;
-	std::unordered_map<VmID, std::unique_ptr<FlushInstance>> instances_;
+	std::unordered_map<::ondisk::VmID, std::unique_ptr<FlushInstance>> instances_;
 };
 }

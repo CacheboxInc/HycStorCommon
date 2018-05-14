@@ -6,6 +6,9 @@ typedef string VmID
 typedef i64 SnapshotID
 typedef i64 BlockID
 
+const CheckPointID kInvalidCheckPointID = 0;
+const SnapshotID kInvalidSnapshotID = 0;
+
 struct CheckPointOnDisk {
 	1: CheckPointID id;
 	2: VmdkID vmdk_id;

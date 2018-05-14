@@ -10,7 +10,9 @@
 #include <folly/futures/Future.h>
 #include <folly/futures/FutureSplitter.h>
 
-#include "IDs.h"
+#include "gen-cpp2/MetaData_types.h"
+#include "gen-cpp2/MetaData_constants.h"
+#include "gen-cpp2/StorRpc_types.h"
 #include "DaemonCommon.h"
 
 using namespace ::hyc_thrift;
@@ -29,11 +31,11 @@ struct Stun {
 	folly::FutureSplitter<int> futures;
 };
 
-using CheckPointResult = std::pair<CheckPointID, int>;
+using CheckPointResult = std::pair<::ondisk::CheckPointID, int>;
 
 class VirtualMachine {
 public:
-	VirtualMachine(VmdkHandle handle, VmID vm_id, const std::string& config);
+	VirtualMachine(VmdkHandle handle, ::ondisk::VmID vm_id, const std::string& config);
 	~VirtualMachine();
 
 	void AddVmdk(ActiveVmdk* vmdkp);
@@ -44,34 +46,36 @@ public:
 	folly::Future<int> Read(ActiveVmdk* vmdkp, Request* reqp);
 	folly::Future<int> Flush(ActiveVmdk* vmdkp, Request* reqp, const CheckPoints& min_max);
 	folly::Future<CheckPointResult> TakeCheckPoint();
-	int FlushStart(CheckPointID ckpt_id);
-	folly::Future<int> Stun(CheckPointID ckpt_id);
+	int FlushStart(::ondisk::CheckPointID ckpt_id);
+	folly::Future<int> Stun(::ondisk::CheckPointID ckpt_id);
 
 public:
-	const VmID& GetID() const noexcept;
+	const ::ondisk::VmID& GetID() const noexcept;
 	VmdkHandle GetHandle() const noexcept;
 	const config::VmConfig* GetJsonConfig() const noexcept;
 
 private:
-	ActiveVmdk* FindVmdk(const VmdkID& vmdk_id) const;
+	ActiveVmdk* FindVmdk(const ::ondisk::VmdkID& vmdk_id) const;
 	ActiveVmdk* FindVmdk(VmdkHandle vmdk_handle) const;
-	void WriteComplete(CheckPointID ckpt_id);
-	void CheckPointComplete(CheckPointID ckpt_id);
-	void FlushComplete(CheckPointID ckpt_id);
+	void WriteComplete(::ondisk::CheckPointID ckpt_id);
+	void CheckPointComplete(::ondisk::CheckPointID ckpt_id);
+	void FlushComplete(::ondisk::CheckPointID ckpt_id);
 
 private:
 	VmdkHandle handle_;
-	VmID vm_id_;
+	::ondisk::VmID vm_id_;
 	std::atomic<RequestID> request_id_{0};
 	std::unique_ptr<config::VmConfig> config_;
 
 	struct {
 		std::atomic_flag in_progress_ = ATOMIC_FLAG_INIT;
-		std::atomic<CheckPointID> checkpoint_id_{kInvalidCheckPointID+1};
+		std::atomic<::ondisk::CheckPointID> checkpoint_id_{
+			::ondisk::MetaData_constants::kInvalidCheckPointID()+1
+		};
 
 		mutable std::mutex mutex_;
-		std::unordered_map<CheckPointID, std::atomic<uint64_t>> writes_per_checkpoint_;
-		std::unordered_map<CheckPointID, std::unique_ptr<struct Stun>> stuns_;
+		std::unordered_map<::ondisk::CheckPointID, std::atomic<uint64_t>> writes_per_checkpoint_;
+		std::unordered_map<::ondisk::CheckPointID, std::unique_ptr<struct Stun>> stuns_;
 	} checkpoint_;
 
 	struct {

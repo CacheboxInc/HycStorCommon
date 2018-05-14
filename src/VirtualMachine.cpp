@@ -2,13 +2,16 @@
 
 #include <folly/futures/Future.h>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_types.h"
-#include "DaemonTgtTypes.h"
 #include "VirtualMachine.h"
 #include "Vmdk.h"
 #include "VmConfig.h"
 #include "FlushManager.h"
 #include "Singleton.h"
+
+using namespace ::hyc_thrift;
+using namespace ::ondisk;
 
 namespace pio {
 
@@ -68,25 +71,25 @@ void VirtualMachine::AddVmdk(ActiveVmdk* vmdkp) {
 }
 
 void VirtualMachine::CheckPointComplete(CheckPointID ckpt_id) {
-	log_assert(ckpt_id != kInvalidCheckPointID);
+	log_assert(ckpt_id != MetaData_constants::kInvalidCheckPointID());
 	checkpoint_.in_progress_.clear();
 }
 
 void VirtualMachine::FlushComplete(CheckPointID ckpt_id) {
-	log_assert(ckpt_id != kInvalidCheckPointID);
+	log_assert(ckpt_id != MetaData_constants::kInvalidCheckPointID());
 	flush_in_progress_.clear();
 }
 
 folly::Future<CheckPointResult> VirtualMachine::TakeCheckPoint() {
 	if (checkpoint_.in_progress_.test_and_set()) {
-		return std::make_pair(kInvalidCheckPointID, -EAGAIN);
+		return std::make_pair(MetaData_constants::kInvalidCheckPointID(), -EAGAIN);
 	}
 
 	CheckPointID ckpt_id = (++checkpoint_.checkpoint_id_) - 1;
 	return Stun(ckpt_id)
 	.then([this, ckpt_id] (int rc) mutable -> folly::Future<CheckPointResult> {
 		if (pio_unlikely(rc < 0)) {
-			return std::make_pair(kInvalidCheckPointID, rc);
+			return std::make_pair(MetaData_constants::kInvalidCheckPointID(), rc);
 		}
 
 		std::vector<folly::Future<int>> futures;
@@ -106,7 +109,7 @@ folly::Future<CheckPointResult> VirtualMachine::TakeCheckPoint() {
 				if (pio_likely(t.hasValue() and t.value() == 0)) {
 					continue;
 				} else {
-					return std::make_pair(kInvalidCheckPointID, t.value());
+					return std::make_pair(MetaData_constants::kInvalidCheckPointID(), t.value());
 				}
 			}
 			CheckPointComplete(ckpt_id);
@@ -184,7 +187,7 @@ folly::Future<int> VirtualMachine::Read(ActiveVmdk* vmdkp, Request* reqp) {
 		throw std::invalid_argument("VMDK not attached to VM");
 	}
 
-	auto ckpts = std::make_pair(kInvalidCheckPointID + 1,
+	auto ckpts = std::make_pair(MetaData_constants::kInvalidCheckPointID() + 1,
 		checkpoint_.checkpoint_id_.load());
 	++stats_.reads_in_progress_;
 	return vmdkp->Read(reqp, ckpts)

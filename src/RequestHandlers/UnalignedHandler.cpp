@@ -3,11 +3,14 @@
 
 #include <folly/futures/Future.h>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "IDs.h"
 #include "RangeLock.h"
 #include "Request.h"
 #include "RequestHandler.h"
 #include "UnalignedHandler.h"
+
+using namespace ::ondisk;
 
 namespace pio {
 

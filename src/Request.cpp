@@ -5,11 +5,14 @@
 #include <cstdint>
 
 #include "gen-cpp2/StorRpc_types.h"
-#include "DaemonTgtTypes.h"
+#include "gen-cpp2/StorRpc_constants.h"
+#include "gen-cpp2/MetaData_types.h"
 #include "Request.h"
 #include "RequestHandler.h"
 #include "Vmdk.h"
 #include "DaemonUtils.h"
+
+using namespace ::ondisk;
 
 namespace pio {
 
@@ -53,7 +56,7 @@ RequestID Request::GetID() const noexcept {
 Request::Request(RequestID id, ActiveVmdk *vmdkp, Request::Type type, void *bufferp,
 		size_t buffer_size, size_t transfer_size, Offset offset) : vmdkp_(vmdkp),
 		in_(id, type, bufferp, buffer_size, transfer_size, offset) {
-	if (pio_unlikely(id == kInvalidRequestID)) {
+	if (pio_unlikely(id == StorRpc_constants::kInvalidRequestID())) {
 		throw std::invalid_argument("Invalid RequestID");
 	}
 	if (pio_unlikely(not IsBlockSizeAlgined(transfer_size, kSectorSize) ||

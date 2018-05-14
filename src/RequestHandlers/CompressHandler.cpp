@@ -3,8 +3,11 @@
 #include <iterator>
 #include <vector>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "VmdkConfig.h"
 #include "CompressHandler.h"
+
+using namespace ::ondisk;
 
 namespace pio {
 CompressHandler::CompressHandler(const config::VmdkConfig* configp) :

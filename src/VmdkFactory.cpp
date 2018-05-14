@@ -1,9 +1,12 @@
 #include <memory>
 
+#include "gen-cpp2/MetaData_types.h"
+#include "gen-cpp2/StorRpc_types.h"
 #include "VmdkFactory.h"
 #include "IDs.h"
 
 using namespace ::hyc_thrift;
+using namespace ::ondisk;
 
 namespace pio {
 Vmdk* VmdkManager::GetInstance(::hyc_thrift::VmdkHandle handle) {

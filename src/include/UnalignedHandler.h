@@ -10,7 +10,7 @@ public:
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 	virtual folly::Future<int> Write(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
+		::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 	virtual folly::Future<int> ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,

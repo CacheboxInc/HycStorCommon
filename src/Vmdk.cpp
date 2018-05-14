@@ -16,12 +16,14 @@
 #include "gen-cpp2/StorRpc_types.h"
 #include "IDs.h"
 #include "DaemonUtils.h"
-#include "DaemonTgtTypes.h"
 #include "VmdkConfig.h"
 #include "RequestHandler.h"
 #include "FlushManager.h"
 #include "FlushInstance.h"
 #include "Vmdk.h"
+
+using namespace ::hyc_thrift;
+using namespace ::ondisk;
 
 namespace pio {
 
@@ -107,7 +109,7 @@ void ActiveVmdk::RegisterRequestHandler(std::unique_ptr<RequestHandler> handler)
 CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
 		const CheckPoints& min_max) const {
 	auto [min, max] = min_max;
-	log_assert(min > kInvalidCheckPointID);
+	log_assert(min > MetaData_constants::kInvalidCheckPointID());
 
 	{
 		std::lock_guard<std::mutex> lock(blocks_.mutex_);
@@ -140,10 +142,10 @@ CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
 	 * FIXME:
 	 * - Take initial CheckPoint when VMDK is first added
 	 *   - Since code to take initial CheckPoint is missing, we return
-	 *     kInvalidCheckPointID + 1 from this function for now
-	 * - Return kInvalidCheckPointID from here
+	 *     MetaData_constants::kInvalidCheckPointID() + 1 from this function for now
+	 * - Return MetaData_constants::kInvalidCheckPointID() from here
 	 */
-	return kInvalidCheckPointID + 1;
+	return MetaData_constants::kInvalidCheckPointID() + 1;
 }
 
 void ActiveVmdk::SetReadCheckPointId(const std::vector<RequestBlock*>& blockps,
@@ -152,7 +154,7 @@ void ActiveVmdk::SetReadCheckPointId(const std::vector<RequestBlock*>& blockps,
 		auto block = blockp->GetBlockID();
 		/* find latest checkpoint in which the block is modified */
 		auto ckpt_id = GetModifiedCheckPoint(block, min_max);
-		log_assert(ckpt_id != kInvalidCheckPointID);
+		log_assert(ckpt_id != MetaData_constants::kInvalidCheckPointID());
 		blockp->SetReadCheckPointId(ckpt_id);
 	}
 }
@@ -509,9 +511,9 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 	const auto& bitmap = ckptp->GetRoaringBitMap();
 	for (const auto& block : bitmap) {
 
-		/* TBD: Try to generate WAN (as well as on prem disk) 
-		 * friendly IO's by doing look ahead in checkpoint 
-		 * bitmap and probably generating large sequential 
+		/* TBD: Try to generate WAN (as well as on prem disk)
+		 * friendly IO's by doing look ahead in checkpoint
+		 * bitmap and probably generating large sequential
 		 * requests.
 		 */
 

@@ -3,6 +3,7 @@
 #include <iterator>
 #include <vector>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "CacheHandler.h"
 #include "LockHandler.h"
 #include "UnalignedHandler.h"
@@ -16,6 +17,8 @@
 #include "VmdkConfig.h"
 #include "Request.h"
 #include "DaemonUtils.h"
+
+using namespace ::ondisk;
 
 namespace pio {
 CacheHandler::CacheHandler(const config::VmdkConfig* configp) :

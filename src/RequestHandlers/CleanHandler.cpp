@@ -2,11 +2,13 @@
 #include <iterator>
 #include <vector>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_types.h"
-#include "DaemonTgtTypes.h"
 #include "Vmdk.h"
 #include "CleanHandler.h"
 #include "DaemonTgtInterface.h"
+
+using namespace ::ondisk;
 
 namespace pio {
 CleanHandler::CleanHandler(const config::VmdkConfig* configp) :

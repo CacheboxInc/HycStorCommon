@@ -2,7 +2,7 @@
 #include <glog/logging.h>
 
 #include "gen-cpp2/StorRpc_types.h"
-#include "DaemonTgtTypes.h"
+#include "gen-cpp2/MetaData_types.h"
 #include "DaemonTgtInterface.h"
 #include "Singleton.h"
 #include "VirtualMachine.h"
@@ -11,6 +11,8 @@
 #include "VmdkFactory.h"
 #include "VmManager.h"
 #include "FlushInstance.h"
+
+using namespace ::ondisk;
 
 namespace pio {
 

@@ -3,13 +3,15 @@
 #include <iterator>
 #include <vector>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "VmdkConfig.h"
 #include "gen-cpp2/StorRpc_types.h"
-#include "DaemonTgtTypes.h"
 #include "DaemonTgtInterface.h"
 #include "Vmdk.h"
 #include "VmConfig.h"
 #include "DirtyHandler.h"
+
+using namespace ::ondisk;
 
 namespace pio {
 DirtyHandler::DirtyHandler(const config::VmdkConfig* configp) :

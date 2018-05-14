@@ -3,7 +3,10 @@
 #include <iterator>
 #include <vector>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "BlockTraceHandler.h"
+
+using namespace ::ondisk;
 
 namespace pio {
 BlockTraceHandler::BlockTraceHandler() : RequestHandler(nullptr) {

@@ -3,14 +3,15 @@
 #include <gtest/gtest.h>
 #include <glog/logging.h>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_types.h"
-#include "DaemonTgtTypes.h"
 #include "RamCache.h"
 #include "Request.h"
 #include "Vmdk.h"
 #include "VmdkConfig.h"
 
 using namespace pio;
+using namespace ::ondisk;
 
 const size_t kVmdkBlockSize = 8192;
 

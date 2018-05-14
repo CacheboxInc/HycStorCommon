@@ -7,7 +7,6 @@
 #include <folly/io/async/EventBaseManager.h>
 
 #include "ThreadPool.h"
-#include "DaemonCommon.h"
 
 using namespace folly::fibers;
 

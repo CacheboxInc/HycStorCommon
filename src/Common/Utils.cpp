@@ -3,6 +3,9 @@
 #include "DaemonUtils.h"
 
 namespace pio {
+
+using namespace ::ondisk;
+
 bool IsBlockSizeAlgined(uint64_t offset, size_t block_size) {
 	return offset & (block_size - 1) ? false : true;
 }

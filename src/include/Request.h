@@ -8,6 +8,9 @@
 
 #include "IDs.h"
 #include "DaemonCommon.h"
+#include "gen-cpp2/MetaData_types.h"
+#include "gen-cpp2/StorRpc_constants.h"
+#include "gen-cpp2/StorRpc_types.h"
 
 namespace pio {
 
@@ -28,18 +31,18 @@ public:
 		kMove,
 	};
 
-	Request(RequestID id, ActiveVmdk *vmdkp, Request::Type type, void *bufferp,
-		size_t buffer_size, size_t transfer_size, Offset offset);
+	Request(::hyc_thrift::RequestID id, ActiveVmdk *vmdkp, Request::Type type,
+		void *bufferp, size_t buffer_size, size_t transfer_size, Offset offset);
 
 	bool IsAllReadMissed(const std::vector<RequestBlock *>& blocks) const noexcept;
 	bool IsAllReadHit(const std::vector<RequestBlock *>& blocks) const noexcept;
 
 	int Complete();
 public:
-	std::pair<BlockID, BlockID> Blocks() const;
+	std::pair<::ondisk::BlockID, ::ondisk::BlockID> Blocks() const;
 	uint32_t NumberOfRequestBlocks() const;
 
-	RequestID GetID() const noexcept;
+	::hyc_thrift::RequestID GetID() const noexcept;
 
 	void SetPrivateData(const void* privatep) noexcept;
 	const void* GetPrivateData() const noexcept;
@@ -55,19 +58,19 @@ public:
 		FlushReq_ = true;
 	}
 
-	CheckPointID GetFlushCkptID() {
+	::ondisk::CheckPointID GetFlushCkptID() {
 		return FlushCkptID_;
 	}
 
-	CheckPointID GetFlushStartCkptID() {
+	::ondisk::CheckPointID GetFlushStartCkptID() {
 		return FlushCkptID_;
 	}
 
-	CheckPointID GetFlushEndCkptID() {
+	::ondisk::CheckPointID GetFlushEndCkptID() {
  		return FlushCkptID_;
  	}
 
-	void SetFlushCkptID(CheckPointID ckpt_id) {
+	void SetFlushCkptID(::ondisk::CheckPointID ckpt_id) {
 		FlushCkptID_ = ckpt_id;
 	}
 
@@ -91,12 +94,12 @@ private:
 
 	struct Input {
 	public:
-		Input(RequestID id, Type type, void *bufferp, size_t buffer_size,
+		Input(::hyc_thrift::RequestID id, Type type, void *bufferp, size_t buffer_size,
 				size_t transfer_size, Offset offset) : req_id_(id), type_(type),
 				bufferp_(bufferp), buffer_size_(buffer_size),
 				transfer_size_(transfer_size), offset_(offset) {
 		}
-		RequestID req_id_{kInvalidRequestID};
+		::hyc_thrift::RequestID req_id_{::hyc_thrift::StorRpc_constants::kInvalidRequestID()};
 		Type type_{Request::Type::kUnknown};
 		void* bufferp_{nullptr};
 		size_t buffer_size_{0};
@@ -107,8 +110,8 @@ private:
 	std::unique_ptr<RequestBuffer> write_same_buffer_{nullptr};
 
 	struct {
-		BlockID  start_{0};
-		BlockID  end_{0};
+		::ondisk::BlockID  start_{0};
+		::ondisk::BlockID  end_{0};
 		uint32_t nblocks_{0};
 	} block_;
 
@@ -119,12 +122,12 @@ private:
 
 	std::vector<std::unique_ptr<RequestBlock>> request_blocks_;
 	bool FlushReq_{false};
-	CheckPointID FlushCkptID_{1}; //Should it be 0
+	::ondisk::CheckPointID FlushCkptID_{1}; //Should it be 0
 };
 
 class RequestBlock {
 public:
-	RequestBlock(ActiveVmdk *vmdkp, Request *requestp, BlockID block_id,
+	RequestBlock(ActiveVmdk *vmdkp, Request *requestp, ::ondisk::BlockID block_id,
 		Request::Type type, void *bufferp, size_t size, Offset offset);
 
 	RequestBuffer *GetInputRequestBuffer();
@@ -132,7 +135,7 @@ public:
 public:
 	int Complete();
 	bool IsPartial() const;
-	BlockID GetBlockID() const;
+	::ondisk::BlockID GetBlockID() const;
 	Offset GetOffset() const;
 	Offset GetAlignedOffset() const;
 
@@ -145,8 +148,8 @@ public:
 	bool IsReadHit() const noexcept;
 	bool IsFailed() const noexcept;
 
-	void SetReadCheckPointId(CheckPointID ckpt_id) noexcept;
-	CheckPointID GetReadCheckPointId() const noexcept;
+	void SetReadCheckPointId(::ondisk::CheckPointID ckpt_id) noexcept;
+	::ondisk::CheckPointID GetReadCheckPointId() const noexcept;
 
 	size_t GetRequestBufferCount() const;
 	RequestBuffer* GetRequestBufferAtBack();
@@ -167,15 +170,15 @@ private:
 private:
 	ActiveVmdk *vmdkp_{nullptr};
 	Request    *requestp_{nullptr};
-	CheckPointID read_ckpt_id_{kInvalidRequestID};
+	::ondisk::CheckPointID read_ckpt_id_{::hyc_thrift::StorRpc_constants::kInvalidRequestID()};
 
 	struct Input {
-		Input(BlockID block_id, Request::Type type, void *bufferp, size_t size,
+		Input(::ondisk::BlockID block_id, Request::Type type, void *bufferp, size_t size,
 				Offset offset) : block_id_(block_id), type_(type),
 				bufferp_(bufferp), size_(size), offset_(offset) {
 
 		}
-		BlockID       block_id_{0};
+		::ondisk::BlockID       block_id_{0};
 		Request::Type type_{Request::Type::kUnknown};
 		void          *bufferp_{nullptr};
 		size_t        size_{0};

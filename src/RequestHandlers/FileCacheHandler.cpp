@@ -5,8 +5,8 @@
 
 #include <folly/futures/Future.h>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_types.h"
-#include "DaemonTgtTypes.h"
 #include "IDs.h"
 #include "DaemonCommon.h"
 #include "Vmdk.h"
@@ -15,6 +15,8 @@
 #include "FileCacheHandler.h"
 #include "VmdkConfig.h"
 #include <fcntl.h>
+
+using namespace ::ondisk;
 
 namespace pio {
 

@@ -8,6 +8,7 @@
 #include <glog/logging.h>
 
 #include "gen-cpp2/StorRpc_types.h"
+#include "gen-cpp2/StorRpc_constants.h"
 #include "DaemonTgtInterface.h"
 #include "Request.h"
 #include "ThreadPool.h"
@@ -26,6 +27,7 @@
 #include "FlushInstance.h"
 
 using namespace ::hyc_thrift;
+using namespace ::ondisk;
 
 namespace pio {
 using namespace folly;
@@ -190,13 +192,13 @@ VmHandle NewVm(VmID vmid, const std::string& config) {
 	auto managerp = SingletonHolder<VmManager>::GetInstance();
 	if (auto vmp = managerp->GetInstance(vmid); pio_unlikely(vmp)) {
 		LOG(ERROR) << "VirtualMachine already present";
-		return kInvalidVmHandle;
+		return StorRpc_constants::kInvalidVmHandle();
 	}
 
 	try {
 		return managerp->CreateInstance(std::move(vmid), config);
 	} catch (...) {
-		return kInvalidVmHandle;
+		return StorRpc_constants::kInvalidVmHandle();
 	}
 }
 
@@ -227,17 +229,17 @@ VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 
 	if (auto vmdkp = managerp->GetInstance(vmdkid); pio_unlikely(vmdkp)) {
 		/* VMDK already present */
-		return kInvalidVmdkHandle;
+		return StorRpc_constants::kInvalidVmdkHandle();
 	}
 
 	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
 	if (pio_unlikely(not vmp)) {
-		return kInvalidVmdkHandle;
+		return StorRpc_constants::kInvalidVmdkHandle();
 	}
 
 	auto handle = managerp->CreateInstance<ActiveVmdk>(std::move(vmdkid), vmp,
 		config);
-	if (pio_unlikely(handle == kInvalidVmdkHandle)) {
+	if (pio_unlikely(handle == StorRpc_constants::kInvalidVmdkHandle())) {
 		return handle;
 	}
 
@@ -255,7 +257,7 @@ VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 	} catch (const std::exception& e) {
 		managerp->FreeVmdkInstance(handle);
 		LOG(ERROR) << "Failed to add VMDK";
-		handle = kInvalidVmdkHandle;
+		handle = StorRpc_constants::kInvalidVmdkHandle();
 	}
 	return handle;
 }
@@ -264,11 +266,11 @@ VmHandle GetVmHandle(const std::string& vmid) {
 	try {
 		auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vmid);
 		if (pio_unlikely(not vmp)) {
-			return kInvalidVmHandle;
+			return StorRpc_constants::kInvalidVmHandle();
 		}
 		return vmp->GetHandle();
 	} catch (const std::exception& e) {
-		return kInvalidVmHandle;
+		return StorRpc_constants::kInvalidVmHandle();
 	}
 }
 
@@ -286,11 +288,11 @@ VmdkHandle GetVmdkHandle(const std::string& vmdkid) {
 		auto vmdkp =
 			SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdkid);
 		if (pio_unlikely(not vmdkp)) {
-			return kInvalidVmdkHandle;
+			return StorRpc_constants::kInvalidVmdkHandle();
 		}
 		return vmdkp->GetHandle();
 	} catch (const std::exception& e) {
-		return kInvalidVmdkHandle;
+		return StorRpc_constants::kInvalidVmdkHandle();
 	}
 }
 

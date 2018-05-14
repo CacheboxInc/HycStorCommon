@@ -3,20 +3,20 @@
 #include <gtest/gtest.h>
 #include <glog/logging.h>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_types.h"
-#include "DaemonTgtTypes.h"
 #include "Request.h"
 #include "Vmdk.h"
 #include "DaemonUtils.h"
 #include "VmdkConfig.h"
 #include "CacheHandler.h"
-#include "DaemonTgtTypes.h"
 
 using namespace pio;
 using namespace pio::config;
 using ::testing::TestWithParam;
 using ::testing::Values;
 using ::testing::Combine;
+using namespace ::ondisk;
 
 static const size_t kVmdkBlockSize = 8192;
 static const VmdkID kVmdkid = "kVmdkid";

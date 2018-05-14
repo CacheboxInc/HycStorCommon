@@ -4,14 +4,15 @@
 
 #include <folly/futures/Future.h>
 
-#include "gen-cpp2/StorRpc_types.h"
+#include "gen-cpp2/MetaData_types.h"
 #include "IDs.h"
-#include "DaemonTgtTypes.h"
 #include "DaemonCommon.h"
 #include "SpinLock.h"
 #include "FlushInstance.h"
 #include "FlushManager.h"
 #include "ThreadPool.h"
+
+using namespace ::ondisk;
 
 namespace pio {
 int FlushManager::CreateInstance() {

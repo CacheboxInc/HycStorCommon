@@ -2,6 +2,7 @@
 
 #include <folly/futures/Future.h>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "DaemonCommon.h"
 
 namespace pio {
@@ -16,7 +17,7 @@ public:
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) = 0;
 	virtual folly::Future<int> Write(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
+		::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) = 0;
 	virtual folly::Future<int> ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,

@@ -4,19 +4,20 @@
 
 #include <folly/futures/Future.h>
 
-
+#include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_types.h"
+#include "gen-cpp2/StorRpc_constants.h"
 #include "IDs.h"
-#include "DaemonTgtTypes.h"
 #include "DaemonCommon.h"
 #include "SpinLock.h"
 #include "VirtualMachine.h"
 #include "VmManager.h"
 
-namespace pio {
+using namespace ::hyc_thrift;
+using namespace ::ondisk;
 
-hyc_thrift::VmHandle VmManager::CreateInstance(VmID vmid,
-		const std::string& config) {
+namespace pio {
+VmHandle VmManager::CreateInstance(VmID vmid, const std::string& config) {
 	try {
 		std::lock_guard<SpinLock> lock(mutex_);
 		if (auto it = ids_.find(vmid); pio_unlikely(it != ids_.end())) {
@@ -28,9 +29,9 @@ hyc_thrift::VmHandle VmManager::CreateInstance(VmID vmid,
 		ids_.insert(std::make_pair(std::move(vmid), std::move(vm)));
 		return handle;
 	} catch (const std::bad_alloc& e) {
-		return kInvalidVmHandle;
+		return StorRpc_constants::kInvalidVmHandle();
 	}
-	return kInvalidVmHandle;
+	return StorRpc_constants::kInvalidVmHandle();
 }
 
 VirtualMachine* VmManager::GetInstance(const VmID& vmid) {
@@ -41,7 +42,7 @@ VirtualMachine* VmManager::GetInstance(const VmID& vmid) {
 	return nullptr;
 }
 
-VirtualMachine* VmManager::GetInstance(const ::hyc_thrift::VmHandle& handle) {
+VirtualMachine* VmManager::GetInstance(const VmHandle& handle) {
 	std::lock_guard<SpinLock> lock(mutex_);
 	if (auto it = handles_.find(handle); pio_likely(it != handles_.end())) {
 		return it->second;
@@ -49,7 +50,7 @@ VirtualMachine* VmManager::GetInstance(const ::hyc_thrift::VmHandle& handle) {
 	return nullptr;
 }
 
-void VmManager::FreeInstance(const ::hyc_thrift::VmHandle& handle) {
+void VmManager::FreeInstance(const VmHandle& handle) {
 	std::lock_guard<SpinLock> lock(mutex_);
 	auto it1 = handles_.find(handle);
 	if (pio_unlikely(it1 == handles_.end())) {

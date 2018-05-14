@@ -9,8 +9,8 @@
 #include <thread>
 #include <condition_variable>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_types.h"
-#include "DaemonTgtTypes.h"
 #include "Request.h"
 #include "VmdkConfig.h"
 #include "SuccessHandler.h"
@@ -19,6 +19,7 @@
 #include "BackGroundWorker.h"
 
 using namespace std::chrono_literals;
+using namespace ::ondisk;
 
 namespace pio {
 struct SuccessWork {

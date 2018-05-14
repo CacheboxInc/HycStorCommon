@@ -1,12 +1,13 @@
 #include <gtest/gtest.h>
 #include <glog/logging.h>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_types.h"
-#include "DaemonTgtTypes.h"
 #include "Vmdk.h"
 #include "VmdkConfig.h"
 
 using namespace pio;
+using namespace ::ondisk;
 
 static void DefaultVmdkConfig(config::VmdkConfig& config, uint64_t block_size) {
 	config.SetVmId("vmid");

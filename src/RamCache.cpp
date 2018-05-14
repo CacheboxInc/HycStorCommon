@@ -2,7 +2,6 @@
 #include <mutex>
 
 #include "gen-cpp2/StorRpc_types.h"
-#include "DaemonTgtTypes.h"
 #include "DaemonCommon.h"
 #include "Request.h"
 #include "Vmdk.h"

@@ -4,7 +4,7 @@
 #include <folly/futures/Future.h>
 
 #include "gen-cpp2/StorRpc_types.h"
-#include "DaemonTgtTypes.h"
+#include "gen-cpp2/MetaData_types.h"
 #include "IDs.h"
 #include "DaemonCommon.h"
 #include "Vmdk.h"
@@ -13,6 +13,8 @@
 #include "RamCache.h"
 #include "RamCacheHandler.h"
 #include "VmdkConfig.h"
+
+using namespace ::ondisk;
 
 namespace pio {
 

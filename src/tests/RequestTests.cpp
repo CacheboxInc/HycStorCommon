@@ -3,14 +3,17 @@
 #include <gtest/gtest.h>
 #include <glog/logging.h>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_types.h"
-#include "DaemonTgtTypes.h"
+#include "gen-cpp2/StorRpc_constants.h"
 #include "Request.h"
 #include "Vmdk.h"
 #include "IDs.h"
 #include "VmdkConfig.h"
 
 using namespace pio;
+using namespace ::ondisk;
+using namespace ::hyc_thrift;
 
 static void DefaultVmdkConfig(config::VmdkConfig& config, uint64_t block_size) {
 	config.SetVmId("vmid");
@@ -68,7 +71,7 @@ TEST(RequestTest, ReadTest) {
 		for (auto nblocks = 2; nblocks <= 10; ++nblocks) {
 			size_t buffer_size = blocks_size * nblocks;
 			auto bufferp = NewRequestBuffer(buffer_size);
-			for (auto i = kInvalidRequestID + 1; i <= 3000; ++i) {
+			for (auto i = StorRpc_constants::kInvalidRequestID() + 1; i <= 3000; ++i) {
 				Offset offset = i * kSectorSize;
 				Request r(i, &vmdk, Request::Type::kRead, bufferp->Payload(),
 					buffer_size, buffer_size, offset);
@@ -110,7 +113,7 @@ TEST(RequestTest, WriteTest) {
 			auto payload = bufferp->Payload();
 			::memset(payload, 'A', bufferp->Size());
 
-			for (auto i = kInvalidRequestID + 1; i <= 3000; ++i) {
+			for (auto i = StorRpc_constants::kInvalidRequestID() + 1; i <= 3000; ++i) {
 				Offset offset = i * kSectorSize;
 				Request r(i, &vmdk, Request::Type::kWrite, bufferp->Payload(),
 					buffer_size, buffer_size, offset);

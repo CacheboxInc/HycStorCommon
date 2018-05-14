@@ -2,8 +2,9 @@
 
 #include <string>
 
-#include "IDs.h"
+#include "gen-cpp2/MetaData_types.h"
 #include "JsonConfig.h"
+#include "IDs.h"
 
 namespace pio { namespace config {
 class VmConfig : public JsonConfig {
@@ -11,8 +12,8 @@ public:
 	VmConfig(const std::string& config);
 	VmConfig();
 
-	void SetVmId(const VmID& vmid);
-	bool GetVmId(VmID& vmid) const;
+	void SetVmId(const ::ondisk::VmID& vmid);
+	bool GetVmId(::ondisk::VmID& vmid) const;
 
 	void SetTargetId(uint32_t target_id);
 	bool GetTargetId(uint32_t& target_id) const;

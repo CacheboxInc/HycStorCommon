@@ -12,7 +12,7 @@
 #include <folly/fibers/GenericBaton.h>
 #include <folly/io/async/EventBase.h>
 
-#include "DaemonCommon.h"
+#include "CommonMacros.h"
 
 namespace pio {
 

@@ -4,12 +4,9 @@
 #include <cstdint>
 
 namespace pio {
-using RequestID = uint64_t;
-using CheckPointID = uint64_t;
-using SnapshotID = uint64_t;
-using VmdkID = std::string;
-using VmID = std::string;
 using AeroClusterID = std::string;
-using BlockID = int64_t;
 using Offset = uint64_t;
+using AeroClusterHandle = uint64_t;
+static constexpr AeroClusterHandle kInvalidAeroClusterHandle = 0;
+static constexpr AeroClusterHandle kValidAeroClusterHandle = 1;
 }

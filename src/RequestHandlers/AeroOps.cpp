@@ -1,5 +1,7 @@
 #include <cerrno>
 #include <iterator>
+
+#include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_types.h"
 #include "Vmdk.h"
 #include "Request.h"
@@ -8,6 +10,8 @@
 #include <folly/fibers/Fiber.h>
 #include "DaemonTgtInterface.h"
 #include "Singleton.h"
+
+using namespace ::ondisk;
 
 namespace pio {
 

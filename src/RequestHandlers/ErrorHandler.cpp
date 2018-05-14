@@ -3,12 +3,14 @@
 #include <iterator>
 #include <vector>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_types.h"
-#include "DaemonTgtTypes.h"
 #include "Request.h"
 #include "VmdkConfig.h"
 #include "ErrorHandler.h"
 #include "Vmdk.h"
+
+using namespace ::ondisk;
 
 namespace pio {
 ErrorHandler::ErrorHandler(const config::VmdkConfig* configp) :

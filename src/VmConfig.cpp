@@ -1,6 +1,11 @@
 #include <string>
 
+#include "gen-cpp2/MetaData_types.h"
+#include "gen-cpp2/StorRpc_types.h"
 #include "VmConfig.h"
+
+using namespace ::hyc_thrift;
+using namespace ::ondisk;
 
 namespace pio { namespace config {
 

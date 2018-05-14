@@ -4,11 +4,14 @@
 #include <folly/futures/Future.h>
 #include <folly/futures/FutureSplitter.h>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "IDs.h"
 #include "Request.h"
 #include "RequestHandler.h"
 #include "RangeLock.h"
 #include "LockHandler.h"
+
+using namespace ::ondisk;
 
 namespace pio {
 

@@ -2,10 +2,13 @@
 
 #include <glog/logging.h>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "VmdkConfig.h"
 #include "JsonConfig.h"
 #include "DaemonUtils.h"
 #include "DaemonCommon.h"
+
+using namespace ::ondisk;
 
 namespace pio { namespace config {
 

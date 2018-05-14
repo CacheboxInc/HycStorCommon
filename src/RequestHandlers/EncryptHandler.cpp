@@ -3,8 +3,11 @@
 #include <iterator>
 #include <vector>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "VmdkConfig.h"
 #include "EncryptHandler.h"
+
+using namespace ::ondisk;
 
 namespace pio {
 EncryptHandler::EncryptHandler(const config::VmdkConfig* configp) :

@@ -1,8 +1,9 @@
 #include <gtest/gtest.h>
 #include <glog/logging.h>
 
+#include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_types.h"
-#include "DaemonTgtTypes.h"
+#include "gen-cpp2/StorRpc_constants.h"
 #include "DaemonTgtInterface.h"
 #include "Singleton.h"
 #include "VirtualMachine.h"
@@ -13,6 +14,8 @@
 
 using namespace pio;
 using namespace pio::config;
+using namespace ::ondisk;
+using namespace ::hyc_thrift;
 
 const VmID kVmid = "VmID";
 const VmdkID kVmdkid = "VmdkID";
@@ -20,8 +23,8 @@ const uint64_t kBlockSize = 4096;
 
 class VirtualMachineTest : public ::testing::Test {
 public:
-	VmHandle vm_handle_{kInvalidVmHandle};
-	VmdkHandle vmdk_handle_{kInvalidVmdkHandle};
+	VmHandle vm_handle_{StorRpc_constants::kInvalidVmHandle()};
+	VmdkHandle vmdk_handle_{StorRpc_constants::kInvalidVmdkHandle()};
 
 	static void SetUpTestCase() {
 		InitStordLib();
@@ -33,16 +36,16 @@ public:
 
 	virtual void SetUp() {
 		vm_handle_ = AddVm();
-		EXPECT_NE(vm_handle_, kInvalidVmHandle);
+		EXPECT_NE(vm_handle_, StorRpc_constants::kInvalidVmHandle());
 		vmdk_handle_ = AddVmdk(vm_handle_);
-		EXPECT_NE(vmdk_handle_, kInvalidVmdkHandle);
+		EXPECT_NE(vmdk_handle_, StorRpc_constants::kInvalidVmdkHandle());
 	}
 
 	virtual void TearDown() {
 		RemoveVmdk(vmdk_handle_);
 		RemoveVm(vm_handle_);
-		vm_handle_ = kInvalidVmHandle;
-		vmdk_handle_ = kInvalidVmdkHandle;
+		vm_handle_ = StorRpc_constants::kInvalidVmHandle();
+		vmdk_handle_ = StorRpc_constants::kInvalidVmdkHandle();
 	}
 
 	VmHandle AddVm() {
@@ -73,8 +76,8 @@ TEST_F(VirtualMachineTest, CheckPointSingleIO) {
 	char buffer[kBlockSize];
 	::memset(buffer, 'A', sizeof(buffer));
 
-	EXPECT_NE(vm_handle_, kInvalidVmHandle);
-	EXPECT_NE(vmdk_handle_, kInvalidVmdkHandle);
+	EXPECT_NE(vm_handle_, StorRpc_constants::kInvalidVmHandle());
+	EXPECT_NE(vmdk_handle_, StorRpc_constants::kInvalidVmdkHandle());
 
 	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(kVmid);
 	EXPECT_NE(vmp, nullptr);
@@ -148,8 +151,8 @@ TEST_F(VirtualMachineTest, CheckPointConcurrent) {
 	char buffer[kBlockSize];
 	::memset(buffer, 'A', sizeof(buffer));
 
-	EXPECT_NE(vm_handle_, kInvalidVmHandle);
-	EXPECT_NE(vmdk_handle_, kInvalidVmdkHandle);
+	EXPECT_NE(vm_handle_, StorRpc_constants::kInvalidVmHandle());
+	EXPECT_NE(vmdk_handle_, StorRpc_constants::kInvalidVmdkHandle());
 
 	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(kVmid);
 	EXPECT_NE(vmp, nullptr);
@@ -183,11 +186,11 @@ TEST_F(VirtualMachineTest, CheckPointConcurrent) {
 			if (fut.isReady()) {
 				auto [ckpt_id, rc] = fut.value();
 				if (rc == -EAGAIN) {
-					EXPECT_EQ(ckpt_id, kInvalidCheckPointID);
+					EXPECT_EQ(ckpt_id, MetaData_constants::kInvalidCheckPointID());
 					continue;
 				}
 				EXPECT_TRUE(rc == 0);
-				EXPECT_NE(ckpt_id, kInvalidCheckPointID);
+				EXPECT_NE(ckpt_id, MetaData_constants::kInvalidCheckPointID());
 			}
 			ckpt_futures.emplace_back(std::move(fut));
 			scheduled = true;
@@ -209,7 +212,7 @@ TEST_F(VirtualMachineTest, CheckPointConcurrent) {
 		for (const auto& t : results) {
 			EXPECT_TRUE(t.hasValue());
 			auto [ckpt_id, rc] = t.value();
-			EXPECT_NE(ckpt_id, kInvalidCheckPointID);
+			EXPECT_NE(ckpt_id, MetaData_constants::kInvalidCheckPointID());
 			EXPECT_EQ(rc, 0);
 		}
 	}).wait();

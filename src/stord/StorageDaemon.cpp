@@ -13,7 +13,7 @@
 #include <thrift/lib/cpp2/util/ScopedServerInterfaceThread.h>
 
 #include "gen-cpp2/StorRpc.h"
-#include "DaemonTgtTypes.h"
+#include "gen-cpp2/StorRpc_constants.h"
 #include "DaemonTgtInterface.h"
 #include "Request.h"
 #include "Vmdk.h"
@@ -77,7 +77,7 @@ public:
 
 	void async_tm_Read(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<ReadResult>>> cb,
-			VmdkHandle vmdk, RequestId reqid, int32_t size, int64_t offset)
+			VmdkHandle vmdk, RequestID reqid, int32_t size, int64_t offset)
 			override {
 		auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdk);
 		assert(pio_likely(p));
@@ -109,7 +109,7 @@ public:
 
 	void async_tm_Write(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
-			VmdkHandle vmdk, RequestId reqid, std::unique_ptr<IOBufPtr> data,
+			VmdkHandle vmdk, RequestID reqid, std::unique_ptr<IOBufPtr> data,
 			int32_t size, int64_t offset) override {
 		auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdk);
 		assert(pio_likely(p));
@@ -139,7 +139,7 @@ public:
 
 	void async_tm_WriteSame(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
-			VmdkHandle vmdk, RequestId reqid, std::unique_ptr<IOBufPtr> data,
+			VmdkHandle vmdk, RequestID reqid, std::unique_ptr<IOBufPtr> data,
 			int32_t data_size, int32_t write_size, int64_t offset) override {
 		auto write = std::make_unique<WriteResult>();
 		write->set_reqid(reqid);
@@ -267,7 +267,7 @@ static int NewVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 
 	auto vm_handle = pio::NewVm(vmid, req_data);
 
-	if (vm_handle == kInvalidVmHandle) {
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
 		std::ostringstream es;
 		es << "Adding new VM failed, VM config: " << req_data;
 		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
@@ -375,7 +375,7 @@ static int NewVmdk(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 	std::string vmdkid(param_valuep);
 
 	auto vm_handle = pio::GetVmHandle(vmid);
-	if (vm_handle == kInvalidVmHandle) {
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
 		std::ostringstream es;
 		es << "Adding new VMDK failed. Invalid VmID = " << vmid;
 		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
@@ -393,7 +393,7 @@ static int NewVmdk(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 	::free(data);
 
 	auto vmdk_handle = pio::NewActiveVmdk(vm_handle, vmdkid, req_data);
-	if (vmdk_handle == kInvalidVmdkHandle) {
+	if (vmdk_handle == StorRpc_constants::kInvalidVmdkHandle()) {
 		std::ostringstream es;
 		es << "Adding new VMDK failed."
 			<< " VmID = " << vmid
@@ -426,7 +426,7 @@ static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp 
 
 	LOG(INFO) << "START stage2";
 	auto vm_handle = pio::GetVmHandle(vmid);
-	if (vm_handle == kInvalidVmHandle) {
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
 		std::ostringstream es;
 		LOG(ERROR) << "Retriving information related to VM failed. Invalid VmID = " << vmid;
 		es << "Retriving information related to VM failed. Invalid VmID = " << vmid;

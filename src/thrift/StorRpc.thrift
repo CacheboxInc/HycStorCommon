@@ -1,23 +1,27 @@
 namespace cpp2 hyc_thrift
 
-typedef i64 RequestId
+typedef i64 RequestID
 typedef i64 VmHandle
 typedef i64 VmdkHandle
 typedef binary (cpp.type = "std::unique_ptr<folly::IOBuf>") IOBufPtr
 
+const VmHandle kInvalidVmHandle = 0;
+const VmdkHandle kInvalidVmdkHandle = 0;
+const RequestID kInvalidRequestID = 0;
+
 struct ReadResult {
-	1: required RequestId reqid;
+	1: required RequestID reqid;
 	2: required i32 result;
 	3: required IOBufPtr data;
 }
 
 struct WriteResult {
-	1: required RequestId reqid;
+	1: required RequestID reqid;
 	2: required i32 result;
 }
 
 struct AbortResult {
-	1: required RequestId reqid;
+	1: required RequestID reqid;
 	2: required i32 result;
 }
 
@@ -50,11 +54,11 @@ service StorRpc {
 
 	oneway void PushVmdkStats(1: VmdkHandle vmdk, 2: VmdkStats stats);
 
-	ReadResult Read(1: VmdkHandle vmdk, 2: RequestId reqid, 3: i32 size,
+	ReadResult Read(1: VmdkHandle vmdk, 2: RequestID reqid, 3: i32 size,
 		4: i64 offset);
-	WriteResult Write(1: VmdkHandle vmdk, 2: RequestId reqid, 3: IOBufPtr data,
+	WriteResult Write(1: VmdkHandle vmdk, 2: RequestID reqid, 3: IOBufPtr data,
 		4: i32 size, 5: i64 offset);
-	WriteResult WriteSame(1: VmdkHandle vmdk, 2: RequestId reqid, 3: IOBufPtr data,
+	WriteResult WriteSame(1: VmdkHandle vmdk, 2: RequestID reqid, 3: IOBufPtr data,
 		4: i32 data_size, 5: i32 write_size, 6: i64 offset);
-	AbortResult Abort(1: VmdkHandle vmdk, 2: RequestId reqid);
+	AbortResult Abort(1: VmdkHandle vmdk, 2: RequestID reqid);
 }

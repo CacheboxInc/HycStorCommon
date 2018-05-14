@@ -18,7 +18,7 @@ public:
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 	virtual folly::Future<int> Write(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
+		::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 	virtual folly::Future<int> ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
@@ -28,12 +28,12 @@ public:
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed);
 
-	int WriteNow(ActiveVmdk *vmdkp, Request *reqp, CheckPointID ckpt,
+	int WriteNow(ActiveVmdk *vmdkp, Request *reqp, ::ondisk::CheckPointID ckpt,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed);
 private:
 	folly::Future<int> WriteDelayed(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
+		::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed);
 	folly::Future<int> ReadDelayed(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
