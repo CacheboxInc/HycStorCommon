@@ -58,6 +58,7 @@ protected:
 		config.ConfigureEncrytption("abcd");
 		config.DisableEncryption();
 		config.DisableFileCache();
+		config.DisableFileTarget();
 		config.DisableRamCache();
 		config.ConfigureErrorHandler(type, 1, error);
 		config.DisableSuccessHandler();

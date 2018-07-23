@@ -37,9 +37,17 @@ public:
 	uint16_t GetRamCacheMemoryLimit() const;
 
 	void DisableFileCache();
+	void DisableFileTarget();
 	void ConfigureFileCache(const std::string& file_path);
+	void ConfigureFileTarget(const std::string& file_path);
 	bool IsFileCacheEnabled() const;
+	bool IsFileTargetEnabled() const;
 	std::string GetFileCachePath() const;
+	std::string GetFileTargetPath() const;
+	off_t GetFileTargetSize() const;
+	bool GetFileTargetCreate() const;
+	void ConfigureFileTargetSize(const off_t& file_size);
+	void ConfigureFileTargetCreate(const bool& file_create);
 
 	enum class ErrorType {
 		kThrow,
@@ -86,6 +94,11 @@ public:
 
 	static const std::string kFileCache;
 	static const std::string kFileCachePath;
+
+	static const std::string kFileTarget;
+	static const std::string kFileTargetPath;
+	static const std::string kFileTargetSize;
+	static const std::string kFileTargetCreateFile;
 
 	static const std::string kErrorHandler;
 	static const std::string kErrorType;

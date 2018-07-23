@@ -13,6 +13,13 @@ add_executable(StorageLayerTests
 	VirtualMachineTests.cpp
 )
 
+if(USE_NEP)
+set (LIBRARY_LIST
+	${LIBRARY_LIST}
+	${NEP_LIBRARY_LIST}
+)
+endif(USE_NEP)
+
 target_link_libraries(StorageLayerTests
 	-Wl,--start-group
 	CommonLib

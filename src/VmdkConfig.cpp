@@ -32,7 +32,11 @@ const std::string VmdkConfig::kRamCacheMemoryInMB = "MemoryInMB";
 const std::string VmdkConfig::kFileCache = "FileCache";
 const std::string VmdkConfig::kFileCachePath = "Path";
 
-const std::string VmdkConfig::kErrorHandler = "ErrorHnalder";
+const std::string VmdkConfig::kFileTarget = "FileTarget";
+const std::string VmdkConfig::kFileTargetPath = "TargetFilePath";
+const std::string VmdkConfig::kFileTargetSize = "TargetFileSize";
+const std::string VmdkConfig::kFileTargetCreateFile = "CreateFile";
+const std::string VmdkConfig::kErrorHandler = "ErrorHandler";
 const std::string VmdkConfig::kErrorType = "Type";
 const std::string VmdkConfig::kReturnValue = "ReturnValue";
 const std::string VmdkConfig::kFrequency = "Frequency";
@@ -250,6 +254,88 @@ std::string VmdkConfig::GetFileCachePath() const {
 	}
 
 	return fp;
+}
+
+void VmdkConfig::DisableFileTarget() {
+	std::string key;
+
+	StringDelimAppend(key, '.', {kFileTarget, kEnabled});
+	JsonConfig::SetKey(key, false);
+}
+
+void VmdkConfig::ConfigureFileTarget(const std::string& file_path) {
+	std::string key;
+
+	StringDelimAppend(key, '.', {kFileTarget, kEnabled});
+	JsonConfig::SetKey(key, true);
+
+	StringDelimAppend(key, '.', {kFileTarget, kFileTargetPath});
+	JsonConfig::SetKey(key, file_path);
+}
+
+void VmdkConfig::ConfigureFileTargetCreate(const bool& file_create) {
+	std::string key;
+
+	StringDelimAppend(key, '.', {kFileTarget, kFileTargetCreateFile});
+	JsonConfig::SetKey(key, file_create);
+
+}
+
+void VmdkConfig::ConfigureFileTargetSize(const off_t& file_size) {
+	std::string key;
+
+	StringDelimAppend(key, '.', {kFileTarget, kFileTargetSize});
+	JsonConfig::SetKey(key, file_size);
+}
+
+bool VmdkConfig::IsFileTargetEnabled() const {
+	std::string key;
+	StringDelimAppend(key, '.', {kFileTarget, kEnabled});
+
+	bool enabled;
+	auto rc = JsonConfig::GetKey(key, enabled);
+
+	return rc and enabled;
+}
+
+std::string VmdkConfig::GetFileTargetPath() const {
+	LOG(ERROR) << __func__ << "Called";
+	std::string key;
+
+	StringDelimAppend(key, '.', {kFileTarget, kFileTargetPath});
+	std::string fp;
+
+	auto rc = JsonConfig::GetKey(key, fp);
+
+	if (not rc) {
+		fp.clear();
+	}
+
+	return fp;
+}
+
+off_t VmdkConfig::GetFileTargetSize() const {
+	LOG(ERROR) << __func__ << "Started";
+	std::string key;
+	StringDelimAppend(key, '.', {kFileTarget, kFileTargetSize});
+	off_t size;
+	auto rc = JsonConfig::GetKey(key, size);
+	if (not rc) {
+		return 0;
+	}
+	return size;
+}
+
+bool VmdkConfig::GetFileTargetCreate() const {
+	LOG(ERROR) << __func__ << "Started";
+	std::string key;
+	StringDelimAppend(key, '.', {kFileTarget, kFileTargetCreateFile});
+	bool create;
+	auto rc = JsonConfig::GetKey(key, create);
+	if (not rc) {
+		return false;
+	}
+	return create;
 }
 
 std::ostream& operator <<(std::ostream& os, const VmdkConfig::ErrorType& type) {

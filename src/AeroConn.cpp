@@ -29,25 +29,25 @@ int AeroSpikeConn::Connect() {
 	std::string clusterips = aeroconf->GetAeroIPs();
 	int host_count;
 	if (pio_likely(clusterips.size())) {
-		VLOG(1) << "AeroSpike host IPs::" << clusterips;
+		LOG(ERROR) << "AeroSpike host IPs::" << clusterips;
 		host_count = std::count(clusterips.begin(), clusterips.end(), ',') + 1;
 	} else { 
-		VLOG(1) << "Unable to get Aerospike host IPs";
+		LOG(ERROR) << "Unable to get Aerospike host IPs";
 		return -EINVAL;
 	}
 
 	uint32_t port;
 	auto ret = aeroconf->GetAeroPort(port);
 	if (pio_likely(ret)) {
-		VLOG(1) << "AeroSpike Port::" << port;
+		LOG(ERROR) << "AeroSpike Port::" << port;
 	} else {
-		VLOG(1) << "Unable to get Aerospike port Number";
+		LOG(ERROR) << "Unable to get Aerospike port Number";
 		return -EINVAL;
 	}
 
 	ret = as_event_create_loops(1);
 	if (pio_unlikely(!ret)) {
-		VLOG (1) << "Aerospike event loop creation failed.";
+		LOG (ERROR) << "Aerospike event loop creation failed.";
 		return -EINVAL;
 	}
 
@@ -59,7 +59,7 @@ int AeroSpikeConn::Connect() {
 	} else {
 		auto status = as_config_add_hosts(&cfg, clusterips.c_str(), port);
 		if (pio_unlikely(status == false)) {
-			VLOG(1) << "Error in adding host(s) " << clusterips
+			LOG(ERROR) << "Error in adding host(s) " << clusterips
 				<< "in client config.";
 			return -EINVAL;
 		}

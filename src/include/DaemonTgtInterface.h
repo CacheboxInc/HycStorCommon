@@ -4,12 +4,13 @@
 #include "gen-cpp2/StorRpc_types.h"
 #include "IDs.h"
 #include "Vmdk.h"
+#include "halib.h"
 
 namespace pio {
 
 ActiveVmdk* VmdkFromVmdkHandle(::hyc_thrift::VmdkHandle handle);
 
-int InitStordLib(void);
+int InitStordLib();
 int DeinitStordLib(void);
 
 VmHandle NewVm(ondisk::VmID vmid, const std::string& config);
@@ -18,11 +19,16 @@ AeroClusterHandle DelAeroCluster(pio::AeroClusterID cluster_id, const std::strin
 hyc_thrift::VmHandle GetVmHandle(const ondisk::VmID& vmid);
 std::shared_ptr<AeroSpikeConn> GetAeroConn(ActiveVmdk *vmdkp);
 void RemoveVm(::hyc_thrift::VmdkHandle vm_handle);
+int RemoveVmUsingVmID(ondisk::VmID vmid);
 int NewFlushReq(ondisk::VmID vmid);
+int NewFlushStatusReq(ondisk::VmID vmid, flush_stats &flush_stat);
 
 VmdkHandle NewActiveVmdk(hyc_thrift::VmHandle vm_handle, ::ondisk::VmdkID vmdkid,
 		const std::string& config);
+int RemoveActiveVmdk(hyc_thrift::VmHandle vm_handle, ::ondisk::VmdkID vmdkid);
 VmdkHandle GetVmdkHandle(const std::string& vmdkid);
 void RemoveVmdk(hyc_thrift::VmdkHandle handle);
 
+int AeroSetDelete(ondisk::VmID vmid);
+int AeroSetCleanup(pio::AeroClusterID cluster_id, const std::string& config);
 }

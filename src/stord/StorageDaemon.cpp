@@ -24,11 +24,21 @@
 #include "Singleton.h"
 #include "AeroFiberThreads.h"
 #include "FlushManager.h"
+#include <boost/format.hpp>
+#include <boost/property_tree/ini_parser.hpp>
+
+#ifdef USE_NEP
+#include <TargetManager.hpp>
+#include <TargetManagerRest.hpp>
+#endif
 
 using namespace apache::thrift;
 using namespace apache::thrift::async;
 using namespace ::hyc_thrift;
 using namespace pio;
+#ifdef USE_NEP
+using namespace hyc;
+#endif
 
 static constexpr int32_t kServerPort = 9876;
 static const std::string kServerIp = "0.0.0.0";
@@ -37,6 +47,10 @@ static const std::string kNewVmdk = "new_vmdk";
 static const std::string kNewAero = "new_aero";
 static const std::string kDelAero = "del_aero";
 static const std::string kFlushReq = "flush_req";
+static const std::string kFlushStatus = "flush_status";
+static const std::string kAeroSetCleanup = "aero_set_cleanup";
+static const std::string kRemoveVmdk = "vmdk_delete";
+static const std::string kRemoveVm = "vm_delete";
 
 class StorRpcSvImpl : public virtual StorRpcSvIf {
 public:
@@ -191,6 +205,7 @@ enum StordSvcErr {
 	STORD_ERR_INVALID_PARAM,
 	STORD_ERR_INVALID_AERO,
 	STORD_ERR_INVALID_FLUSH,
+	STORD_ERR_FLUSH_NOT_STARTED,
 };
 
 void HaHeartbeat(void *userp) {
@@ -276,6 +291,33 @@ static int NewVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 
 	LOG(INFO) << "Added VmID " << vmid << " VmHandle " << vm_handle;
 	const auto res = std::to_string(vm_handle);
+
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+
+	return HA_CALLBACK_CONTINUE;
+}
+
+static int RemoveVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+
+	LOG(INFO) << __func__ << "START";
+	if (param_valuep  == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"vmid param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	auto ret = pio::RemoveVmUsingVmID(vmid);
+	if (ret) {
+		std::ostringstream es;
+		es << "Removing VM failed";
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	LOG(INFO) << "Sucessfully Removed VmID::- " << vmid;
+	const auto res = std::to_string(ret);
 
 	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
 
@@ -413,9 +455,55 @@ static int NewVmdk(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp ) {
+static int RemoveVmdk(const _ha_request *reqp, _ha_response *resp, void *userp ) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 
-	LOG(INFO) << "START stage1";
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::string vmid(param_valuep);
+	param_valuep = ha_parameter_get(reqp, "vmdk-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"vmdk-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmdkid(param_valuep);
+
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
+		std::ostringstream es;
+		es << "Removal of VMDK failed. Invalid VmID = " << vmid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto ret = pio::RemoveActiveVmdk(vm_handle, vmdkid);
+	if (ret) {
+		std::ostringstream es;
+		es << "Removing VMDK failed."
+			<< " VmID = " << vmid
+			<< " VmHandle = " << vm_handle
+			<< " VmdkID = " << vmdkid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VMDK, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	LOG(INFO) << "Removal of VMDK VmID = " << vmid
+		<< " VmdkID = " << vmdkid
+		<< " completed successfully ";
+
+	const auto res = std::to_string(ret);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+
+	return HA_CALLBACK_CONTINUE;
+}
+
+static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 	if (param_valuep == NULL) {
 		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -424,7 +512,6 @@ static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp 
 	}
 	std::string vmid(param_valuep);
 
-	LOG(INFO) << "START stage2";
 	auto vm_handle = pio::GetVmHandle(vmid);
 	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
 		std::ostringstream es;
@@ -434,7 +521,6 @@ static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp 
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	LOG(INFO) << "START stage3";
 	auto ret = pio::NewFlushReq(vmid);
 	if (ret) {
 		std::ostringstream es;
@@ -449,6 +535,123 @@ static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp 
 
 	const auto res = std::to_string(ret);
 	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+	return HA_CALLBACK_CONTINUE;
+}
+
+static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
+		std::ostringstream es;
+		LOG(ERROR) << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		es << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	flush_stats flush_stat;
+	auto ret = pio::NewFlushStatusReq(vmid, flush_stat);
+	if (ret) {
+		std::ostringstream es;
+		LOG(ERROR) << "Flush status request for VMID::"  << vmid << "Failed errno:" << ret;
+		if (ret == -EINVAL) {
+			es << "Flush not started for VMID::"  << vmid;
+			SetErrMsg(resp, STORD_ERR_FLUSH_NOT_STARTED, es.str());
+		} else {
+			es << "Failed to get flush status for VMID::"  << vmid;
+			SetErrMsg(resp, STORD_ERR_INVALID_FLUSH, es.str());
+		}
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	bool first = true;
+	flush_stats::iterator itr;
+
+	uint64_t total_flushed_blks = 0;
+	uint64_t total_moved_blks = 0;
+
+	/*TODO: Get total number of blocks to be flushed from bitmap.
+	 *      For now sending zero.
+	 */
+	uint64_t remaining_blks = 0;
+
+	for (itr = flush_stat.begin(); itr != flush_stat.end(); ++itr) {
+		if (pio_unlikely(first)) {
+			LOG(ERROR) << boost::format("%1% %2% %3% %4%")
+				% "Start time:-" % (itr->second).first
+				% "Elapsed time:-" % (itr->second).second;
+			first = false;
+		} else {
+			LOG(ERROR) << boost::format("[LUN:%1%] %2% %3% %|20t|%4% %5%")
+				% itr->first % "Flushed Blks:-" % (itr->second).first
+				% "Moved Blks:-" % (itr->second).second;
+			total_flushed_blks += (itr->second).first;
+			total_moved_blks   += (itr->second).second;
+		}
+	}
+
+	LOG(INFO) << "Flush status for VM:" << vmid << "completed successfully";
+
+	json_t *flush_params = json_object();
+
+	json_object_set(flush_params, "flush_running", json_boolean(true));
+	json_object_set(flush_params, "flushed_blks_cnt", json_integer(total_flushed_blks));
+	json_object_set(flush_params, "moved_blks_cnt", json_integer(total_moved_blks));
+	json_object_set(flush_params, "remaining_blks_cnt", json_integer(remaining_blks));
+
+	std::string flush_params_str = json_dumps(flush_params, JSON_ENCODE_ANY);
+
+	json_object_clear(flush_params);
+	json_decref(flush_params);
+
+	ha_set_response_body(resp, HTTP_STATUS_OK, flush_params_str.c_str(),
+			strlen(flush_params_str.c_str()));
+
+	return HA_CALLBACK_CONTINUE;
+}
+
+static int AeroSetCleanup(const _ha_request *reqp, _ha_response *resp,
+	void *userp ) {
+
+	auto param_valuep = ha_parameter_get(reqp, "aero-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"aero-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string aeroid(param_valuep);
+
+	auto data = ha_get_data(reqp);
+	if (data == nullptr) {
+		SetErrMsg(resp, STORD_ERR_INVALID_NO_DATA,
+			"Aero set cleanup config not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string req_data(data);
+	LOG(INFO) << "Aerospike cleanup Configuration " << req_data;
+	::free(data);
+
+	auto rc = pio::AeroSetCleanup(aeroid, req_data);
+	if (rc) {
+		std::ostringstream es;
+		LOG(ERROR) << "Set delete request failed";
+		es << "Deleting AeroSpike set failed";
+		SetErrMsg(resp, STORD_ERR_INVALID_AERO, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	LOG(INFO) << "Successfully deleted set.";
+	const auto res = std::to_string(rc);
+
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+
 	return HA_CALLBACK_CONTINUE;
 }
 
@@ -492,7 +695,7 @@ int main(int argc, char* argv[])
 	std::signal(SIGUSR1, Usr1SignalHandler);
 
 #endif
-	auto size = sizeof(struct ha_handlers) + 5 * sizeof(struct ha_endpoint_handlers);
+	auto size = sizeof(struct ha_handlers) + 9 * sizeof(struct ha_endpoint_handlers);
 
 	auto handlers =
 		std::unique_ptr<struct ha_handlers,
@@ -545,6 +748,38 @@ int main(int argc, char* argv[])
 	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
 	handlers->ha_count += 1;
 
+	/* Flush Status Request */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = GET;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kFlushStatus.c_str(),
+			kFlushStatus.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = NewFlushStatusReq;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
+	/* Aerospike Set Cleanup Request */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kAeroSetCleanup.c_str(),
+			kAeroSetCleanup.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = AeroSetCleanup;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
+	/* Vmdk Delete Request */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kRemoveVmdk.c_str(),
+		kRemoveVmdk.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = RemoveVmdk;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
+	/* remove_vm handler */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kRemoveVm.c_str(),
+		kRemoveVm.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = RemoveVm;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
 	g_thread_.ha_instance_ = ::ha_initialize(FLAGS_ha_svc_port,
 			FLAGS_etcd_ip.c_str(), FLAGS_svc_label.c_str(),
 			FLAGS_stord_version.c_str(), 120,
@@ -559,6 +794,13 @@ int main(int argc, char* argv[])
 
 	InitStordLib();
 
+#ifdef USE_NEP
+	/* Initialize threadpool for AeroSpike accesses */
+	auto tmgr_rest = std::make_shared<TargetManagerRest>(
+			SingletonHolder<TargetManager>::GetInstance().get(),
+			g_thread_.ha_instance_);
+#endif
+
 	/* Initialize threadpool for AeroSpike accesses */
 	auto rc = SingletonHolder<AeroFiberThreads>::GetInstance()
 					->CreateInstance();
@@ -566,7 +808,7 @@ int main(int argc, char* argv[])
 
 	/* Initialize threadpool for Flush processing */
 	rc = SingletonHolder<FlushManager>::GetInstance()
-					->CreateInstance();
+					->CreateInstance(g_thread_.ha_instance_);
 	log_assert(rc == 0);
 
 	auto si = std::make_shared<StorRpcSvImpl>();

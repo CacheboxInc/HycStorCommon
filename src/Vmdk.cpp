@@ -106,6 +106,13 @@ void ActiveVmdk::RegisterRequestHandler(std::unique_ptr<RequestHandler> handler)
 	headp_->RegisterNextRequestHandler(std::move(handler));
 }
 
+int ActiveVmdk::Cleanup() {
+	if (not headp_) {
+		return 0;
+	}
+	return headp_->Cleanup(this);
+}
+
 CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
 		const CheckPoints& min_max) const {
 	auto [min, max] = min_max;
@@ -126,15 +133,54 @@ CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
 		}
 	}
 
-	for (auto ckpt = max; min <= ckpt; --ckpt) {
-		auto ckptp = GetCheckPoint(ckpt);
-		if (not ckptp) {
-			log_assert(ckpt == min_max.second);
+	auto cur_max = MetaData_constants::kInvalidCheckPointID();
+	size_t it_index;
+
+	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
+	auto eit = checkpoints_.unflushed_.end();
+	for (auto it = checkpoints_.unflushed_.begin(); it != eit;) {
+		if (it->get()->ID() > max || it->get()->ID() < min) {
+			++it;
 			continue;
 		}
-		const auto& bitmap = ckptp->GetRoaringBitMap();
+
+		if (it->get()->ID() > cur_max) {
+			cur_max = it->get()->ID();
+			it_index = it - checkpoints_.unflushed_.begin();
+		}
+
+		++it;
+	}
+
+	if (cur_max != MetaData_constants::kInvalidCheckPointID()) {
+		auto it = checkpoints_.unflushed_.begin() + it_index;
+		const auto& bitmap = it->get()->GetRoaringBitMap();
 		if (bitmap.contains(block)) {
-			return ckptp->ID();
+			return it->get()->ID();
+		}
+	}
+
+	cur_max = MetaData_constants::kInvalidCheckPointID();
+	eit = checkpoints_.flushed_.end();
+	for (auto it = checkpoints_.flushed_.begin(); it != eit; ) {
+		if (it->get()->ID() > max || it->get()->ID() < min) {
+			++it;
+			continue;
+		}
+
+		if (it->get()->ID() > cur_max) {
+			cur_max = it->get()->ID();
+			it_index = it - checkpoints_.flushed_.begin();
+		}
+
+		++it;
+	}
+
+	if (cur_max != MetaData_constants::kInvalidCheckPointID()) {
+		auto it = checkpoints_.flushed_.begin() + it_index;
+		const auto& bitmap = it->get()->GetRoaringBitMap();
+		if (bitmap.contains(block)) {
+			return it->get()->ID();
 		}
 	}
 
@@ -400,7 +446,7 @@ int ActiveVmdk::MoveStage(CheckPointID ckpt_id) {
 	 * creating and destroying it again and again (slab)
 	 */
 
-	aux_info_->InitState();
+	aux_info_->InitState(FlushAuxData::FlushStageType::kMoveStage);
 	int32_t size = BlockSize();
 
 	auto ckptp = GetCheckPoint(ckpt_id);
@@ -472,7 +518,7 @@ int ActiveVmdk::MoveStage(CheckPointID ckpt_id) {
 				}
 			}
 
-			++aux_info_->processed_blks_;
+			++aux_info_->moved_blks_;
 			aux_info_->lock_.unlock();
 		});
 	}
@@ -499,7 +545,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 	 * creating and destroying it again and again (slab)
 	 */
 
-	aux_info_->InitState();
+	aux_info_->InitState(FlushAuxData::FlushStageType::kFlushStage);
 	int32_t size = BlockSize();
 
 	auto ckptp = GetCheckPoint(ckpt_id);
@@ -579,7 +625,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 				}
 			}
 
-			++aux_info_->processed_blks_;
+			++aux_info_->flushed_blks_;
 			aux_info_->lock_.unlock();
 		});
 	}
@@ -626,7 +672,6 @@ folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
 			checkpoint->SetSerialized();
 		}
 
-		RemoveDirtyBlockSet(ckpt_id);
 		std::lock_guard<std::mutex> guard(checkpoints_.mutex_);
 		if (pio_likely(not checkpoints_.unflushed_.empty())) {
 			const auto& x = checkpoints_.unflushed_.back();
@@ -634,6 +679,7 @@ folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
 		}
 		checkpoints_.unflushed_.emplace_back(std::move(checkpoint));
 		checkpoints_.last_checkpoint_ = ckpt_id;
+		RemoveDirtyBlockSet(ckpt_id);
 		return 0;
 	});
 }

@@ -50,11 +50,13 @@ VirtualMachine* VmManager::GetInstance(const VmHandle& handle) {
 	return nullptr;
 }
 
-void VmManager::FreeInstance(const VmHandle& handle) {
+int VmManager::FreeInstance(const VmHandle& handle) {
+	LOG(ERROR) << __func__ << "START";
 	std::lock_guard<SpinLock> lock(mutex_);
 	auto it1 = handles_.find(handle);
 	if (pio_unlikely(it1 == handles_.end())) {
-		return;
+		LOG(ERROR) << __func__ << "Haven't found given VM";
+		return 1;
 	}
 
 	auto it2 = ids_.find(it1->second->GetID());
@@ -62,6 +64,8 @@ void VmManager::FreeInstance(const VmHandle& handle) {
 
 	handles_.erase(it1);
 	ids_.erase(it2);
+	LOG(ERROR) << __func__ << "Given VM has removed";
+	return 0;
 }
 
 }

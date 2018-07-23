@@ -55,6 +55,7 @@ protected:
 		config.DisableRamCache();
 		config.DisableErrorHandler();
 		config.EnableSuccessHandler();
+		config.DisableFileTarget();
 	}
 
 	folly::Future<int> VmdkWrite(BlockID block, size_t skip, size_t size,

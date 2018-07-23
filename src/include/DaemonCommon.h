@@ -4,6 +4,7 @@
 
 #include "gen-cpp2/MetaData_types.h"
 #include "IDs.h"
+#include <map>
 #include "CommonMacros.h"
 
 namespace pio {
@@ -18,6 +19,8 @@ class RequestBuffer;
 class CheckPoint;
 class ActiveVmdk;
 class SnapshotVmdk;
+using per_disk_flush_stat = std::pair<uint64_t, uint64_t>;
+using flush_stats = std::map<::ondisk::VmID, per_disk_flush_stat>;
 
 static constexpr auto kBlockIDMax = std::numeric_limits<::ondisk::BlockID>::max();
 static constexpr auto kBlockIDMin = std::numeric_limits<::ondisk::BlockID>::min();

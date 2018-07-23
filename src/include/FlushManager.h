@@ -9,10 +9,15 @@
 #include "SpinLock.h"
 #include "ThreadPool.h"
 #include "FlushInstance.h"
+#include "halib.h"
 
 namespace pio {
 class FlushManager {
 public:
+	#if 0
+	FlushManager(struct _ha_instance *ha_instance);
+	~FlushManager(){};
+	#endif
 	struct threadpool {
 		std::once_flag initialized_;
 		std::unique_ptr<ThreadPool> pool_;
@@ -20,7 +25,7 @@ public:
 
 	int InitFlushManager();
 	void DeinitFlushManager();
-	int CreateInstance();
+	int CreateInstance(struct _ha_instance *);
 	int NewInstance(::ondisk::VmID vmid);
 	FlushInstance* GetInstance(const ::ondisk::VmID& vmid);
 	void FreeInstance(const ::ondisk::VmID& vmid);

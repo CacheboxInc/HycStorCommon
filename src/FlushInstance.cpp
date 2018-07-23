@@ -11,12 +11,14 @@
 #include "VmdkFactory.h"
 #include "VmManager.h"
 #include "FlushInstance.h"
+#include <chrono>
 
 using namespace ::ondisk;
 
 namespace pio {
 
 FlushInstance::FlushInstance(VmID vmid):vmid_(std::move(vmid)) {
+	start_time_ = std::chrono::steady_clock::now();
 }
 
 FlushInstance::~FlushInstance() {
@@ -41,6 +43,22 @@ int FlushInstance::StartFlush(const VmID& vmid) {
 	}
 
 	rc = vmp->FlushStart(ckpt_id);
+	if (pio_unlikely(rc)) {
+		return rc;
+	}
+
+	return 0;
+}
+
+int FlushInstance::FlushStatus(const VmID& vmid, flush_stats &flush_stat) {
+	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vmid);
+	log_assert(vmp != nullptr);
+
+	/* Append start and elapsed time in stat */
+	auto ms = std::chrono::time_point_cast<std::chrono::milliseconds>(start_time_);
+	flush_stat.emplace("-1", std::make_pair(ms.time_since_epoch().count(), ElapsedTime()));
+
+	auto rc = vmp->FlushStatus(flush_stat);
 	if (pio_unlikely(rc)) {
 		return rc;
 	}

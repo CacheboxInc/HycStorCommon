@@ -28,6 +28,8 @@ public:
 	virtual folly::Future<int> Move(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed);
+	virtual int Cleanup(ActiveVmdk *vmdkp);
+
 protected:
 	void *udatap_;
 	std::unique_ptr<RequestHandler> nextp_;

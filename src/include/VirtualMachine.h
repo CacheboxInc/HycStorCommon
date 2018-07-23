@@ -39,6 +39,8 @@ public:
 	~VirtualMachine();
 
 	void AddVmdk(ActiveVmdk* vmdkp);
+	int RemoveVmdk(ActiveVmdk* vmdkp);
+	int VmdkCount();
 	RequestID NextRequestID();
 
 	folly::Future<int> Write(ActiveVmdk* vmdkp, Request* reqp);
@@ -47,6 +49,7 @@ public:
 	folly::Future<int> Flush(ActiveVmdk* vmdkp, Request* reqp, const CheckPoints& min_max);
 	folly::Future<CheckPointResult> TakeCheckPoint();
 	int FlushStart(::ondisk::CheckPointID ckpt_id);
+	int FlushStatus(flush_stats &flush_stat);
 	folly::Future<int> Stun(::ondisk::CheckPointID ckpt_id);
 
 public:

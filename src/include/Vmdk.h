@@ -65,25 +65,43 @@ public:
 
 class FlushAuxData {
 public:
+	enum class FlushStageType {
+                kFlushStage,
+                kMoveStage,
+        };
+
 	QLock lock_;
 	Rendez rendez_;
 	uint64_t pending_cnt_{0};
-	uint64_t processed_blks_{0};
+	uint64_t flushed_blks_{0};
+	uint64_t moved_blks_{0};
 	bool sleeping_{false};
 	bool done_{false};
 	bool failed_{false};
-	uint64_t reqid_{0};
+	std::atomic<uint64_t> reqid_{0};
 public:
-	void InitState() {
+	void InitState(FlushStageType type) {
 		/* TBD: rendez reset */
 		pending_cnt_ = 0;
 		sleeping_ = false;
 		done_ = false;
-		reqid_ = 0;
-		processed_blks_ = 0;
+		failed_ = false;
+		if (type == FlushStageType::kFlushStage) {
+			flushed_blks_ = 0;
+			moved_blks_ = 0;
+		} else {
+			moved_blks_ = 0;
+		}
+	}
+
+	uint64_t GetFlushedBlksCnt() {
+		return flushed_blks_;
+	}
+
+	uint64_t GetMovedBlksCnt() {
+		return moved_blks_;
 	}
 };
-
 
 class Vmdk {
 public:
@@ -104,6 +122,7 @@ public:
 	virtual ~ActiveVmdk();
 
 	void RegisterRequestHandler(std::unique_ptr<RequestHandler> handler);
+	int Cleanup();
 	void SetEventFd(int eventfd) noexcept;
 
 	folly::Future<int> Read(Request* reqp, const CheckPoints& min_max);
@@ -132,6 +151,7 @@ private:
 	void RemoveDirtyBlockSet(::ondisk::CheckPointID ckpt_id);
 	::ondisk::CheckPointID GetModifiedCheckPoint(::ondisk::BlockID block,
 		const CheckPoints& min_max) const;
+public:
 	void SetReadCheckPointId(const std::vector<RequestBlock*>& blockps,
 		const CheckPoints& min_max) const;
 
@@ -167,6 +187,7 @@ private:
 		std::atomic<uint64_t> moves_in_progress_{0};
 	} stats_;
 
+public:
 	std::unique_ptr<RequestHandler> headp_{nullptr};
 	std::unique_ptr<FlushAuxData> aux_info_{nullptr};
 

@@ -70,6 +70,25 @@ void VirtualMachine::AddVmdk(ActiveVmdk* vmdkp) {
 	vmdk_.list_.emplace_back(vmdkp);
 }
 
+int VirtualMachine::VmdkCount() {
+	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+	return vmdk_.list_.size();
+}
+
+int VirtualMachine::RemoveVmdk(ActiveVmdk* vmdkp) {
+	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+	auto eit = vmdk_.list_.end();
+	auto it = std::find(vmdk_.list_.begin(), eit, vmdkp);
+	if (pio_unlikely(it == eit)) {
+		LOG(ERROR) << __func__ << "Haven't found vmid entry, removing it";
+		return 1;
+	}
+
+	LOG(ERROR) << __func__ << "Found vmid entry, removing it";
+	vmdk_.list_.erase(it);
+	return 0;
+}
+
 void VirtualMachine::CheckPointComplete(CheckPointID ckpt_id) {
 	log_assert(ckpt_id != MetaData_constants::kInvalidCheckPointID());
 	checkpoint_.in_progress_.clear();
@@ -116,6 +135,17 @@ folly::Future<CheckPointResult> VirtualMachine::TakeCheckPoint() {
 			return std::make_pair(ckpt_id, 0);;
 		});
 	});
+}
+
+int VirtualMachine::FlushStatus(flush_stats &flush_stat) {
+	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+	per_disk_flush_stat disk_stats;
+	for (const auto& vmdkp : vmdk_.list_) {
+		disk_stats = std::make_pair(vmdkp->aux_info_->GetFlushedBlksCnt(),
+			vmdkp->aux_info_->GetMovedBlksCnt());
+		flush_stat.emplace(vmdkp->GetID(), disk_stats);
+	}
+	return 0;
 }
 
 int VirtualMachine::FlushStart(CheckPointID ckpt_id) {

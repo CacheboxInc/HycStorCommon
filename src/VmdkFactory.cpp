@@ -33,6 +33,7 @@ void VmdkManager::FreeVmdkInstance(::hyc_thrift::VmdkHandle handle) {
 	if (pio_unlikely(it1 == handles_.end())) {
 		return;
 	}
+
 	const auto& id = it1->second->GetID();
 	handles_.erase(it1);
 

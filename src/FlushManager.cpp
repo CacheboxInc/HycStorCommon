@@ -15,7 +15,7 @@
 using namespace ::ondisk;
 
 namespace pio {
-int FlushManager::CreateInstance() {
+int FlushManager::CreateInstance(struct _ha_instance *ha_instance) {
 
 	auto rc = InitFlushManager();
 	if (pio_unlikely(rc)) {
@@ -53,7 +53,6 @@ void FlushManager::DeinitFlushManager() {
 }
 
 int FlushManager::NewInstance(VmID vmid) {
-	/* TBD : More sensible error codes to retrun */
 	try {
 		auto fi = std::make_unique<FlushInstance>(vmid);
 		instances_.insert(std::make_pair(std::move(vmid), std::move(fi)));

@@ -4,6 +4,11 @@
 #include <memory>
 
 #include <folly/futures/Future.h>
+#include <folly/futures/FutureSplitter.h>
+#include <folly/fibers/Fiber.h>
+#include <folly/fibers/FiberManager.h>
+#include <folly/fibers/GenericBaton.h>
+#include <folly/io/async/EventBase.h>
 
 #include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/MetaData_constants.h"
@@ -13,17 +18,21 @@
 #include "AeroConn.h"
 #include "AeroFiberThreads.h"
 #include "VmConfig.h"
+#include "MetaDataKV.h"
 
 namespace pio {
 
 const std::string kAsNamespaceCacheDirty = "DIRTY";
 const std::string kAsNamespaceCacheClean = "CLEAN";
+const std::string kAsNamespaceMeta = "META";
 const std::string kAsCacheBin = "data_map";
+const std::string kAsMetaBin = "meta_map";
 
 struct WriteBatch;
 struct WriteRecord {
 public:
-	WriteRecord(RequestBlock* blockp, WriteBatch* batchp);
+	WriteRecord(RequestBlock* blockp, WriteBatch* batchp, const std::string& ns);
+	WriteRecord(){};
 	~WriteRecord();
 
 	RequestBlock *rq_block_{nullptr};
@@ -36,12 +45,12 @@ public:
 
 struct WriteBatch {
 	WriteBatch(Request* reqp, const ::ondisk::VmdkID& vmdkid, const std::string& ns,
-			const std::string& set);
+			const std::string set);
 
 	Request* req_{nullptr};
 	const ::ondisk::VmdkID& pre_keyp_;
 	const std::string& ns_;
-	const std::string& setp_;
+	const std::string setp_;
 
 	struct {
 		std::mutex lock_;
@@ -55,6 +64,9 @@ struct WriteBatch {
 	QLock q_lock_;
 	Rendez rendez_;
 
+	bool retry_{false};
+	int retry_cnt_{5};
+	std::unique_ptr<folly::Promise<int>> promise_{nullptr};
 	::ondisk::CheckPointID ckpt_{
 		::ondisk::MetaData_constants::kInvalidCheckPointID()
 	};
@@ -69,6 +81,7 @@ struct ReadBatch;
 struct ReadRecord {
 public:
 	ReadRecord(RequestBlock* blockp, ReadBatch* batchp);
+	ReadRecord() {};
 	RequestBlock* rq_block_;
 	ReadBatch* batchp_;
 	as_status status_{AEROSPIKE_ERR};
@@ -78,13 +91,13 @@ public:
 
 struct ReadBatch {
 	ReadBatch(Request* reqp, const ::ondisk::VmdkID& vmdkid, const std::string& ns,
-			const std::string& set);
+			const std::string set);
 	~ReadBatch();
 
 	Request *req_{nullptr};
 	const std::string& ns_;
 	const ::ondisk::VmdkID& pre_keyp_;
-	const std::string& setp_;
+	const std::string setp_;
 
 	as_batch_read_records *aero_recordsp_{nullptr};
 	std::vector<std::unique_ptr<ReadRecord>> recordsp_;
@@ -94,6 +107,10 @@ struct ReadBatch {
 	uint16_t ncomplete_{0};
 	as_status as_result_{AEROSPIKE_OK};
 	bool failed_{false};
+
+	bool retry_{false};
+	int retry_cnt_{5};
+	std::unique_ptr<folly::Promise<int>> promise_{nullptr};
 
 	AeroSpikeConn *aero_conn_{nullptr};
 };
@@ -112,7 +129,7 @@ struct DelRecord {
 
 struct DelBatch {
 	DelBatch(Request* reqp, const ::ondisk::VmdkID& vmdkid, const std::string& ns,
-			const std::string& set);
+			const std::string set);
 
 	struct {
 		std::mutex lock_;
@@ -126,12 +143,16 @@ struct DelBatch {
 	Request *req_{nullptr};
 	const ::ondisk::VmdkID& pre_keyp_;
 	const std::string& ns_;
-	const std::string& setp_;
+	const std::string setp_;
 
 	::ondisk::CheckPointID ckpt_{
 		::ondisk::MetaData_constants::kInvalidCheckPointID()
 	};
 	AeroSpikeConn *aero_conn_{nullptr};
+
+	bool retry_{false};
+	int retry_cnt_{5};
+	std::unique_ptr<folly::Promise<int>> promise_{nullptr};
 
 	QLock q_lock_;
 	Rendez rendez_;
@@ -151,7 +172,7 @@ public:
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
-	int AeroRead(ActiveVmdk *vmdkp, Request *reqp,
+	folly::Future<int> AeroRead(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
@@ -167,9 +188,7 @@ public:
 		const std::vector<RequestBlock*>& process, Request *reqp,
 		ReadBatch *r_batch_rec, const std::string& ns);
 
- 	int ReadBatchSubmit(ActiveVmdk *vmdkp,
-		const std::vector<RequestBlock*>& process, Request *reqp,
-		ReadBatch *batchp, const std::string& ns);
+	folly::Future<int> ReadBatchSubmit(ReadBatch *batchp);
 
 	int CacheIoWriteKeySet(ActiveVmdk *vmdkp,
 		WriteRecord *wrecp, Request *reqp, const std::string& nsp,
@@ -180,7 +199,7 @@ public:
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
-	int AeroWrite(ActiveVmdk *vmdkp, Request *reqp,
+	folly::Future<int> AeroWrite(ActiveVmdk *vmdkp, Request *reqp,
                 ::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
                 std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
@@ -194,23 +213,19 @@ public:
 			Request *reqp, WriteBatch *w_batch_rec,
 			const std::string& ns);
 
-	int WriteBatchSubmit(ActiveVmdk *vmdkp,
-		const std::vector<RequestBlock*>& process,
-		Request *reqp, WriteBatch *batchp, const std::string& ns);
+	folly::Future<int> WriteBatchSubmit(WriteBatch *batchp);
 
 	folly::Future<int> AeroDelCmdProcess(ActiveVmdk *vmdkp, Request *reqp,
 		::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
-	int AeroDel(ActiveVmdk *vmdkp, Request *reqp,
+	folly::Future<int> AeroDel(ActiveVmdk *vmdkp, Request *reqp,
 		::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
-	int DelBatchSubmit(ActiveVmdk *vmdkp,
-		const std::vector<RequestBlock*>& process,
-		Request *reqp, DelBatch *batchp, const std::string& ns);
+	folly::Future<int> DelBatchSubmit(DelBatch *batchp);
 
 	int DelBatchPrepare(ActiveVmdk *vmdkp,
 		const std::vector<RequestBlock*>& process,
@@ -224,5 +239,34 @@ public:
 		Request *reqp, const std::string& ns,
 		const std::string& setp);
 
+	int ResetWriteBatchState(WriteBatch *batchp, uint16_t nwrites);
+	int ResetDelBatchState(DelBatch *batchp, uint16_t ndeletes);
+	int ResetReadBatchState(ReadBatch *batchp, uint16_t nreads);
+
+	folly::Future<int> AeroMetaWrite(ActiveVmdk *vmdkp,
+		const std::string& ns,
+		const MetaDataKey& key, const std::string& value,
+		std::shared_ptr<AeroSpikeConn> aero_conn);
+
+	int MetaWriteKeySet(WriteRecord* wrecp,
+		const std::string& ns, const std::string& setp,
+		const MetaDataKey& key, const std::string& value);
+
+	int AeroMetaWriteCmd(ActiveVmdk *vmdkp, const MetaDataKey& key,
+		const std::string& value,
+		std::shared_ptr<AeroSpikeConn> aero_conn);
+
+	int AeroMetaReadCmd(ActiveVmdk *vmdkp,
+		const MetaDataKey& key, const std::string& value,
+		std::shared_ptr<AeroSpikeConn> aero_conn);
+
+	folly::Future<int> AeroMetaRead(ActiveVmdk *vmdkp,
+		const std::string& ns, const MetaDataKey& key,
+		const std::string& value,
+		std::shared_ptr<AeroSpikeConn> aero_conn);
+
+	int MetaReadKeySet(ReadRecord* rrecp,
+		const std::string& ns, const std::string& setp,
+		const MetaDataKey& key, ReadBatch* r_batch_rec);
 };
 }

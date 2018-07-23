@@ -86,6 +86,10 @@ TEST_F(TgtInterfaceTest, ReadWriteSuccess) {
 	const VmID kVmid = "VmID";
 	const VmdkID kVmdkid = "VmdkID";
 
+	#ifdef USE_NEP
+		std::cerr << "Skipping test ReadWriteSuccess, integration with NEP pending!!\n";
+		return;
+	#endif
 	auto vm_handle = AddVm(kVmid);
 	EXPECT_NE(vm_handle, StorRpc_constants::kInvalidVmHandle());
 

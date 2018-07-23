@@ -2,6 +2,8 @@
 
 #include "VmdkConfig.h"
 #include "DaemonUtils.h"
+#include <unistd.h>
+#include <sys/types.h>
 
 using namespace pio;
 using namespace pio::config;
@@ -81,6 +83,32 @@ static void ConfigureFileCache(VmdkConfig& config) {
 	config.ConfigureFileCache(fp);
 }
 
+
+static void ConfigureFileTarget(VmdkConfig& config) {
+	std::string enable;
+	std::cout << "Is FileTarget enabled [y/n]? ";
+	std::cin >> enable;
+	if (enable == "n") {
+		config.DisableFileTarget();
+		return;
+	}
+
+	bool cf;
+	std::cout << "Should file target be created: ";
+	std::cin >> cf;
+	config.ConfigureFileTargetCreate(cf);
+
+	std::string fp;
+	std::cout << "Enter the File Target file path: ";
+	std::cin >> fp;
+	config.ConfigureFileTarget(fp);
+
+	off_t size;
+	std::cout << "Enter the File Target file size (in bytes): ";
+	std::cin >> size;
+	config.ConfigureFileTargetSize(size);
+}
+
 static void ConfigureSuccessHandler(VmdkConfig& config) {
 	std::string enable;
 	std::cout << "Is SuccessHandler enabled [y/n]> ";
@@ -131,6 +159,7 @@ int main(int argc, char* argv[]) {
 	ConfigureRamCache(config);
 	ConfigureFileCache(config);
 	ConfigureSuccessHandler(config);
+	ConfigureFileTarget(config);
 
 	std::cout << "VMDK Configuration\n\n"
 		<< config.Serialize() << std::endl;

@@ -1,5 +1,16 @@
 include_directories(include)
 include_directories(${CMAKE_BINARY_DIR}/src/thrift/)
+include_directories(${CMAKE_SOURCE_DIR}/thirdparty/ha-lib/third-party/include)
+include_directories(${CMAKE_SOURCE_DIR}/thirdparty/ha-lib/src)
+
+#Set this to OFF if don't want to include NEP changes
+OPTION(USE_NEP "Set ON/OFF to use/avoid NEP with storD" ON)
+if(USE_NEP)
+    include_directories(/usr/include/hyc-net)
+    link_directories(/usr/lib/x86_64-linux-gnu/hyc-net/)
+    link_directories(/usr/lib/x86_64-linux-gnu/hyc-vddk/)
+    add_definitions(-DUSE_NEP)
+endif(USE_NEP)
 
 set(ThriftLibs
 	thrift-core
@@ -28,6 +39,20 @@ set(AEROSPIKE_LIBS
 	uv
 )
 
+set(NEP_LIBRARY_LIST
+	HycNetCommon
+	HycNetLayers
+	HycNep
+	HycTarget
+	HycNetSim
+	HycGwy
+	HycVddkSync
+	nanomsg
+	anl
+	jsoncpp
+	vixDiskLib
+)
+
 set(LIBRARY_LIST
 	gflags
 	glog
@@ -44,6 +69,13 @@ set(LIBRARY_LIST
 	atomic
 	${ThriftLibs}
 )
+
+if(USE_NEP)
+	set (LIBRARY_LIST
+		${LIBRARY_LIST}
+		${NEP_LIBRARY_LIST}
+	)
+endif(USE_NEP)
 
 set(StorageLayerFiles
 	TgtInterfaceImpl.cpp
@@ -80,12 +112,20 @@ set(StorageLayerFiles
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/ErrorHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/SuccessHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/AeroOps.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/FileTargetHandler.cpp"
 )
+
+if(USE_NEP)
+	set (StorageLayerFiles
+		${StorageLayerFiles}
+		"${CMAKE_SOURCE_DIR}/src/RequestHandlers/TargetHandler.cpp"
+	)
+endif(USE_NEP)
+
 
 add_library(StorageLayer STATIC
 	${StorageLayerFiles}
 )
-
 
 target_link_libraries(StorageLayer
 	CommonLib

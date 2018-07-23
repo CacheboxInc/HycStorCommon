@@ -16,7 +16,7 @@ public:
 	::hyc_thrift::VmHandle CreateInstance(::ondisk::VmID vmid, const std::string& config);
 	VirtualMachine* GetInstance(const ::ondisk::VmID& vmid);
 	VirtualMachine* GetInstance(const ::hyc_thrift::VmHandle& handle);
-	void FreeInstance(const ::hyc_thrift::VmHandle& handle);
+	int FreeInstance(const ::hyc_thrift::VmHandle& handle);
 private:
 	SpinLock mutex_;
 	::hyc_thrift::VmHandle handle_{0};

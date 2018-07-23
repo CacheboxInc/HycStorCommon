@@ -122,6 +122,7 @@ folly::Future<int> DirtyHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		return -ENODEV;
 	}
 
+	//LOG(ERROR) << __func__ << "Calling ReadPopulate";
 	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 

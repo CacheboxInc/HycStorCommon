@@ -45,4 +45,12 @@ folly::Future<int> RequestHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 
 	return nextp_->Move(vmdkp, reqp, process, failed);
 }
+
+int RequestHandler::Cleanup(ActiveVmdk *vmdkp) {
+	if (pio_unlikely(not nextp_)) {
+		return 0;
+	}
+	return nextp_->Cleanup(vmdkp);
+}
+
 }
