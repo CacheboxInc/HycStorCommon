@@ -32,6 +32,20 @@
 #include <TargetManagerRest.hpp>
 #endif
 
+/*
+ * Max number of pending REST call requests allowed at stord
+ * at a time. This is mainly to handle the scenario where their
+ * are multiple requests pending at stord and some of them are
+ * timing out. Since stord rest handler will not be aware about
+ * client timing out, it will continue processing the timeout
+ * REST calls which can cause problem. That's why put a cap on
+ * number of pending requests at stord which can be handled in
+ * a timely fashion. More thinking is needed on this approach.
+ * like ignore EEXIST on subsquent calls.
+ */
+
+#define MAX_PENDING_LIMIT 20
+
 using namespace apache::thrift;
 using namespace apache::thrift::async;
 using namespace ::hyc_thrift;
@@ -106,6 +120,7 @@ public:
 		iobuf->coalesce();
 		assert(pio_likely(not iobuf->isChained()));
 
+		//LOG(ERROR) << "Size ::" << size << "Offset::" << offset;
 		auto reqp = std::make_unique<Request>(reqid, vmdkp, Request::Type::kRead,
 			iobuf->writableData(), size, size, offset);
 
@@ -194,6 +209,13 @@ static struct {
 	bool stop_{false};
 	std::mutex mutex_; // protects above cond var
 	struct _ha_instance *ha_instance_;
+
+	/* To Protect against concurrent REST accesses */
+	std::mutex lock_;
+	/* To Protect pending cnt */
+	std::mutex p_lock_;
+	/* Pending REST calls */
+	std::atomic<int> p_cnt_{0};
 } g_thread_;
 
 enum StordSvcErr {
@@ -206,6 +228,7 @@ enum StordSvcErr {
 	STORD_ERR_INVALID_AERO,
 	STORD_ERR_INVALID_FLUSH,
 	STORD_ERR_FLUSH_NOT_STARTED,
+	STORD_ERR_MAX_LIMIT,
 };
 
 void HaHeartbeat(void *userp) {
@@ -260,6 +283,19 @@ static void SetErrMsg(_ha_response *resp, StordSvcErr err,
 	::free(err_msg);
 }
 
+static int GuardHandler() {
+	std::unique_lock<std::mutex> p_lock(g_thread_.p_lock_);
+	if (g_thread_.p_cnt_ >= MAX_PENDING_LIMIT) {
+		p_lock.unlock();
+		return 1;
+	}
+
+	g_thread_.p_cnt_++;
+	p_lock.unlock();
+	return 0;
+}
+
+
 static int NewVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 
@@ -276,10 +312,20 @@ static int NewVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 			"VM config invalid");
 		return HA_CALLBACK_CONTINUE;
 	}
+
 	std::string req_data(data);
 	LOG(INFO) << "VM Configuration " << req_data;
 	::free(data);
 
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.lock_);
+	g_thread_.p_cnt_--;
+	LOG(INFO) << __func__ << "Start NewVM for vmid" << vmid;
 	auto vm_handle = pio::NewVm(vmid, req_data);
 
 	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
@@ -289,7 +335,7 @@ static int NewVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	LOG(INFO) << "Added VmID " << vmid << " VmHandle " << vm_handle;
+	LOG(INFO) << "Added successfully VmID " << vmid << ", VmHandle is " << vm_handle;
 	const auto res = std::to_string(vm_handle);
 
 	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
@@ -308,6 +354,14 @@ static int RemoveVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 	}
 	std::string vmid(param_valuep);
 
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.lock_);
+	g_thread_.p_cnt_--;
 	auto ret = pio::RemoveVmUsingVmID(vmid);
 	if (ret) {
 		std::ostringstream es;
@@ -344,6 +398,14 @@ static int NewAeroCluster(const _ha_request *reqp, _ha_response *resp,
 	LOG(INFO) << "Aerospike Configuration " << req_data;
 	::free(data);
 
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.lock_);
+	g_thread_.p_cnt_--;
 	auto aero_handle = pio::NewAeroCluster(aeroid, req_data);
 	if (aero_handle == kInvalidAeroClusterHandle) {
 		std::ostringstream es;
@@ -382,6 +444,14 @@ static int DelAeroCluster(const _ha_request *reqp, _ha_response *resp,
 	LOG(INFO) << "Aerospike Configuration " << req_data;
 	::free(data);
 
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.lock_);
+	g_thread_.p_cnt_--;
 	auto aero_handle = pio::DelAeroCluster(aeroid, req_data);
 	if (aero_handle == kInvalidAeroClusterHandle) {
 		std::ostringstream es;
@@ -416,6 +486,15 @@ static int NewVmdk(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 	}
 	std::string vmdkid(param_valuep);
 
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.lock_);
+	g_thread_.p_cnt_--;
+	LOG(INFO) << "Started add of VMDKID::" << vmdkid << "in VmID:: " << vmid;
 	auto vm_handle = pio::GetVmHandle(vmid);
 	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
 		std::ostringstream es;
@@ -444,10 +523,11 @@ static int NewVmdk(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 		SetErrMsg(resp, STORD_ERR_INVALID_VMDK, es.str());
 		return HA_CALLBACK_CONTINUE;
 	}
-	LOG(INFO) << "Added VMDK VmID " << vmid
+	LOG(INFO) << "Added Successfully VMDK VmID " << vmid
 		<< " VmHandle " << vm_handle
 		<< " VmdkID " << vmdkid
 		<< " VmdkHandle " << vmdk_handle;
+
 
 	const auto res = std::to_string(vmdk_handle);
 	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
@@ -473,6 +553,14 @@ static int RemoveVmdk(const _ha_request *reqp, _ha_response *resp, void *userp )
 	}
 	std::string vmdkid(param_valuep);
 
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.lock_);
+	g_thread_.p_cnt_--;
 	auto vm_handle = pio::GetVmHandle(vmid);
 	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
 		std::ostringstream es;
@@ -512,6 +600,14 @@ static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp)
 	}
 	std::string vmid(param_valuep);
 
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.lock_);
+	g_thread_.p_cnt_--;
 	auto vm_handle = pio::GetVmHandle(vmid);
 	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
 		std::ostringstream es;
@@ -546,6 +642,15 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 		return HA_CALLBACK_CONTINUE;
 	}
 	std::string vmid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.lock_);
+	g_thread_.p_cnt_--;
 
 	auto vm_handle = pio::GetVmHandle(vmid);
 	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
@@ -638,6 +743,14 @@ static int AeroSetCleanup(const _ha_request *reqp, _ha_response *resp,
 	LOG(INFO) << "Aerospike cleanup Configuration " << req_data;
 	::free(data);
 
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.lock_);
+	g_thread_.p_cnt_--;
 	auto rc = pio::AeroSetCleanup(aeroid, req_data);
 	if (rc) {
 		std::ostringstream es;

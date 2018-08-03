@@ -95,12 +95,14 @@ int AeroSpike::WriteBatchPrepare(ActiveVmdk *vmdkp,
 		}
 
 		/*
-		 * Set TTL 0 for DIRTY namespace writes, for CLEAN
-		 * namespace it will be inherited from aerospike
-		 * conf file
+		 * Set TTL -1 for DIRTY namespace writes, for CLEAN
+		 * namespace it should be inherited from global
+		 * aerospike conf file
 		 */
 
-		if (ns == kAsNamespaceCacheDirty) {
+		if (ns == kAsNamespaceCacheDirty || 1) {
+			record->record_.ttl = -1;
+		} else {
 			record->record_.ttl = 0;
 		}
 	}

@@ -20,4 +20,8 @@ iscsiadm -m node -T $TargetName --login
 
 #Turn off Read Ahead
 #echo 0 > /sys/devices/platform/host34/session2/target34:0:0/34:0:0:1/block/sdd/queue/read_ahead_kb
+#tgtadm --lld iscsi --mode logicalunit --op delete --tid=1 --lun=1
+#tgtadm --lld iscsi --mode target --op delete --tid=1 --force
+#iscsiadm -m session -P3
+
 lsblk

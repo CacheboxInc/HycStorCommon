@@ -16,15 +16,27 @@ from urllib.parse import urlencode
 h = "http"
 cert = None
 
-AeroClusterID="1"
-TargetName="tgt2"
+ID=2
+if len(sys.argv) > 1:
+    ID=sys.argv[1]
 
-VmId="2"
-VmdkID="2"
+AeroClusterID="1"
+TargetName="tgt%s" %ID
+
+VmId="%s" %ID
+VmdkID="%s" %ID
 TargetID="%s" %VmId
 LunID="%s" %VmdkID
 
-size_in_gb="1" #Size in GB
+print ("Target ID::: %s" %TargetID)
+print ("Target Name::: %s" %TargetName)
+
+FileTarget="/tmp/hyc/"
+createfile="false"
+DevTarget="/dev/sdd"
+
+size_in_gb="9" #Size in GB
+size_in_bytes = int(size_in_gb) * int(1024) * int(1024) * int(1024)
 DevName="iscsi-%s-disk_%s" %(TargetName, LunID)
 DevPath="/var/hyc/%s" %(DevName)
 cmd="truncate --size=%sG %s" %(size_in_gb, DevPath)
@@ -33,25 +45,20 @@ print ("DevPath: %s" %DevPath)
 print ("Cmd: %s" %cmd)
 os.system(cmd);
 
-if len(sys.argv) > 1:
-    if sys.argv[1].lower() == "https" :
-        import urllib3
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        h = "https"
-        cert=('./cert/cert.pem', './cert/key.pem')
-
 headers = {'Content-type': 'application/json'}
 params = OrderedDict([('first', 1), ('second', 2), ('third', 3)])
 data = { "service_type": "test_server", "service_instance" : 0, "etcd_ips" : ["3213213", "213213"]}
 
 # POST call 2 to stord_svc
 data1 = { "vmid": "%s" %VmId, "TargetID": "%s" %TargetID, "TargetName": "%s" %TargetName, "AeroClusterID":"%s" %AeroClusterID}
-print ("Send POST stord_svc new_vm %s" %VmId)
+print ("Send POST stord_svc new_vm:::: %s" %VmId)
 r = requests.post("%s://127.0.0.1:9000/stord_svc/v1.0/new_vm/?vm-id=%s" %(h, VmId), data=json.dumps(data1), headers=headers, cert=cert, verify=False)
 assert (r.status_code == 200)
 
 # POST call 3 to stord_svc
-data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"4096","Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"true"}}
+#data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"4096","Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"true"}}
+#data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"4096", "ParentDiskName":"parent_disk", "Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true","CreateFile":"%s" %createfile, "TargetFilePath":"%s" %DevTarget,"TargetFileSize":"%s" %size_in_bytes}}
+data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"4096","Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true","CreateFile":"%s" %createfile, "TargetFilePath":"%s" %DevTarget,"TargetFileSize":"%s" %size_in_bytes}}
 print ("Send POST stord_svc new_vmdk %s" %VmdkID)
 r = requests.post("%s://127.0.0.1:9000/stord_svc/v1.0/new_vmdk/?vm-id=%s&vmdk-id=%s" % (h, VmId, VmdkID), data=json.dumps(data2), headers=headers, cert=cert, verify=False)
 assert (r.status_code == 200)
