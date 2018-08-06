@@ -11,6 +11,7 @@
 #include <folly/init/Init.h>
 #include <thrift/lib/cpp2/server/ThriftServer.h>
 #include <thrift/lib/cpp2/util/ScopedServerInterfaceThread.h>
+#include <chrono>
 
 #include "gen-cpp2/StorRpc.h"
 #include "gen-cpp2/StorRpc_constants.h"
@@ -45,6 +46,8 @@
  */
 
 #define MAX_PENDING_LIMIT 20
+#define MAX_W_IOS_IN_HISTORY 100000
+#define MAX_R_IOS_IN_HISTORY 100000
 
 using namespace apache::thrift;
 using namespace apache::thrift::async;
@@ -120,18 +123,57 @@ public:
 		iobuf->coalesce();
 		assert(pio_likely(not iobuf->isChained()));
 
+		std::unique_lock<std::mutex> r_lock(vmdkp->r_stat_lock_);
+		vmdkp->r_pending_count++;
+		r_lock.unlock();
+
 		//LOG(ERROR) << "Size ::" << size << "Offset::" << offset;
 		auto reqp = std::make_unique<Request>(reqid, vmdkp, Request::Type::kRead,
 			iobuf->writableData(), size, size, offset);
 
 		vmp->Read(vmdkp, reqp.get())
 		.then([iobuf = std::move(iobuf), cb = std::move(cb), size,
-				reqp = std::move(reqp)] (int rc) mutable {
+				reqp = std::move(reqp), vmdkp] (int rc) mutable {
 			iobuf->append(size);
 			auto read = std::make_unique<ReadResult>();
 			read->set_reqid(reqp->GetID());
 			read->set_data(std::move(iobuf));
 			read->set_result(rc);
+			auto finish = std::chrono::high_resolution_clock::now();
+			long long duration =
+				std::chrono::duration_cast<std::chrono::microseconds>
+				(finish - reqp->start_time_).count();
+
+			/* Under lock to avoid divide by zero error */
+			/* Overflow wrap, hoping that wrap logic works with temp var too*/
+			/* Track only MAX_R_IOS_IN_HISTORY previous IOs in histoty, after that reset */
+
+			std::unique_lock<std::mutex> r_lock(vmdkp->r_stat_lock_);
+			if ((vmdkp->r_total_latency + duration < vmdkp->r_total_latency) ||
+					vmdkp->r_io_count >= MAX_R_IOS_IN_HISTORY) {
+				vmdkp->r_total_latency = 0;
+				vmdkp->r_io_count = 0;
+				vmdkp->r_io_blks_count = 0;
+			} else {
+				vmdkp->r_total_latency += duration;
+				vmdkp->r_io_blks_count += reqp->NumberOfRequestBlocks();
+				vmdkp->r_io_count += 1;
+			}
+
+			/* We may not hit the modulo condition, keep the value somewhat agressive */
+			if (((vmdkp->r_io_count % 100) == 0) && vmdkp->r_io_count && vmdkp->r_io_blks_count) {
+				LOG(ERROR) << __func__ <<
+					"[Read:VmdkID:" << vmdkp->GetID() <<
+					", Total latency(microsecs) :" << vmdkp->r_total_latency <<
+					", Total blks IO count (in blk size):" << vmdkp->r_io_blks_count <<
+					", Total IO count:" << vmdkp->r_io_count <<
+					", avg blk access latency:" << vmdkp->r_total_latency / vmdkp->r_io_blks_count <<
+					", avg IO latency:" << vmdkp->r_total_latency / vmdkp->r_io_count <<
+					", pending IOs:" << vmdkp->r_pending_count;
+			}
+
+			vmdkp->r_pending_count--;
+			r_lock.unlock();
 			cb->result(std::move(read));
 		});
 	}
@@ -153,15 +195,56 @@ public:
 		iobuf->coalesce();
 		assert(pio_likely(not iobuf->isChained()));
 
+		std::unique_lock<std::mutex> w_lock(vmdkp->w_stat_lock_);
+		vmdkp->w_pending_count++;
+		w_lock.unlock();
+
+		//LOG(ERROR) << "Size ::" << size << "Offset::" << offset;
 		auto reqp = std::make_unique<Request>(reqid, vmdkp, Request::Type::kWrite,
 			iobuf->writableData(), size, size, offset);
 
 		vmp->Write(vmdkp, reqp.get())
 		.then([iobuf = std::move(iobuf), cb = std::move(cb),
-				reqp = std::move(reqp)] (int rc) mutable {
+				reqp = std::move(reqp), vmdkp] (int rc) mutable {
 			auto write = std::make_unique<WriteResult>();
 			write->set_reqid(reqp->GetID());
 			write->set_result(rc);
+			auto finish = std::chrono::high_resolution_clock::now();
+			long long duration =
+				std::chrono::duration_cast<std::chrono::microseconds>
+				(finish - reqp->start_time_).count();
+
+			/* Under lock to avoid divide by zero error */
+			/* Overflow wrap, hoping that wrap logic works with temp var too*/
+			/* Track only MAX_W_IOS_IN_HISTORY previous IOs in histoty, after that reset */
+
+			std::unique_lock<std::mutex> w_lock(vmdkp->w_stat_lock_);
+			if ((vmdkp->w_total_latency + duration < vmdkp->w_total_latency)
+					|| vmdkp->w_io_count >= MAX_W_IOS_IN_HISTORY) {
+				vmdkp->w_total_latency = 0;
+				vmdkp->w_io_count = 0;
+				vmdkp->w_io_blks_count = 0;
+			} else {
+				vmdkp->w_total_latency += duration;
+				vmdkp->w_io_blks_count += reqp->NumberOfRequestBlocks();
+				vmdkp->w_io_count += 1;
+			}
+
+			/* We may not hit the modulo condition, keep the value somewhat agressive */
+			if (((vmdkp->w_io_count % 100) == 0) && vmdkp->w_io_count && vmdkp->w_io_blks_count) {
+				LOG(ERROR) << __func__ <<
+					"[Write:VmdkID:" << vmdkp->GetID() <<
+					", Total latency(microsecs) :" << vmdkp->w_total_latency <<
+					", Total blks IO count (in blk size):" << vmdkp->w_io_blks_count <<
+					", Total IO count:" << vmdkp->w_io_count <<
+					", avg blk access latency:" << vmdkp->w_total_latency / vmdkp->w_io_blks_count <<
+					", avg IO latency:" << vmdkp->w_total_latency / vmdkp->w_io_count <<
+					", pending IOs:" << vmdkp->w_pending_count;
+			}
+
+			vmdkp->w_pending_count--;
+			w_lock.unlock();
+
 			cb->result(std::move(write));
 		});
 	}

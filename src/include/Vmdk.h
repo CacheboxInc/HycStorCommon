@@ -143,6 +143,16 @@ public:
 	VirtualMachine* GetVM() const noexcept;
 	const config::VmdkConfig* GetJsonConfig() const noexcept;
 
+	std::atomic<unsigned long long> w_total_latency{0};
+	std::atomic<uint64_t> w_io_count{0};
+	std::atomic<uint64_t> w_io_blks_count{0};
+
+	std::atomic<unsigned long long> r_total_latency{0};
+	std::atomic<uint64_t> r_io_count{0};
+	std::atomic<uint64_t> r_io_blks_count{0};
+	std::atomic<uint64_t> r_pending_count{0}, w_pending_count{0};
+	std::mutex r_stat_lock_, w_stat_lock_;
+
 private:
 	folly::Future<int> WriteCommon(Request* reqp, ::ondisk::CheckPointID ckpt_id);
 	int WriteComplete(Request* reqp, ::ondisk::CheckPointID ckpt_id);

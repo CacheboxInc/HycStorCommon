@@ -42,8 +42,10 @@ int AeroSpike::CacheIoWriteKeySet(ActiveVmdk *vmdkp, WriteRecord* wrecp,
 	auto kp1 = as_key_init(kp, ns.c_str(), setp.c_str(),
 		wrecp->key_val_.c_str());
 
+	#if 0
 	LOG(ERROR) << __func__ << "setp_::" << setp.c_str() <<
 		"::" << ns.c_str() << "::" << wrecp->key_val_.c_str();
+	#endif
 	log_assert(kp1 == kp);
 
 	auto rp = &wrecp->record_;
@@ -1043,7 +1045,7 @@ WriteRecord::WriteRecord(RequestBlock* blockp, WriteBatch* batchp, const std::st
 	}
 
 	key_val_ = os.str();
-	LOG(ERROR) << __func__ << "::Key is::" << key_val_;
+	//LOG(ERROR) << __func__ << "::Key is::" << key_val_;
 }
 
 WriteRecord::~WriteRecord() {

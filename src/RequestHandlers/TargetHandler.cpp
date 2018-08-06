@@ -6,7 +6,9 @@
 #include "TargetHandler.h"
 #include "Request.h"
 #include "Vmdk.h"
+#if 0
 #include "cksum.h"
+#endif
 
 namespace pio {
 
@@ -71,7 +73,9 @@ folly::Future<int> TargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 			return -ENOMEM;
 		}
 
+		#if 0
 		LOG(ERROR) << "Request Offset :" << blockp->GetAlignedOffset() << "Size::" << destp->Size();
+		#endif
 		io->AddIoVec(blockp->GetAlignedOffset(), destp->Size(), destp->Payload());
 		req_blocks->push_back(std::move(destp));
 	}
@@ -96,11 +100,13 @@ folly::Future<int> TargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 
 		for (auto blockp : process) {
 			auto it = req_blocks->begin();
+			#if 0
 			RequestBuffer *bufferp = it->get();
 			LOG(ERROR) << "Response Offset :" << blockp->GetAlignedOffset();
 			LOG(ERROR) << __func__ << "[TCksum]" << blockp->GetAlignedOffset() <<
                                 ":" << bufferp->Size() <<
                                 ":" << crc_t10dif((unsigned char *) bufferp->Payload(), bufferp->Size());
+			#endif
 
 			blockp->PushRequestBuffer(std::move(*it));
 			blockp->SetResult(0, RequestStatus::kSuccess);
@@ -126,9 +132,11 @@ folly::Future<int> TargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
+		#if 0
 		auto payload = srcp->Payload();
 		LOG(ERROR) << __func__ << "Offset::-" << blockp->GetAlignedOffset()
 			<< "Start::-" << payload[0] << "End::-" << payload[4095];
+		#endif
 		io->AddIoVec(blockp->GetAlignedOffset(), srcp->Size(), srcp->Payload());
 	}
 
@@ -143,7 +151,9 @@ folly::Future<int> TargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 
 	return promise->getFuture()
 	.then([this, vmdkp, reqp, ckpt, io, promise, &process, &failed] (int rc) mutable {
+		#if 0
 		LOG(ERROR) << __func__ << "In TargetHandler::Write future";
+		#endif
 		if (rc != 0) {
 			failed.reserve(process.size());
 			std::copy(process.begin(), process.end(), std::back_inserter(failed));

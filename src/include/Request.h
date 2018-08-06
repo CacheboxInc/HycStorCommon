@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 #include <cstdint>
+#include <chrono>
 
 #include <folly/futures/Future.h>
 
@@ -85,6 +86,8 @@ public:
 			}
 		}
 	}
+	std::chrono::time_point<std::chrono::high_resolution_clock> start_time_;
+
 private:
 	void InitWriteSameBuffer();
 	void InitRequestBlocks();

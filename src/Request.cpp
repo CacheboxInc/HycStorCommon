@@ -85,6 +85,7 @@ Request::Request(RequestID id, ActiveVmdk *vmdkp, Request::Type type, void *buff
 		break;
 	}
 	InitRequestBlocks();
+	start_time_ = std::chrono::high_resolution_clock::now();
 }
 
 void Request::InitWriteSameBuffer() {
