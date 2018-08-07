@@ -22,6 +22,12 @@ class SnapshotVmdk;
 using per_disk_flush_stat = std::pair<uint64_t, uint64_t>;
 using flush_stats = std::map<::ondisk::VmID, per_disk_flush_stat>;
 
+struct AeroStats {
+	uint64_t dirty_cnt_{0};
+	uint64_t clean_cnt_{0};
+	uint64_t parent_cnt_{0};
+};
+
 static constexpr auto kBlockIDMax = std::numeric_limits<::ondisk::BlockID>::max();
 static constexpr auto kBlockIDMin = std::numeric_limits<::ondisk::BlockID>::min();
 

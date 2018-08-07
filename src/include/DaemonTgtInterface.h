@@ -18,10 +18,13 @@ AeroClusterHandle NewAeroCluster(pio::AeroClusterID cluster_id, const std::strin
 AeroClusterHandle DelAeroCluster(pio::AeroClusterID cluster_id, const std::string& config);
 hyc_thrift::VmHandle GetVmHandle(const ondisk::VmID& vmid);
 std::shared_ptr<AeroSpikeConn> GetAeroConn(ActiveVmdk *vmdkp);
+std::shared_ptr<AeroSpikeConn> GetAeroConnUsingVmID(ondisk::VmID vmid);
+
 void RemoveVm(::hyc_thrift::VmdkHandle vm_handle);
 int RemoveVmUsingVmID(ondisk::VmID vmid);
 int NewFlushReq(ondisk::VmID vmid);
 int NewFlushStatusReq(ondisk::VmID vmid, flush_stats &flush_stat);
+int NewAeroCacheStatReq(ondisk::VmID vmid, AeroStats *);
 
 VmdkHandle NewActiveVmdk(hyc_thrift::VmHandle vm_handle, ::ondisk::VmdkID vmdkid,
 		const std::string& config);

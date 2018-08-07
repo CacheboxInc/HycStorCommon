@@ -19,6 +19,7 @@
 #include "AeroFiberThreads.h"
 #include "VmConfig.h"
 #include "MetaDataKV.h"
+#include <aerospike/aerospike_info.h>
 
 namespace pio {
 

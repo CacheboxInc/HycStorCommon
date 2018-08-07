@@ -68,6 +68,7 @@ static const std::string kFlushStatus = "flush_status";
 static const std::string kAeroSetCleanup = "aero_set_cleanup";
 static const std::string kRemoveVmdk = "vmdk_delete";
 static const std::string kRemoveVm = "vm_delete";
+static const std::string kAeroCacheStat = "aero_stat";
 
 class StorRpcSvImpl : public virtual StorRpcSvIf {
 public:
@@ -311,6 +312,7 @@ enum StordSvcErr {
 	STORD_ERR_INVALID_AERO,
 	STORD_ERR_INVALID_FLUSH,
 	STORD_ERR_FLUSH_NOT_STARTED,
+	STORD_ERR_AERO_STAT,
 	STORD_ERR_MAX_LIMIT,
 };
 
@@ -805,6 +807,58 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 	return HA_CALLBACK_CONTINUE;
 }
 
+static int NewAeroCacheStatReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::string vmid(param_valuep);
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.lock_);
+	g_thread_.p_cnt_--;
+
+	auto aero_stats = std::make_shared<AeroStats>();
+	auto aero_stats_p = aero_stats.get();
+	auto ret = pio::NewAeroCacheStatReq(vmid, aero_stats_p);
+	if (ret) {
+		std::ostringstream es;
+		LOG(ERROR) << "Cache status request for VMID::"  << vmid << "Failed errno:" << ret;
+		if (ret == -EINVAL) {
+			es << "Invalid VMID"  << vmid;
+			SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		} else {
+			es << "Failed to get cache status for VMID::"  << vmid;
+			SetErrMsg(resp, STORD_ERR_AERO_STAT, es.str());
+		}
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	LOG(INFO) << "Successful...";
+
+	json_t *aero_params = json_object();
+	const auto res = std::to_string(ret);
+	json_object_set(aero_params, "ret", json_string((char *) res.c_str()));
+	json_object_set(aero_params, "dirty_blks_cnt", json_integer(aero_stats_p->dirty_cnt_));
+	json_object_set(aero_params, "clean_blks_cnt", json_integer(aero_stats_p->clean_cnt_));
+	json_object_set(aero_params, "parent_blks_cnt", json_integer(aero_stats_p->parent_cnt_));
+	std::string aero_params_str = json_dumps(aero_params, JSON_ENCODE_ANY);
+
+	json_object_clear(aero_params);
+	json_decref(aero_params);
+
+	ha_set_response_body(resp, HTTP_STATUS_OK, aero_params_str.c_str(),
+			strlen(aero_params_str.c_str()));
+	return HA_CALLBACK_CONTINUE;
+}
+
 static int AeroSetCleanup(const _ha_request *reqp, _ha_response *resp,
 	void *userp ) {
 
@@ -891,7 +945,7 @@ int main(int argc, char* argv[])
 	std::signal(SIGUSR1, Usr1SignalHandler);
 
 #endif
-	auto size = sizeof(struct ha_handlers) + 9 * sizeof(struct ha_endpoint_handlers);
+	auto size = sizeof(struct ha_handlers) + 10 * sizeof(struct ha_endpoint_handlers);
 
 	auto handlers =
 		std::unique_ptr<struct ha_handlers,
@@ -949,6 +1003,14 @@ int main(int argc, char* argv[])
 	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kFlushStatus.c_str(),
 			kFlushStatus.size() + 1);
 	handlers->ha_endpoints[handlers->ha_count].callback_function = NewFlushStatusReq;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
+	/* Aero Stat Request */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = GET;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kAeroCacheStat.c_str(),
+			kAeroCacheStat.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = NewAeroCacheStatReq;
 	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
 	handlers->ha_count += 1;
 
