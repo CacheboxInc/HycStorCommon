@@ -19,6 +19,9 @@
 #define INJECT_AERO_READ_ERROR 0
 #endif
 
+#define MAX_W_IOS_IN_HISTORY 100000
+#define MAX_R_IOS_IN_HISTORY 100000
+
 using namespace ::ondisk;
 
 namespace pio {
@@ -388,8 +391,12 @@ folly::Future<int> AeroSpike::AeroWrite(ActiveVmdk *vmdkp, Request *reqp,
 			w_batch_rec = std::move(w_batch_rec),
 			promise = std::move(promise)] () mutable {
 		uint16_t nwrites = w_batch_rec->batch.nwrites_;
+
+		long long duration;
 		while(true) {
+			auto start_time = std::chrono::high_resolution_clock::now();
 			WriteBatchSubmit(w_batch_rec.get()).wait();
+			auto end_time = std::chrono::high_resolution_clock::now();
 			/* Error case and retyr_cnt is still non zero */
 			if (w_batch_rec->retry_ && w_batch_rec->retry_cnt_) {
 				--w_batch_rec->retry_cnt_;
@@ -398,9 +405,31 @@ folly::Future<int> AeroSpike::AeroWrite(ActiveVmdk *vmdkp, Request *reqp,
 				/* Wait for 100ms before retry */
 				add_delay(100);
 			} else {
+				duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
 				break;
 			}
 		}
+
+		std::unique_lock<std::mutex> w_lock(vmdkp->w_aero_stat_lock_);
+		if (pio_unlikely(!w_batch_rec->failed_)) {
+			if ((vmdkp->w_aero_total_latency_ + duration) < vmdkp->w_aero_total_latency_ ||
+					vmdkp->w_aero_io_blks_count_ > MAX_W_IOS_IN_HISTORY) {
+					vmdkp->w_aero_total_latency_ = 0;
+					vmdkp->w_aero_io_blks_count_ = 0;
+			} else {
+				vmdkp->w_aero_total_latency_ += duration;
+				vmdkp->w_aero_io_blks_count_ += nwrites;
+			}
+		}
+		if (vmdkp->w_aero_io_blks_count_ && (vmdkp->w_aero_io_blks_count_ % 5) == 0) {
+			LOG(ERROR) << __func__ <<
+				"[AeroWrite:VmdkID:" << vmdkp->GetID() <<
+				", Total latency :" << vmdkp->w_aero_total_latency_ <<
+				", Total blks IO count (in blk size):" << vmdkp->w_aero_io_blks_count_ <<
+				", avg blk access latency:" << vmdkp->w_aero_total_latency_ / vmdkp->w_aero_io_blks_count_;
+		}
+		w_lock.unlock();
+
 		promise.setValue(0);
 	});
 	return fut;
@@ -619,8 +648,12 @@ folly::Future<int> AeroSpike::AeroRead(ActiveVmdk *vmdkp, Request *reqp,
 
 		auto batchp = r_batch_rec.get();
 		uint16_t nreads = batchp->nreads_;
+		long long duration;
+
 		while(true) {
+			auto start_time = std::chrono::high_resolution_clock::now();
 			ReadBatchSubmit(batchp).wait();
+			auto end_time = std::chrono::high_resolution_clock::now();
 			/* Error case and retyr_cnt is still non zero */
 			if (batchp->retry_ && batchp->retry_cnt_) {
 				--batchp->retry_cnt_;
@@ -628,9 +661,31 @@ folly::Future<int> AeroSpike::AeroRead(ActiveVmdk *vmdkp, Request *reqp,
 				/* Wait for 100ms before retry */
 				add_delay(100);
 			} else {
+				duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
 				break;
 			}
 		}
+
+		std::unique_lock<std::mutex> r_lock(vmdkp->r_aero_stat_lock_);
+		if (pio_unlikely(!batchp->failed_)) {
+			if ((vmdkp->r_aero_total_latency_ + duration) < vmdkp->r_aero_total_latency_ ||
+					vmdkp->r_aero_io_blks_count_ > MAX_W_IOS_IN_HISTORY) {
+					vmdkp->r_aero_total_latency_ = 0;
+					vmdkp->r_aero_io_blks_count_ = 0;
+			} else {
+				vmdkp->r_aero_total_latency_ += duration;
+				vmdkp->r_aero_io_blks_count_ += nreads;
+			}
+
+			if (vmdkp->r_aero_io_blks_count_ && (vmdkp->r_aero_io_blks_count_ % 100) == 0) {
+				LOG(ERROR) << __func__ <<
+					"[AeroRead:VmdkID:" << vmdkp->GetID() <<
+					", Total latency :" << vmdkp->r_aero_total_latency_ <<
+					", Total blks IO count (in blk size):" << vmdkp->r_aero_io_blks_count_ <<
+					", avg blk access latency:" << vmdkp->r_aero_total_latency_ / vmdkp->r_aero_io_blks_count_;
+			}
+		}
+		r_lock.unlock();
 
 		auto rc = 0;
 		if (pio_unlikely(batchp->failed_)) {
