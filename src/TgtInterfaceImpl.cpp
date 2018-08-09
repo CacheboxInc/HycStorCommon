@@ -2,6 +2,7 @@
 #include <string>
 #include <atomic>
 #include <mutex>
+#include <boost/algorithm/string.hpp>
 
 #include <folly/fibers/Fiber.h>
 #include <folly/futures/Future.h>
@@ -216,7 +217,124 @@ int NewFlushStatusReq(VmID vmid, flush_stats &flush_stat) {
 	return rc;
 }
 
+std::shared_ptr<AeroSpikeConn> GetAeroConnUsingVmID(VmID vmid) {
 
+	auto managerp = SingletonHolder<VmManager>::GetInstance();
+	auto vmp = managerp->GetInstance(vmid);
+	if (pio_unlikely(not vmp)) {
+		LOG(ERROR) << "Given VmID is not present";
+		return nullptr;
+	}
+
+	auto vm_confp = vmp->GetJsonConfig();
+	AeroClusterID aero_cluster_id;
+	auto ret = vm_confp->GetAeroClusterID(aero_cluster_id);
+	if (pio_unlikely(ret == 0)) {
+		LOG(ERROR) << __func__ << "Unable to find aerospike cluster "
+			"id for given disk." " Please check JSON configuration "
+			"with associated VM. Moving ahead without"
+			" Aero connection object";
+		return nullptr;
+	}
+
+	/* Get aero connection object*/
+	return  pio::AeroSpikeConnFromClusterID(aero_cluster_id);
+}
+
+/*
+ * Output :res::sets/CLEAN/tgt1	objects=132:tombstones=0:memory_data_bytes=0:truncate_lut=0:deleting=false:stop-writes-count=0:set-enable-xdr=use-default:disable-eviction=false;
+ */
+
+uint64_t GetObjectCount(char *res) {
+
+	if (res == NULL || strlen(res) == 0 ) {
+		return 0;
+	}
+
+	std::string temp = res;
+	std::size_t first = temp.find_first_of("=");
+	if (first == std::string::npos)
+		return 0;
+
+	std::size_t last = temp.find_first_of(":");
+	if (last == std::string::npos)
+		return 0;
+
+	std::string strNew = temp.substr(first + 1, last - (first + 1));
+	LOG(ERROR) << __func__ << "strNew:::-" << strNew.c_str();
+	return stol(strNew);
+}
+
+
+int NewAeroCacheStatReq(VmID vmid, AeroStats *aero_stats_p) {
+
+	LOG(ERROR) << __func__ << "START";
+	auto aero_conn = GetAeroConnUsingVmID(vmid);
+	auto aerop = aero_conn.get();
+	auto rc = 0;
+
+	auto managerp = SingletonHolder<VmManager>::GetInstance();
+	auto vmp = managerp->GetInstance(vmid);
+	if (pio_unlikely(not vmp)) {
+		LOG(ERROR) << "Given VmID is not present";
+		return -EINVAL;
+	}
+
+	std::ostringstream os_dirty;
+	os_dirty << "sets/DIRTY/" << vmp->GetJsonConfig()->GetTargetName();
+	LOG(ERROR) << __func__ << "Dirty cmd is::" << os_dirty.str();
+
+	std::ostringstream os_clean;
+	os_clean << "sets/CLEAN/" << vmp->GetJsonConfig()->GetTargetName();
+	LOG(ERROR) << __func__ << "Clean cmd is::" << os_clean.str();
+
+
+	auto aeroconf = aerop->GetJsonConfig();
+	std::string node_ips = aeroconf->GetAeroIPs();
+	LOG(ERROR) << __func__ << "ips are::" << node_ips.c_str();
+	std::vector<std::string> results;
+	boost::split(results, node_ips, boost::is_any_of(","));
+
+	uint32_t port;
+	as_error err;
+	aeroconf->GetAeroPort(port);
+	char* res = NULL;
+	for (auto node_ip : results) {
+		LOG(ERROR) << __func__ << "Node ip is::" << node_ip.c_str();
+		res = NULL;
+		if (aerospike_info_host(&aerop->as_, &err, NULL, node_ip.c_str(), port, os_dirty.str().c_str(), &res) != AEROSPIKE_OK) {
+			LOG(ERROR) << __func__ << " aerospike_info_host failed";
+			rc = -ENOMEM;
+			break;
+		} else if (res) {
+			LOG(ERROR) << __func__ << " aerospike_info_host command completed successfully for DIRTY ns, res::" << res;
+			LOG(ERROR) << __func__ << "Dirty block count ::" << GetObjectCount(res);
+			aero_stats_p->dirty_cnt_ += GetObjectCount(res);
+			free(res);
+		}
+
+		res = NULL;
+		if (aerospike_info_host(&aerop->as_, &err, NULL, node_ip.c_str(), port, os_clean.str().c_str(), &res) != AEROSPIKE_OK) {
+			LOG(ERROR) << __func__ << " aerospike_info_host failed";
+			rc = -ENOMEM;
+			break;
+		} else if (res) {
+			LOG(ERROR) << __func__ << " aerospike_info_host command completed successfully for CLEAN ns, res::" << res;
+			LOG(ERROR) << __func__ << "CLEAN block count ::" << GetObjectCount(res);
+			aero_stats_p->clean_cnt_ += GetObjectCount(res);
+			free(res);
+		}
+	}
+
+	if (!rc) {
+		LOG(ERROR) << __func__ << "Dirty cnt::" << aero_stats_p->dirty_cnt_;
+		LOG(ERROR) << __func__ << "Clean cnt::" << aero_stats_p->clean_cnt_;
+	} else {
+		LOG(ERROR) << __func__ << "Failed...";
+	}
+
+	return rc;
+}
 
 VmHandle NewVm(VmID vmid, const std::string& config) {
 	auto managerp = SingletonHolder<VmManager>::GetInstance();

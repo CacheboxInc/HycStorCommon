@@ -153,6 +153,12 @@ public:
 	std::atomic<uint64_t> r_pending_count{0}, w_pending_count{0};
 	std::mutex r_stat_lock_, w_stat_lock_;
 
+	std::atomic<unsigned long long> w_aero_total_latency_{0};
+	std::atomic<unsigned long long> r_aero_total_latency_{0};
+	std::atomic<uint64_t> w_aero_io_blks_count_{0};
+	std::atomic<uint64_t> r_aero_io_blks_count_{0};
+	std::mutex r_aero_stat_lock_, w_aero_stat_lock_;
+
 private:
 	folly::Future<int> WriteCommon(Request* reqp, ::ondisk::CheckPointID ckpt_id);
 	int WriteComplete(Request* reqp, ::ondisk::CheckPointID ckpt_id);
