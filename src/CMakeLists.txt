@@ -12,6 +12,11 @@ if(USE_NEP)
     add_definitions(-DUSE_NEP)
 endif(USE_NEP)
 
+OPTION(FILETARGET_ASYNC "To Use Async FileTarget Inteface. Set to OFF to use sync interface" ON)
+if(FILETARGET_ASYNC)
+    add_definitions(-DFILETARGET_ASYNC)
+endif(FILETARGET_ASYNC)
+
 set(ThriftLibs
 	thrift-core
 	protocol
@@ -68,6 +73,7 @@ set(LIBRARY_LIST
 	iberty
 	atomic
 	${ThriftLibs}
+	aio
 )
 
 if(USE_NEP)

@@ -12,6 +12,10 @@
 #include "DaemonTgtInterface.h"
 #include "Singleton.h"
 #include "MetaDataKV.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <iostream>
+#include <string>
 
 #if 0
 #define INJECT_AERO_WRITE_ERROR 0
@@ -74,7 +78,7 @@ int AeroSpike::WriteBatchInit(ActiveVmdk *vmdkp,
 
 	/* Create Batch write records */
 	for (auto block : process) {
-		auto rec = std::make_unique<WriteRecord>(block, w_batch_rec, ns);
+		auto rec = std::make_unique<WriteRecord>(block, w_batch_rec, ns, vmdkp);
 		if (pio_unlikely(not rec)) {
 			return -ENOMEM;
 		}
@@ -94,7 +98,7 @@ int AeroSpike::WriteBatchPrepare(ActiveVmdk *vmdkp,
 	for (auto& v_record : w_batch_rec->batch.recordsp_) {
 		auto record  = v_record.get();
 		auto rc = CacheIoWriteKeySet(vmdkp, record, reqp, ns,
-					w_batch_rec->setp_);
+					record->setp_);
 		if (pio_unlikely(rc < 0)) {
 			return rc;
 		}
@@ -168,9 +172,13 @@ static void WritePipeListener(void *udatap, as_event_loop *lp) {
 	log_assert(wrp && wrp->batchp_ && wrp->batchp_->req_);
 
 	auto batchp = wrp->batchp_;
-
 	std::unique_lock<std::mutex> b_lock(batchp->batch.lock_);
-	log_assert(batchp->batch.nsent_ < batchp->batch.nwrites_);
+	if (batchp->batch.nsent_ >= batchp->batch.nwrites_) {
+		LOG(ERROR) << __func__ << "nsent::" << batchp->batch.nsent_
+			<< "nwrites::" << batchp->batch.nwrites_;
+		log_assert(batchp->batch.nsent_ < batchp->batch.nwrites_);
+	}
+
 	log_assert(batchp->submitted_ == false);
 	batchp->batch.nsent_++;
 
@@ -288,11 +296,9 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 	rp  = &wrp->record_;
 	if (nwrites == 1) {
 		batchp->submitted_ = true;
-		batchp->batch.nsent_ = 1;
 		fnp = NULL;
 	} else {
 		batchp->submitted_ = false;
-		batchp->batch.nsent_ = 1;
 		fnp = WritePipeListener;
 	}
 
@@ -300,6 +306,7 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 	log_assert(lp != NULL);
 
 	batchp->q_lock_.lock();
+	batchp->batch.nsent_ = 1;
 	s = aerospike_key_put_async(&batchp->aero_conn_->as_,
 			&err, NULL, kp, rp,
 			WriteListener, (void *) wrp, lp, fnp);
@@ -391,7 +398,6 @@ folly::Future<int> AeroSpike::AeroWrite(ActiveVmdk *vmdkp, Request *reqp,
 			w_batch_rec = std::move(w_batch_rec),
 			promise = std::move(promise)] () mutable {
 		uint16_t nwrites = w_batch_rec->batch.nwrites_;
-
 		long long duration;
 		while(true) {
 			auto start_time = std::chrono::high_resolution_clock::now();
@@ -429,7 +435,6 @@ folly::Future<int> AeroSpike::AeroWrite(ActiveVmdk *vmdkp, Request *reqp,
 				", avg blk access latency:" << vmdkp->w_aero_total_latency_ / vmdkp->w_aero_io_blks_count_;
 		}
 		w_lock.unlock();
-
 		promise.setValue(0);
 	});
 	return fut;
@@ -460,7 +465,7 @@ int AeroSpike::CacheIoReadKeySet(ActiveVmdk *vmdkp, ReadRecord* rrecp,
 	recp->read_all_bins = true;
 
 	auto kp = as_key_init(&recp->key, ns.c_str(),
-		r_batch_rec->setp_.c_str(), rrecp->key_val_.c_str());
+		rrecp->setp_.c_str(), rrecp->key_val_.c_str());
 	if (pio_unlikely(kp == nullptr)) {
 		return -ENOMEM;
 	}
@@ -498,7 +503,8 @@ int AeroSpike::ReadBatchInit(ActiveVmdk *vmdkp,
 			continue;
 		}
 
-		auto rec = std::make_unique<ReadRecord>(block, r_batch_rec);
+		auto rec = std::make_unique<ReadRecord>(block, r_batch_rec,
+				ns, vmdkp, r_batch_rec->setp_);
 		if (pio_unlikely(not rec)) {
 			LOG(ERROR) << "ReadRecord allocation failed";
 			return -ENOMEM;
@@ -649,7 +655,6 @@ folly::Future<int> AeroSpike::AeroRead(ActiveVmdk *vmdkp, Request *reqp,
 		auto batchp = r_batch_rec.get();
 		uint16_t nreads = batchp->nreads_;
 		long long duration;
-
 		while(true) {
 			auto start_time = std::chrono::high_resolution_clock::now();
 			ReadBatchSubmit(batchp).wait();
@@ -1085,14 +1090,25 @@ folly::Future<int> AeroSpike::AeroDelCmdProcess(ActiveVmdk *vmdkp,
 	return AeroDel(vmdkp, reqp, ckpt, process, failed, ns, aero_conn);
 }
 
-WriteRecord::WriteRecord(RequestBlock* blockp, WriteBatch* batchp, const std::string& ns) :
-	rq_block_(blockp), batchp_(batchp) {
+WriteRecord::WriteRecord(RequestBlock* blockp, WriteBatch* batchp, const std::string& ns, ActiveVmdk *vmdkp) :
+	rq_block_(blockp), batchp_(batchp), setp_(batchp->setp_) {
 	std::ostringstream os;
 
 	if (ns == kAsNamespaceCacheClean) {
 		os << (batchp->pre_keyp_) << ":"
 		<< std::to_string(blockp->GetReadCheckPointId()) << ":"
 		<< std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
+
+		/* Set the setname from where we want to write */
+		if (blockp->GetReadCheckPointId() == MetaData_constants::kInvalidCheckPointID() + 1){
+			std::string parent_disk = vmdkp->GetJsonConfig()->GetParentDisk();
+			if (parent_disk.size()) {
+				setp_ = parent_disk;
+				os.str("");
+				os.clear();
+				os << std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
+			}
+		}
 	} else {
 		os << (batchp->pre_keyp_) << ":"
 		<< std::to_string(batchp->ckpt_) << ":"
@@ -1100,7 +1116,7 @@ WriteRecord::WriteRecord(RequestBlock* blockp, WriteBatch* batchp, const std::st
 	}
 
 	key_val_ = os.str();
-	//LOG(ERROR) << __func__ << "::Key is::" << key_val_;
+//	LOG(ERROR) << __func__ << "::Key is::" << key_val_;
 }
 
 WriteRecord::~WriteRecord() {
@@ -1112,12 +1128,26 @@ WriteBatch::WriteBatch(Request* reqp, const VmdkID& vmdkid,
 		: req_(reqp), pre_keyp_(vmdkid), ns_(ns), setp_(set) {
 }
 
-ReadRecord::ReadRecord(RequestBlock* blockp, ReadBatch* batchp) :
-		rq_block_(blockp), batchp_(batchp) {
+ReadRecord::ReadRecord(RequestBlock* blockp, ReadBatch* batchp, const std::string& ns,
+		ActiveVmdk *vmdkp, const std::string& setp) :
+		rq_block_(blockp), batchp_(batchp), setp_(setp) {
 	std::ostringstream os;
 	os << batchp->pre_keyp_ << ":"
 		<< std::to_string(blockp->GetReadCheckPointId()) << ":"
 		<< std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
+	if (ns == kAsNamespaceCacheClean) {
+		if (blockp->GetReadCheckPointId() ==
+			MetaData_constants::kInvalidCheckPointID() + 1) {
+			std::string parent_disk;
+			parent_disk = vmdkp->GetJsonConfig()->GetParentDisk();
+			if (parent_disk.size()) {
+				setp_ = parent_disk;
+				os.str("");
+				os.clear();
+				os << std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
+			}
+		}
+	}
 	key_val_ = os.str();
 }
 

@@ -123,7 +123,46 @@ folly::Future<int> CacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock *>& failed) {
 	log_assert(headp_);
 	reqp->active_level++;
-	return headp_->Write(vmdkp, reqp, ckpt, process, failed);
+	return headp_->Write(vmdkp, reqp, ckpt, process, failed)
+	.then([this, vmdkp, reqp, &process, &failed] (int rc) mutable -> folly::Future<int> {
+
+		/* Write from CacheLayer complete */
+		if (pio_unlikely(rc != 0)) {
+			/* Failed Return error, miss is not a failed case*/
+			LOG(ERROR) << __func__ << "Error in reading from Cache Layer";
+			return rc;
+		}
+
+		/* No write miss to process, return from here */
+		if (failed.size() == 0) {
+			return 0;
+		}
+
+		if (pio_unlikely(not nextp_)) {
+			LOG(ERROR) << __func__ << "No Target handler registered";
+			failed.reserve(process.size());
+			std::copy(process.begin(), process.end(), std::back_inserter(failed));
+			return -ENODEV;
+		}
+
+		/* Handle Write Miss */
+		auto write_missed = std::make_unique<std::remove_reference<decltype(failed)>::type>();
+		write_missed->swap(failed);
+		failed.clear();
+
+		/* Read from next StorageLayer - probably Network or File */
+		return nextp_->Write(vmdkp, reqp, 0, *write_missed, failed)
+		.then([this, vmdkp, reqp, write_missed = std::move(write_missed), &process, &failed] (int rc)
+				mutable -> folly::Future<int> {
+			if (pio_unlikely(rc != 0)) {
+				LOG(ERROR) << __func__ << "Writing on TargetHandler layer failed";
+				return rc;
+			}
+
+			log_assert(failed.empty());
+			return 0;
+		});
+	});
 }
 
 folly::Future<int> CacheHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
@@ -161,7 +200,6 @@ folly::Future<int> CacheHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
 		return nextp_->Write(vmdkp, reqp, 0, process, failed)
 		.then([this, vmdkp, reqp, &process, &failed] (int rc)
 				mutable -> folly::Future<int> {
-			LOG(ERROR) << __func__ << "In future context before on prem write";
 			if (pio_unlikely(rc != 0)) {
 				LOG(ERROR) << __func__ << "In future context on prem write error";
 				log_assert(not failed.empty());

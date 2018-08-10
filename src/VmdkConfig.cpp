@@ -55,12 +55,26 @@ const std::string VmdkConfig::kDevPath = "DevPath";
 const std::string VmdkConfig::kRamMetaDataKV = "RamMetaDataKV";
 const std::string VmdkConfig::kAeroMetaDataKV = "AeroMetaDataKV";
 const std::string VmdkConfig::kMetaDataKV = "MetaDataKV";
+const std::string VmdkConfig::kParentDiskName = "ParentDiskName";
 
 VmdkConfig::VmdkConfig(const std::string& config) : JsonConfig(config) {
 }
 
 VmdkConfig::VmdkConfig() {
 
+}
+
+void VmdkConfig::SetParentDisk(const std::string& parent_name) {
+	return JsonConfig::SetKey(kParentDiskName, parent_name);
+}
+
+std::string VmdkConfig::GetParentDisk() const {
+	std::string name;
+	auto rc = JsonConfig::GetKey(kParentDiskName, name);
+	if (not rc) {
+		name.clear();
+	}
+	return name;
 }
 
 void VmdkConfig::SetVmdkId(const VmdkID& id) {

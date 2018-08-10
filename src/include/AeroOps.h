@@ -18,6 +18,7 @@
 #include "AeroConn.h"
 #include "AeroFiberThreads.h"
 #include "VmConfig.h"
+#include "VmdkConfig.h"
 #include "MetaDataKV.h"
 #include <aerospike/aerospike_info.h>
 
@@ -32,7 +33,7 @@ const std::string kAsMetaBin = "meta_map";
 struct WriteBatch;
 struct WriteRecord {
 public:
-	WriteRecord(RequestBlock* blockp, WriteBatch* batchp, const std::string& ns);
+	WriteRecord(RequestBlock* blockp, WriteBatch* batchp, const std::string& ns, ActiveVmdk *vmdkp);
 	WriteRecord(){};
 	~WriteRecord();
 
@@ -42,6 +43,7 @@ public:
 	as_key key_;
 	as_record record_;
 	as_status status_{AEROSPIKE_ERR};
+	std::string setp_;
 };
 
 struct WriteBatch {
@@ -51,7 +53,7 @@ struct WriteBatch {
 	Request* req_{nullptr};
 	const ::ondisk::VmdkID& pre_keyp_;
 	const std::string& ns_;
-	const std::string setp_;
+	std::string setp_;
 
 	struct {
 		std::mutex lock_;
@@ -81,13 +83,16 @@ struct WriteBatch {
 struct ReadBatch;
 struct ReadRecord {
 public:
-	ReadRecord(RequestBlock* blockp, ReadBatch* batchp);
+	ReadRecord(RequestBlock* blockp, ReadBatch* batchp,
+		const std::string& ns, ActiveVmdk *vmdkp,
+		const std::string& setp);
 	ReadRecord() {};
 	RequestBlock* rq_block_;
 	ReadBatch* batchp_;
 	as_status status_{AEROSPIKE_ERR};
 	std::string key_val_;
 	as_batch_read_record *aero_recp_;
+	std::string setp_;
 };
 
 struct ReadBatch {

@@ -5,7 +5,7 @@ if [ "$#" -ne 0 ];then
 fi
 
 TargetName="tgt${ID}"
-TargetIP="192.168.5.138"
+TargetIP=`ip route get 8.8.8.8 | sed -n '/src/{s/.*src *//p;q}'`
 #iscsiadm -m node --logout
 #iscsiadm -m node -o delete
 

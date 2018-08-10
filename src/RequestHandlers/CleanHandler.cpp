@@ -28,9 +28,15 @@ folly::Future<int> CleanHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	auto aero_conn = pio::GetAeroConn(vmdkp);
 	if (pio_unlikely(aero_conn == nullptr)) {
 		if (pio_unlikely(not nextp_)) {
+
+			/* If aerospike is not configured then don't treat
+			 * this as error, there may be a Lower layer which can
+			 * handle read misses
+			 */
+
 			failed.reserve(process.size());
 			std::copy(process.begin(), process.end(), std::back_inserter(failed));
-			return -ENODEV;
+			return 0;
 		} else {
 			return nextp_->Read(vmdkp, reqp, process, failed);
 		}
@@ -68,13 +74,36 @@ folly::Future<int> CleanHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	failed.clear();
-	if (pio_unlikely(not nextp_)) {
-		failed.reserve(process.size());
-		std::copy(process.begin(), process.end(), std::back_inserter(failed));
-		return -ENODEV;
+	auto aero_conn = pio::GetAeroConn(vmdkp);
+	if (pio_unlikely(aero_conn == nullptr)) {
+		if (pio_unlikely(not nextp_)) {
+
+			/* If aerospike is not configured then don't treat
+			 * this as error, there may be Lower layer which can
+			 * handle writes
+			 */
+
+			failed.reserve(process.size());
+			std::copy(process.begin(), process.end(), std::back_inserter(failed));
+			return 0;
+		} else {
+			return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
+		}
 	}
 
-	return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
+	return aero_obj_->AeroWriteCmdProcess(vmdkp, reqp, 0, process, failed,
+		kAsNamespaceCacheClean, aero_conn)
+	.then([this, vmdkp, reqp, &process, &failed] (int rc) mutable {
+		if (pio_unlikely(rc != 0)) {
+			LOG(ERROR) << __func__ << "Returning AeroWriteCmdProcess ERROR";
+			return rc;
+		}
+		failed.clear();
+		for (auto blockp : process) {
+			blockp->SetResult(0, RequestStatus::kSuccess);
+		}
+		return 0;
+	});
 }
 
 folly::Future<int> CleanHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
@@ -85,10 +114,12 @@ folly::Future<int> CleanHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 	auto aero_conn = pio::GetAeroConn(vmdkp);
 	if (pio_unlikely(aero_conn == nullptr)) {
 		if (pio_unlikely(not nextp_)) {
-			failed.reserve(process.size());
-			std::copy(process.begin(), process.end(),
-					std::back_inserter(failed));
-			return -ENODEV;
+
+			/* If aerospike is not configured then don't treat
+			 * this as error, ignore the read populate.
+			 */
+
+			return 0;
 		} else {
 			return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 		}

@@ -19,6 +19,8 @@ public:
 	bool GetVmId(::ondisk::VmID& id) const;
 	void SetBlockSize(uint32_t size);
 	bool GetBlockSize(uint32_t& size) const;
+	void SetParentDisk(const std::string& parent_name);
+	std::string GetParentDisk() const;
 
 	void DisableCompression();
 	void ConfigureCompression(const std::string& algo, uint16_t level);
@@ -115,6 +117,7 @@ public:
 	static const std::string kRamMetaDataKV;
 	static const std::string kAeroMetaDataKV;
 	static const std::string kMetaDataKV;
+	static const std::string kParentDiskName;
 };
 
 std::ostream& operator <<(std::ostream& os, const VmdkConfig::ErrorType& type);

@@ -29,6 +29,7 @@ namespace pio {
 
 const std::string CheckPoint::kCheckPoint = "CheckPoint";
 uint32_t kFlushPendingLimit = 32;
+#define MAX_FLUSH_SIZE_IO 1024 * 1024
 
 Vmdk::Vmdk(VmdkHandle handle, VmdkID&& id) : handle_(handle), id_(std::move(id)) {
 }
@@ -546,22 +547,43 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 	 */
 
 	aux_info_->InitState(FlushAuxData::FlushStageType::kFlushStage);
-	int32_t size = BlockSize();
+	int32_t size = 0;
 
 	auto ckptp = GetCheckPoint(ckpt_id);
 	log_assert(ckptp != nullptr);
 	log_assert(ckptp->IsFlushed() == false);
 
 	auto min_max = std::make_pair(ckpt_id, ckpt_id);
+	int64_t prev_block = -1, cur_block = -1, start_block = -1;
+	uint32_t block_cnt = 0;
 
 	const auto& bitmap = ckptp->GetRoaringBitMap();
 	for (const auto& block : bitmap) {
 
-		/* TBD: Try to generate WAN (as well as on prem disk)
-		 * friendly IO's by doing look ahead in checkpoint
+		/* TBD: Try to generate WAN (on prem disk) friendly
+		 * IO's by doing look ahead in checkpoint
 		 * bitmap and probably generating large sequential
 		 * requests.
 		 */
+
+		if (start_block == -1) {
+			start_block = block;
+		}
+
+		cur_block = block;
+		if (prev_block == -1) {
+			/* Initial, very first */
+			prev_block = cur_block;
+			block_cnt = 1;
+			continue;
+		} else if (prev_block + 1 == cur_block) {
+			/* Sequential, can we accomadate it */
+			if (BlockSize() * (block_cnt + 1) <= MAX_FLUSH_SIZE_IO) {
+				prev_block = cur_block;
+				block_cnt++;
+				continue;
+			}
+		}
 
 		aux_info_->lock_.lock();
 		if (aux_info_->failed_) {
@@ -581,6 +603,80 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 
 		aux_info_->pending_cnt_++;
 		aux_info_->lock_.unlock();
+
+		size = block_cnt * BlockSize();
+		LOG (ERROR) << "blk count::" << block_cnt
+			<< "start block::" << start_block << "size::" << size;
+		auto iobuf = NewRequestBuffer(size);
+		if (pio_unlikely(not iobuf)) {
+			throw std::bad_alloc();
+			aux_info_->failed_ = true;
+			break;
+		}
+
+		++aux_info_->reqid_;
+		auto reqp = std::make_unique<Request>(aux_info_->reqid_, this,
+				Request::Type::kRead,
+				iobuf->Payload(), size, size, start_block * BlockSize());
+		reqp->SetFlushReq();
+		reqp->SetFlushCkptID(ckpt_id);
+
+		this->Flush(reqp.get(), min_max)
+		.then([this, iobuf = std::move(iobuf), reqp = std::move(reqp)] (int rc) mutable {
+
+			/* TBD : Free the created IO buffer */
+			this->aux_info_->lock_.lock();
+			aux_info_->pending_cnt_--;
+
+			/* If some of the requests has failed then don't submit new ones */
+			if (pio_unlikely(rc)) {
+				LOG(ERROR) << "Some of the flush request failed";
+				aux_info_->failed_ = true;
+			}
+
+			if (aux_info_->sleeping_) {
+
+				/*
+				 * Sleeping in done context then wakeup from
+				 * last completion otherwise wakeup to continue
+				 * the pipeline
+				 */
+
+				if (aux_info_->done_) {
+					if (!aux_info_->pending_cnt_) {
+						aux_info_->sleeping_ = false;
+						aux_info_->rendez_.TaskWakeUp();
+					}
+				} else {
+					aux_info_->sleeping_ = false;
+					aux_info_->rendez_.TaskWakeUp();
+				}
+			}
+
+			++aux_info_->flushed_blks_;
+			aux_info_->lock_.unlock();
+		});
+
+		/* Adjust the values before moving ahead */
+		start_block = cur_block;
+		prev_block = cur_block;
+		block_cnt = 1;
+		size = 0;
+	}
+
+	LOG (ERROR) << "Outside the loop";
+	LOG (ERROR) << "blk count::" << block_cnt
+		<< "start block::" << start_block << "size::" << size;
+	/* Submit any last pending accumlated IOs */
+	aux_info_->lock_.lock();
+	if (aux_info_->failed_ || block_cnt == 0) {
+		aux_info_->lock_.unlock();
+	} else {
+		aux_info_->pending_cnt_++;
+		aux_info_->lock_.unlock();
+		size = block_cnt * BlockSize();
+		LOG (ERROR) << "blk count::" << block_cnt
+			<< "start block::" << start_block << "size::" << size;
 		auto iobuf = NewRequestBuffer(size);
 		if (pio_unlikely(not iobuf)) {
 			throw std::bad_alloc();
@@ -588,8 +684,8 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 
 		++aux_info_->reqid_;
 		auto reqp = std::make_unique<Request>(aux_info_->reqid_, this,
-				Request::Type::kRead,
-				iobuf->Payload(), size, size, block * BlockSize());
+			Request::Type::kRead,
+			iobuf->Payload(), size, size, start_block * BlockSize());
 		reqp->SetFlushReq();
 		reqp->SetFlushCkptID(ckpt_id);
 
