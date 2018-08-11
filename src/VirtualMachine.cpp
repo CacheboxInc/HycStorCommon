@@ -9,6 +9,9 @@
 #include "VmConfig.h"
 #include "FlushManager.h"
 #include "Singleton.h"
+#include <aerospike/aerospike_info.h>
+#include <boost/algorithm/string.hpp>
+#include "AeroOps.h"
 
 using namespace ::hyc_thrift;
 using namespace ::ondisk;
@@ -146,6 +149,113 @@ int VirtualMachine::FlushStatus(flush_stats &flush_stat) {
 		flush_stat.emplace(vmdkp->GetID(), disk_stats);
 	}
 	return 0;
+}
+
+/*
+ * Output :res::sets/CLEAN/tgt1	objects=132:tombstones=0:memory_data_bytes=0:truncate_lut=0:deleting=false:stop-writes-count=0:set-enable-xdr=use-default:disable-eviction=false;
+ */
+
+uint64_t GetObjectCount(char *res) {
+
+	if (res == NULL || strlen(res) == 0 ) {
+		return 0;
+	}
+
+	std::string temp = res;
+	std::size_t first = temp.find_first_of("=");
+	if (first == std::string::npos)
+		return 0;
+
+	std::size_t last = temp.find_first_of(":");
+	if (last == std::string::npos)
+		return 0;
+
+	std::string strNew = temp.substr(first + 1, last - (first + 1));
+	LOG(ERROR) << __func__ << "strNew:::-" << strNew.c_str();
+	return stol(strNew);
+}
+
+int VirtualMachine::AeroCacheStats(AeroStats *aero_statsp, AeroSpikeConn *aerop) {
+
+	std::ostringstream os_dirty;
+	auto tgtname = GetJsonConfig()->GetTargetName();
+	os_dirty << "sets/DIRTY/" << tgtname;
+	LOG(ERROR) << __func__ << "Dirty cmd is::" << os_dirty.str();
+
+	std::ostringstream os_clean;
+	os_clean << "sets/CLEAN/" << tgtname;
+	LOG(ERROR) << __func__ << "Clean cmd is::" << os_clean.str();
+
+	auto aeroconf = aerop->GetJsonConfig();
+	std::string node_ips = aeroconf->GetAeroIPs();
+	LOG(ERROR) << __func__ << "ips are::" << node_ips.c_str();
+
+	std::vector<std::string> results;
+	boost::split(results, node_ips, boost::is_any_of(","));
+	uint32_t port;
+	aeroconf->GetAeroPort(port);
+
+	char* res = NULL;
+	auto rc = 0;
+	as_error err;
+	std::ostringstream os_parent;
+	for (auto node_ip : results) {
+		LOG(ERROR) << __func__ << "Node ip is::" << node_ip.c_str();
+		res = NULL;
+		if (aerospike_info_host(&aerop->as_, &err, NULL, node_ip.c_str(), port, os_dirty.str().c_str(), &res) != AEROSPIKE_OK) {
+			LOG(ERROR) << __func__ << " aerospike_info_host failed";
+			rc = -ENOMEM;
+			break;
+		} else if (res) {
+			LOG(ERROR) << __func__ << " aerospike_info_host command completed successfully for DIRTY ns, res::" << res;
+			LOG(ERROR) << __func__ << "Dirty block count ::" << GetObjectCount(res);
+			aero_statsp->dirty_cnt_ += GetObjectCount(res);
+			free(res);
+		}
+
+		res = NULL;
+		if (aerospike_info_host(&aerop->as_, &err, NULL, node_ip.c_str(), port, os_clean.str().c_str(), &res) != AEROSPIKE_OK) {
+			LOG(ERROR) << __func__ << " aerospike_info_host failed";
+			rc = -ENOMEM;
+			break;
+		} else if (res) {
+			LOG(ERROR) << __func__ << " aerospike_info_host command completed successfully for CLEAN ns, res::" << res;
+			LOG(ERROR) << __func__ << "CLEAN block count ::" << GetObjectCount(res);
+			aero_statsp->clean_cnt_ += GetObjectCount(res);
+			free(res);
+		}
+
+		std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+		for (const auto& vmdkp : vmdk_.list_) {
+			/* Loop on each disk for this disk to get the Parent Cache stats */
+			auto parent_disk = vmdkp->GetJsonConfig()->GetParentDisk();
+			if (pio_unlikely(!parent_disk.size())) {
+				continue;
+			}
+
+			os_parent.str("");
+			os_parent.clear();
+			os_parent << "sets/CLEAN/" << parent_disk;
+			LOG(ERROR) << __func__ << "Parent set cmd is::" << os_parent.str();
+			if (aerospike_info_host(&aerop->as_, &err, NULL, node_ip.c_str(),
+					port, os_parent.str().c_str(), &res) != AEROSPIKE_OK) {
+				LOG(ERROR) << __func__ << " aerospike_info_host failed";
+				rc = -ENOMEM;
+				break;
+			} else if (res) {
+				LOG(ERROR) << __func__ << " aerospike_info_host command completed successfully for Parent ns, res::" << res;
+				LOG(ERROR) << __func__ << "Parent block count ::" << GetObjectCount(res);
+				aero_statsp->parent_cnt_ += GetObjectCount(res);
+				free(res);
+			}
+		}
+
+		if (rc) {
+			break;
+		}
+	}
+
+	return rc;
 }
 
 int VirtualMachine::FlushStart(CheckPointID ckpt_id) {

@@ -45,7 +45,7 @@
  * like ignore EEXIST on subsquent calls.
  */
 
-#define MAX_PENDING_LIMIT 20
+#define MAX_PENDING_LIMIT 50
 #define MAX_W_IOS_IN_HISTORY 100000
 #define MAX_R_IOS_IN_HISTORY 100000
 

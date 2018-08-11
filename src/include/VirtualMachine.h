@@ -14,6 +14,7 @@
 #include "gen-cpp2/MetaData_constants.h"
 #include "gen-cpp2/StorRpc_types.h"
 #include "DaemonCommon.h"
+#include "AeroConn.h"
 
 using namespace ::hyc_thrift;
 
@@ -50,6 +51,7 @@ public:
 	folly::Future<CheckPointResult> TakeCheckPoint();
 	int FlushStart(::ondisk::CheckPointID ckpt_id);
 	int FlushStatus(flush_stats &flush_stat);
+	int AeroCacheStats(AeroStats *aero_statsp, AeroSpikeConn *aerop);
 	folly::Future<int> Stun(::ondisk::CheckPointID ckpt_id);
 
 public:
