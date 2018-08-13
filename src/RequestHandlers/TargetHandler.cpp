@@ -90,7 +90,7 @@ folly::Future<int> TargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	}
 
 	return promise->getFuture()
-	.then([this, vmdkp, reqp, io, req_blocks, promise, &process, &failed] (int rc) mutable {
+	.then([io, req_blocks, promise, &process, &failed] (int rc) mutable {
 
 		if (rc != 0) {
 			failed.reserve(process.size());
@@ -150,7 +150,7 @@ folly::Future<int> TargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 	}
 
 	return promise->getFuture()
-	.then([this, vmdkp, reqp, ckpt, io, promise, &process, &failed] (int rc) mutable {
+	.then([io, promise, &process, &failed] (int rc) mutable {
 		#if 0
 		LOG(ERROR) << __func__ << "In TargetHandler::Write future";
 		#endif
