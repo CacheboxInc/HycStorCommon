@@ -323,7 +323,7 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 
 	batchp->q_lock_.unlock();
 	return batchp->promise_->getFuture()
-	.then([this, batchp, lp] (int rc) mutable {
+	.then([batchp] (int rc) mutable {
 		log_assert(batchp->submitted_ == true);
 		batchp->submitted_ = 0;
 
@@ -374,39 +374,37 @@ folly::Future<int> AeroSpike::AeroWrite(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
-	auto w_batch_rec = std::make_unique<WriteBatch>(reqp, vmdkp->GetID(), ns,
+	auto batch = std::make_unique<WriteBatch>(reqp, vmdkp->GetID(), ns,
 		vmdkp->GetVM()->GetJsonConfig()->GetTargetName());
-	if (pio_unlikely(w_batch_rec == nullptr)) {
+	if (pio_unlikely(batch == nullptr)) {
 		LOG(ERROR) << "WriteBatch allocation failed";
 		return -ENOMEM;
 	}
 
-	w_batch_rec->batch.nwrites_ = process.size();
-	w_batch_rec->ckpt_ = ckpt;
-	w_batch_rec->aero_conn_ = aero_conn.get();
-	log_assert(w_batch_rec->aero_conn_ != nullptr);
+	batch->batch.nwrites_ = process.size();
+	batch->ckpt_ = ckpt;
+	batch->aero_conn_ = aero_conn.get();
+	log_assert(batch->aero_conn_ != nullptr);
 
-	auto rc = WriteBatchPrepare(vmdkp, process, reqp, w_batch_rec.get(), ns);
+	auto rc = WriteBatchPrepare(vmdkp, process, reqp, batch.get(), ns);
 	if (pio_unlikely(rc < 0)) {
 		return rc;
 	}
 
 	folly::Promise<int> promise;
 	auto fut = promise.getFuture();
-	instance_->threadpool_.pool_->AddTask([this,
-			vmdkp, reqp, &process, &failed,
-			w_batch_rec = std::move(w_batch_rec),
+	instance_->threadpool_.pool_->AddTask([this, vmdkp, batch = std::move(batch),
 			promise = std::move(promise)] () mutable {
-		uint16_t nwrites = w_batch_rec->batch.nwrites_;
+		const auto nwrites = batch->batch.nwrites_;
 		long long duration;
-		while(true) {
+		while (true) {
 			auto start_time = std::chrono::high_resolution_clock::now();
-			WriteBatchSubmit(w_batch_rec.get()).wait();
+			WriteBatchSubmit(batch.get()).wait();
 			auto end_time = std::chrono::high_resolution_clock::now();
 			/* Error case and retyr_cnt is still non zero */
-			if (w_batch_rec->retry_ && w_batch_rec->retry_cnt_) {
-				--w_batch_rec->retry_cnt_;
-				ResetWriteBatchState(w_batch_rec.get(), nwrites);
+			if (batch->retry_ && batch->retry_cnt_) {
+				--batch->retry_cnt_;
+				ResetWriteBatchState(batch.get(), nwrites);
 
 				/* Wait for 100ms before retry */
 				add_delay(100);
@@ -417,7 +415,7 @@ folly::Future<int> AeroSpike::AeroWrite(ActiveVmdk *vmdkp, Request *reqp,
 		}
 
 		std::unique_lock<std::mutex> w_lock(vmdkp->w_aero_stat_lock_);
-		if (pio_unlikely(!w_batch_rec->failed_)) {
+		if (pio_unlikely(!batch->failed_)) {
 			if ((vmdkp->w_aero_total_latency_ + duration) < vmdkp->w_aero_total_latency_ ||
 					vmdkp->w_aero_io_blks_count_ > MAX_W_IOS_IN_HISTORY) {
 					vmdkp->w_aero_total_latency_ = 0;
@@ -595,7 +593,7 @@ folly::Future<int> AeroSpike::ReadBatchSubmit(ReadBatch *batchp) {
 
 	batchp->q_lock_.unlock();
 	return batchp->promise_->getFuture()
-	.then([this, batchp, loopp] (int rc) mutable {
+	.then([batchp] (int rc) mutable {
 		as_monitor_notify(&batchp->aero_conn_->as_mon_);
 		switch (batchp->as_result_) {
 			case AEROSPIKE_OK:
@@ -990,7 +988,7 @@ folly::Future<int> AeroSpike::DelBatchSubmit(DelBatch *batchp) {
 
 	batchp->q_lock_.unlock();
 	return batchp->promise_->getFuture()
-	.then([this, batchp, ndeletes, loopp] (int rc) mutable {
+	.then([batchp] (int rc) mutable {
 		log_assert(batchp->submitted_ == true);
 		batchp->submitted_ = 0;
 
@@ -1037,35 +1035,33 @@ folly::Future<int> AeroSpike::AeroDel(ActiveVmdk *vmdkp, Request *reqp, CheckPoi
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
 	/* Create Batch write records */
-	auto d_batch_rec = std::make_unique<DelBatch>(reqp, vmdkp->GetID(),
+	auto batch = std::make_unique<DelBatch>(reqp, vmdkp->GetID(),
 			ns, (vmdkp->GetVM()->GetJsonConfig())->GetTargetName());
-	if (pio_unlikely(d_batch_rec == nullptr)) {
+	if (pio_unlikely(batch == nullptr)) {
 		LOG(ERROR) << "DelBatch allocation failed";
 		return -ENOMEM;
 	}
 
-	d_batch_rec->batch.ndeletes_ = process.size();
-	d_batch_rec->ckpt_ = ckpt;
-	d_batch_rec->aero_conn_ = aero_conn.get();
-	log_assert(d_batch_rec->aero_conn_ != nullptr);
-	auto rc = DelBatchPrepare(vmdkp, process, reqp, d_batch_rec.get(), ns);
+	batch->batch.ndeletes_ = process.size();
+	batch->ckpt_ = ckpt;
+	batch->aero_conn_ = aero_conn.get();
+	log_assert(batch->aero_conn_ != nullptr);
+	auto rc = DelBatchPrepare(vmdkp, process, reqp, batch.get(), ns);
 	if (pio_unlikely(rc < 0)) {
 		return rc;
 	}
 
 	folly::Promise<int> promise;
 	auto fut = promise.getFuture();
-	instance_->threadpool_.pool_->AddTask([this,
-			vmdkp, reqp, &process, &failed,
-			d_batch_rec = std::move(d_batch_rec),
+	instance_->threadpool_.pool_->AddTask([this, batch = std::move(batch),
 			promise = std::move(promise)] () mutable {
-		uint16_t ndeletes = d_batch_rec->batch.ndeletes_;
+		const auto ndeletes = batch->batch.ndeletes_;
 		while(true) {
-			DelBatchSubmit(d_batch_rec.get()).wait();
+			DelBatchSubmit(batch.get()).wait();
 			/* Error case and retyr_cnt is still non zero */
-			if (d_batch_rec->retry_ && d_batch_rec->retry_cnt_) {
-				--d_batch_rec->retry_cnt_;
-				ResetDelBatchState(d_batch_rec.get(), ndeletes);
+			if (batch->retry_ && batch->retry_cnt_) {
+				--batch->retry_cnt_;
+				ResetDelBatchState(batch.get(), ndeletes);
 				/* Wait for 100ms before retry */
 				add_delay(100);
 			} else {
@@ -1225,8 +1221,7 @@ folly::Future<int> AeroSpike::AeroMetaWrite(ActiveVmdk *vmdkp,
 	w_batch_rec->promise_ = std::make_unique<folly::Promise<int>>();
 
 	return WriteBatchSubmit(w_batch_rec.get())
-	.then([w_batch_rec = std::move(w_batch_rec),
-		vmdkp, key, value, aero_conn] (int rc) mutable {
+	.then([w_batch_rec = std::move(w_batch_rec)] (int rc) mutable {
 		return rc;
 	}).wait();
 }
@@ -1293,9 +1288,8 @@ folly::Future<int> AeroSpike::AeroMetaRead(ActiveVmdk *vmdkp,
 	r_batch_rec->promise_ = std::make_unique<folly::Promise<int>>();
 
 	return ReadBatchSubmit(r_batch_rec.get())
-	.then([r_batch_rec = std::move(r_batch_rec),
-		vmdkp, key, value, aero_conn] (int rc) mutable {
-
+	.then([r_batch_rec = std::move(r_batch_rec), key, value, aero_conn]
+			(int rc) mutable {
 		if (pio_unlikely(rc < 0)) {
 			LOG(ERROR) <<__func__ << "read_batch_submit failed";
 			return rc;

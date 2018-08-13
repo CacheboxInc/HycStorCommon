@@ -5,9 +5,11 @@ add_executable(VmConfig
 )
 
 target_link_libraries(VmConfig
+	-Wl,--start-group
 	CommonLib
 	StorageLayer
 	${LIBRARY_LIST}
+	-Wl,--end-group
 )
 
 add_executable(VmdkConfig
@@ -15,9 +17,11 @@ add_executable(VmdkConfig
 )
 
 target_link_libraries(VmdkConfig
+	-Wl,--start-group
 	CommonLib
 	StorageLayer
 	${LIBRARY_LIST}
+	-Wl,--end-group
 )
 
 add_executable(AeroConfig
@@ -25,7 +29,9 @@ add_executable(AeroConfig
 )
 
 target_link_libraries(AeroConfig
+	-Wl,--start-group
 	CommonLib
 	StorageLayer
 	${LIBRARY_LIST}
+	-Wl,--end-group
 )

@@ -92,7 +92,7 @@ folly::Future<int> CacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 
 		/* Read from next StorageLayer - probably Network or File */
 		return nextp_->Read(vmdkp, reqp, *read_missed, failed)
-		.then([this, vmdkp, reqp, read_missed = std::move(read_missed), &process, &failed] (int rc)
+		.then([this, vmdkp, reqp, read_missed = std::move(read_missed), failed] (int rc)
 				mutable -> folly::Future<int> {
 			if (pio_unlikely(rc != 0)) {
 				LOG(ERROR) << __func__ << "Reading from TargetHandler layer for read populate failed";
@@ -107,8 +107,8 @@ folly::Future<int> CacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 
 			/* now read populate */
 			return this->ReadPopulate(vmdkp, reqp, *read_missed, failed)
-			.then([this, vmdkp, reqp, read_missed = std::move(read_missed), &process, &failed] (int rc)
-					-> folly::Future<int> {
+			.then([read_missed = std::move(read_missed)]
+					(int rc) -> folly::Future<int> {
 				if (rc) {
 					LOG(ERROR) << __func__ << "Cache (Read) populate failed";
 				}
@@ -152,8 +152,8 @@ folly::Future<int> CacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 
 		/* Read from next StorageLayer - probably Network or File */
 		return nextp_->Write(vmdkp, reqp, 0, *write_missed, failed)
-		.then([this, vmdkp, reqp, write_missed = std::move(write_missed), &process, &failed] (int rc)
-				mutable -> folly::Future<int> {
+		.then([write_missed = std::move(write_missed), &failed] (int rc)
+					mutable -> folly::Future<int> {
 			if (pio_unlikely(rc != 0)) {
 				LOG(ERROR) << __func__ << "Writing on TargetHandler layer failed";
 				return rc;
@@ -198,8 +198,7 @@ folly::Future<int> CacheHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
 
 		/* Write on prem, Next layer is target handler layer */
 		return nextp_->Write(vmdkp, reqp, 0, process, failed)
-		.then([this, vmdkp, reqp, &process, &failed] (int rc)
-				mutable -> folly::Future<int> {
+		.then([&failed] (int rc) mutable -> folly::Future<int> {
 			if (pio_unlikely(rc != 0)) {
 				LOG(ERROR) << __func__ << "In future context on prem write error";
 				log_assert(not failed.empty());

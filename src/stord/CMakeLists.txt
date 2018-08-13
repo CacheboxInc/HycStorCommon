@@ -27,7 +27,6 @@ target_link_libraries(stord
 	ssl
 	crypto
 	double-conversion
-	gss
 	gssapi_krb5
 	CommonLib
 	StorRpcLib

@@ -11,9 +11,11 @@ add_executable(CommonTests
 )
 
 target_link_libraries(CommonTests
+	-Wl,--start-group
 	gtest
 	CommonLib
 	${LIBRARY_LIST}
+	-Wl,--end-group
 )
 
 ADD_TEST(CommonTests CommonTests ${PROJECT_SOURCE_DIR})
