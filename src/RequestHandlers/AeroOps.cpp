@@ -649,13 +649,13 @@ folly::Future<int> AeroSpike::AeroRead(ActiveVmdk *vmdkp, Request *reqp,
 
 	folly::Promise<int> promise;
 	auto fut = promise.getFuture();
-	instance_->threadpool_.pool_->AddTask([this, r_batch_rec = std::move(r_batch_rec),
-		vmdkp, process, failed, reqp, promise = std::move(promise)] () mutable {
-
+	instance_->threadpool_.pool_->AddTask([this, vmdkp, &failed,
+			r_batch_rec = std::move(r_batch_rec),
+			promise = std::move(promise)] () mutable {
 		auto batchp = r_batch_rec.get();
-		uint16_t nreads = batchp->nreads_;
+		const auto nreads = batchp->nreads_;
 		long long duration;
-		while(true) {
+		while (true) {
 			auto start_time = std::chrono::high_resolution_clock::now();
 			ReadBatchSubmit(batchp).wait();
 			auto end_time = std::chrono::high_resolution_clock::now();
