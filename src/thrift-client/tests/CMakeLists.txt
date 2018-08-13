@@ -11,7 +11,6 @@ target_link_libraries(TgtInterfaceImplTest
 	ssl
 	crypto
 	double-conversion
-	gss
 	gssapi_krb5
 	zstd
 

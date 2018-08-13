@@ -4,9 +4,11 @@ add_executable(HycStorCommonTests
 )
 
 target_link_libraries(HycStorCommonTests
+	-Wl,--start-group
 	gtest
 	HycStorCommon
 	${LIBRARY_LIST}
+	-Wl,--end-group
 )
 
 ADD_TEST(HycStorCommonTests HycStorCommonTests ${PROJECT_SOURCE_DIR})
