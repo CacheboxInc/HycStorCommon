@@ -122,7 +122,7 @@ retry_getevts:
 		ncomplete -= num_events;
 	}
 
-	delete events;
+	delete [] events;
 	return;
 }
 #endif
@@ -295,7 +295,7 @@ void FileTargetHandler::GatherEvents(void) {
 	}
 
 	LOG(ERROR) << __func__ << "Exiting";
-	delete epoll_events;
+	delete [] epoll_events;
 }
 
 folly::Future<int> FileTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
@@ -371,7 +371,7 @@ retry:
 
 	log_assert(done_cnt == cnt);
 	return aio_req->promise_->getFuture()
-	.then([this, aio_req, reqp, process, failed] (int rc) mutable {
+	.then([this, aio_req, process] (int rc) mutable {
 		pending_io_ -= process.size();
 		return rc;
 	});
@@ -457,7 +457,7 @@ retry:
 
 	log_assert(done_cnt == cnt);
 	return aio_req->promise_->getFuture()
-	.then([this, aio_req, reqp, process, failed] (int rc) mutable {
+	.then([this, aio_req, process] (int rc) mutable {
 		pending_io_ -= process.size();
 		return rc;
 	});
