@@ -16,4 +16,18 @@ void MoveLastElements(std::vector<T>& dst, std::vector<T>& src, size_t tomove) {
 	src.erase(sit, eit);
 }
 
+namespace os {
+
+unsigned int NumberOfCpus(void) {
+	return std::thread::hardware_concurrency();
+}
+
+int GetCurCpuCore(void) {
+	auto core = sched_getcpu();
+	if (core < 0) {
+		return -1;
+	}
+	return core;
+}
+}
 }
