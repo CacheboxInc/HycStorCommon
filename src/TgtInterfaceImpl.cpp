@@ -321,7 +321,7 @@ int RemoveVmUsingVmID(VmID vmid) {
 	}
 }
 
-std::shared_ptr<AeroSpikeConn> GetAeroConn(ActiveVmdk *vmdkp) {
+std::shared_ptr<AeroSpikeConn> GetAeroConn(const ActiveVmdk *vmdkp) {
 	auto vmp = vmdkp->GetVM();
 	if (pio_unlikely(vmp == nullptr)) {
 		return nullptr;
@@ -370,7 +370,7 @@ VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 		}
 
 		vmdkp->RegisterRequestHandler(std::make_unique<BlockTraceHandler>());
-		auto ch = std::make_unique<CacheHandler>(vmdkp->GetJsonConfig());
+		auto ch = std::make_unique<CacheHandler>(vmdkp, vmdkp->GetJsonConfig());
 		vmdkp->RegisterRequestHandler(std::move(ch));
 
 #ifdef USE_NEP

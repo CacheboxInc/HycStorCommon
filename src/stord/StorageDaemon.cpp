@@ -163,7 +163,7 @@ public:
 
 			/* We may not hit the modulo condition, keep the value somewhat agressive */
 			if (((vmdkp->r_io_count % 100) == 0) && vmdkp->r_io_count && vmdkp->r_io_blks_count) {
-				LOG(ERROR) << __func__ <<
+				VLOG(5) << __func__ <<
 					"[Read:VmdkID:" << vmdkp->GetID() <<
 					", Total latency(microsecs) :" << vmdkp->r_total_latency <<
 					", Total blks IO count (in blk size):" << vmdkp->r_io_blks_count <<
@@ -233,7 +233,7 @@ public:
 
 			/* We may not hit the modulo condition, keep the value somewhat agressive */
 			if (((vmdkp->w_io_count % 100) == 0) && vmdkp->w_io_count && vmdkp->w_io_blks_count) {
-				LOG(ERROR) << __func__ <<
+				VLOG(5) << __func__ <<
 					"[Write:VmdkID:" << vmdkp->GetID() <<
 					", Total latency(microsecs) :" << vmdkp->w_total_latency <<
 					", Total blks IO count (in blk size):" << vmdkp->w_io_blks_count <<

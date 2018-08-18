@@ -21,19 +21,20 @@
 using namespace ::ondisk;
 
 namespace pio {
-CacheHandler::CacheHandler(const config::VmdkConfig* configp) :
-		RequestHandler(nullptr) {
-	InitializeRequestHandlers(configp);
+CacheHandler::CacheHandler(const ActiveVmdk* vmdkp,
+		const config::VmdkConfig* configp) : RequestHandler(nullptr) {
+	InitializeRequestHandlers(vmdkp, configp);
 }
 
-void CacheHandler::InitializeRequestHandlers(const config::VmdkConfig* configp) {
+void CacheHandler::InitializeRequestHandlers(const ActiveVmdk* vmdkp,
+		const config::VmdkConfig* configp) {
 	auto lock = std::make_unique<LockHandler>();
 	auto unalingned = std::make_unique<UnalignedHandler>();
 	auto compress = std::make_unique<CompressHandler>(configp);
 	auto ram_cache = std::make_unique<RamCacheHandler>(configp);
 	auto encrypt = std::make_unique<EncryptHandler>(configp);
-	auto dirty = std::make_unique<DirtyHandler>(configp);
-	auto clean = std::make_unique<CleanHandler>(configp);
+	auto dirty = std::make_unique<DirtyHandler>(vmdkp, configp);
+	auto clean = std::make_unique<CleanHandler>(vmdkp, configp);
 
 	headp_ = std::move(lock);
 	headp_->RegisterNextRequestHandler(std::move(unalingned));

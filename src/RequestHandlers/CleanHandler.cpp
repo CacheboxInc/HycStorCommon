@@ -11,9 +11,10 @@
 using namespace ::ondisk;
 
 namespace pio {
-CleanHandler::CleanHandler(const config::VmdkConfig* configp) :
-		RequestHandler(nullptr) {
+CleanHandler::CleanHandler(const ActiveVmdk* vmdkp,
+		const config::VmdkConfig* configp) : RequestHandler(nullptr) {
 	aero_obj_ = std::make_unique<AeroSpike>();
+	aero_conn_ = pio::GetAeroConn(vmdkp);
 }
 
 CleanHandler::~CleanHandler() {
@@ -25,8 +26,7 @@ folly::Future<int> CleanHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock *>& failed) {
 
 	failed.clear();
-	auto aero_conn = pio::GetAeroConn(vmdkp);
-	if (pio_unlikely(aero_conn == nullptr)) {
+	if (pio_unlikely(aero_conn_ == nullptr)) {
 		if (pio_unlikely(not nextp_)) {
 
 			/* If aerospike is not configured then don't treat
@@ -43,7 +43,7 @@ folly::Future<int> CleanHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	}
 
 	return aero_obj_->AeroReadCmdProcess(vmdkp, reqp, process,
-			failed, kAsNamespaceCacheClean, aero_conn)
+			failed, kAsNamespaceCacheClean, aero_conn_)
 	.then([this, vmdkp, reqp, &process, &failed] (int rc)
 			mutable -> folly::Future<int> {
 		if (pio_likely(rc != 0)) {
@@ -74,8 +74,7 @@ folly::Future<int> CleanHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	failed.clear();
-	auto aero_conn = pio::GetAeroConn(vmdkp);
-	if (pio_unlikely(aero_conn == nullptr)) {
+	if (pio_unlikely(aero_conn_ == nullptr)) {
 		if (pio_unlikely(not nextp_)) {
 
 			/* If aerospike is not configured then don't treat
@@ -92,7 +91,7 @@ folly::Future<int> CleanHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 	}
 
 	return aero_obj_->AeroWriteCmdProcess(vmdkp, reqp, 0, process, failed,
-		kAsNamespaceCacheClean, aero_conn)
+		kAsNamespaceCacheClean, aero_conn_)
 	.then([&process, &failed] (int rc) mutable {
 		if (pio_unlikely(rc != 0)) {
 			LOG(ERROR) << __func__ << "Returning AeroWriteCmdProcess ERROR";
@@ -111,8 +110,7 @@ folly::Future<int> CleanHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock *>& failed) {
 
 	failed.clear();
-	auto aero_conn = pio::GetAeroConn(vmdkp);
-	if (pio_unlikely(aero_conn == nullptr)) {
+	if (pio_unlikely(aero_conn_ == nullptr)) {
 		if (pio_unlikely(not nextp_)) {
 
 			/* If aerospike is not configured then don't treat
@@ -126,7 +124,7 @@ folly::Future<int> CleanHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 	}
 
 	return aero_obj_->AeroWriteCmdProcess(vmdkp, reqp, 0, process, failed,
-		kAsNamespaceCacheClean, aero_conn)
+		kAsNamespaceCacheClean, aero_conn_)
 	.then([&process, &failed] (int rc) mutable {
 		if (pio_unlikely(rc != 0)) {
 			LOG(ERROR) << __func__ << "Returning AeroWriteCmdProcess ERROR";

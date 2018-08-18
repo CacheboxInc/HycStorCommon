@@ -44,7 +44,7 @@ protected:
 		vmdkp = std::make_unique<ActiveVmdk>(1, "1", nullptr, config.Serialize());
 		EXPECT_NE(vmdkp, nullptr);
 
-		auto h = std::make_unique<CacheHandler>(vmdkp->GetJsonConfig());
+		auto h = std::make_unique<CacheHandler>(vmdkp.get(), vmdkp->GetJsonConfig());
 		EXPECT_NE(vmdkp, nullptr);
 		vmdkp->RegisterRequestHandler(std::move(h));
 	}

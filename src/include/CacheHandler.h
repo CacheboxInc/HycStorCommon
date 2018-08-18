@@ -10,7 +10,8 @@ namespace config {
 
 class CacheHandler : public RequestHandler {
 public:
-	CacheHandler(const config::VmdkConfig* configp);
+	CacheHandler(const ActiveVmdk* vmdkp,
+		const config::VmdkConfig* configp);
 	~CacheHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
@@ -28,7 +29,8 @@ public:
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 private:
-	void InitializeRequestHandlers(const config::VmdkConfig* configp);
+	void InitializeRequestHandlers(const ActiveVmdk* vmdkp,
+		const config::VmdkConfig* configp);
 private:
 	std::unique_ptr<RequestHandler> headp_;
 };

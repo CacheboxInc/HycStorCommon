@@ -6,7 +6,8 @@
 namespace pio {
 class CleanHandler : public RequestHandler {
 public:
-	CleanHandler(const config::VmdkConfig* configp);
+	CleanHandler(const ActiveVmdk* vmdkp,
+		const config::VmdkConfig* configp);
 	~CleanHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
@@ -23,5 +24,6 @@ public:
 private:
 	std::unique_ptr<RequestHandler> headp_;
 	std::unique_ptr<AeroSpike> aero_obj_{nullptr};
+	std::shared_ptr<AeroSpikeConn> aero_conn_;
 };
 }

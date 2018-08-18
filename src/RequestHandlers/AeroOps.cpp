@@ -426,7 +426,7 @@ folly::Future<int> AeroSpike::AeroWrite(ActiveVmdk *vmdkp, Request *reqp,
 			}
 		}
 		if (vmdkp->w_aero_io_blks_count_ && (vmdkp->w_aero_io_blks_count_ % 5) == 0) {
-			LOG(ERROR) << __func__ <<
+			VLOG(5) << __func__ <<
 				"[AeroWrite:VmdkID:" << vmdkp->GetID() <<
 				", Total latency :" << vmdkp->w_aero_total_latency_ <<
 				", Total blks IO count (in blk size):" << vmdkp->w_aero_io_blks_count_ <<
@@ -681,7 +681,7 @@ folly::Future<int> AeroSpike::AeroRead(ActiveVmdk *vmdkp, Request *reqp,
 			}
 
 			if (vmdkp->r_aero_io_blks_count_ && (vmdkp->r_aero_io_blks_count_ % 100) == 0) {
-				LOG(ERROR) << __func__ <<
+				VLOG(5) << __func__ <<
 					"[AeroRead:VmdkID:" << vmdkp->GetID() <<
 					", Total latency :" << vmdkp->r_aero_total_latency_ <<
 					", Total blks IO count (in blk size):" << vmdkp->r_aero_io_blks_count_ <<
