@@ -93,7 +93,7 @@ folly::Future<int> CacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 
 		/* Read from next StorageLayer - probably Network or File */
 		return nextp_->Read(vmdkp, reqp, *read_missed, failed)
-		.then([this, vmdkp, reqp, read_missed = std::move(read_missed), failed] (int rc)
+		.then([this, vmdkp, reqp, read_missed = std::move(read_missed), &failed] (int rc)
 				mutable -> folly::Future<int> {
 			if (pio_unlikely(rc != 0)) {
 				LOG(ERROR) << __func__ << "Reading from TargetHandler layer for read populate failed";

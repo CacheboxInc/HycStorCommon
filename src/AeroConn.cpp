@@ -45,7 +45,7 @@ int AeroSpikeConn::Connect() {
 		return -EINVAL;
 	}
 
-	ret = as_event_create_loops(1);
+	ret = as_event_create_loops(8);
 	if (pio_unlikely(!ret)) {
 		LOG (ERROR) << "Aerospike event loop creation failed.";
 		return -EINVAL;
@@ -65,7 +65,7 @@ int AeroSpikeConn::Connect() {
 		}
 	}
 
-	cfg.async_max_conns_per_node = 200;
+	cfg.async_max_conns_per_node = 400;
 	/* Setting this policy so that key get stored in records */
 	cfg.policies.write.key = AS_POLICY_KEY_SEND;
 	cfg.policies.read.key = AS_POLICY_KEY_SEND;

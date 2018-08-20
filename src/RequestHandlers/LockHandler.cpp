@@ -49,7 +49,10 @@ folly::Future<int> LockHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		if (not nextp_) {
 			return folly::makeFuture(0);
 		}
-		return nextp_->Read(vmdkp, reqp, process, failed);
+		return nextp_->Read(vmdkp, reqp, process, failed)
+		.then([g = std::move(g)] (int rc) mutable {
+			return rc;
+		});
 	});
 }
 
@@ -65,7 +68,10 @@ folly::Future<int> LockHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		if (not nextp_) {
 			return folly::makeFuture(0);
 		}
-		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
+		return nextp_->Write(vmdkp, reqp, ckpt, process, failed)
+		.then([g = std::move(g)] (int rc) mutable {
+			return rc;
+		});
 	});
 }
 
@@ -81,7 +87,10 @@ folly::Future<int> LockHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		if (not nextp_) {
 			return folly::makeFuture(0);
 		}
-		return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
+		return nextp_->ReadPopulate(vmdkp, reqp, process, failed)
+		.then([g = std::move(g)] (int rc) mutable {
+			return rc;
+		});
 	});
 }
 
@@ -97,7 +106,10 @@ folly::Future<int> LockHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 		if (pio_unlikely(not nextp_)) {
 			return folly::makeFuture(0);
 		}
-		return nextp_->Move(vmdkp, reqp, process, failed);
+		return nextp_->Move(vmdkp, reqp, process, failed)
+		.then([g = std::move(g)] (int rc) mutable {
+			return rc;
+		});
 	});
 }
 }

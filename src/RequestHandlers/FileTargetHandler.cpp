@@ -9,7 +9,6 @@
 #include "RequestHandler.h"
 #include "FileTargetHandler.h"
 #include "VmdkConfig.h"
-#include "cksum.h"
 
 #ifdef FILETARGET_ASYNC
 #define MAX_IOs 8192
@@ -97,13 +96,6 @@ retry_getevts:
 			e = &events[i];
 			reqblock = reinterpret_cast<AIORequestBlock*> (e->data);
 			if (pio_likely(e->res == reqblock->destp_->Size())) {
-				if(0) {
-					LOG(ERROR) << __func__ << "SUCCESS END offset:"
-					<< reqblock->blockp_->GetAlignedOffset() <<
-					", size:" << reqblock->destp_->Size() << ", cksum:" <<
-					":" << crc_t10dif((unsigned char *) reqblock->destp_->Payload(), reqblock->destp_->Size());
-				}
-
 				if (reqblock->req_->req_type_ == ReqType::OP_READ) {
 					reqblock->blockp_->PushRequestBuffer(std::move(reqblock->destp_));
 				}
@@ -371,7 +363,7 @@ retry:
 
 	log_assert(done_cnt == cnt);
 	return aio_req->promise_->getFuture()
-	.then([this, aio_req, process] (int rc) mutable {
+	.then([this, aio_req, &process] (int rc) mutable {
 		pending_io_ -= process.size();
 		return rc;
 	});
@@ -457,7 +449,7 @@ retry:
 
 	log_assert(done_cnt == cnt);
 	return aio_req->promise_->getFuture()
-	.then([this, aio_req, process] (int rc) mutable {
+	.then([this, aio_req, &process] (int rc) mutable {
 		pending_io_ -= process.size();
 		return rc;
 	});

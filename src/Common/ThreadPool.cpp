@@ -12,6 +12,7 @@ using namespace folly::fibers;
 
 namespace pio {
 thread_local std::atomic<Thread *> this_threadp{nullptr};
+static const auto kDefaultStackSize = 64 * 1024;
 
 ThreadPool::ThreadPool(uint32_t nthreads) : nthreads_(nthreads) {
 	if (not nthreads_) {
@@ -62,7 +63,10 @@ Thread::~Thread() {
 }
 
 void Thread::Loop() {
-	FiberManager manager(std::make_unique<EventBaseLoopController>());
+
+	FiberManager::Options opts;
+	opts.stackSize = kDefaultStackSize;
+	FiberManager manager(std::make_unique<EventBaseLoopController>(), opts);
 	SetFiberManager(&manager);
 
 	folly::EventBase base;
