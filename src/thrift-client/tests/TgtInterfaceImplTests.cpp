@@ -19,7 +19,7 @@ static const std::string kServerIp = "127.0.0.1";
 extern std::string StordIp;
 extern uint16_t StordPort;
 
-extern RpcConnectHandle HycStorRpcServerConnectTest(uint32_t ping_secs);
+extern int32_t HycStorRpcServerConnectTest(uint32_t ping_secs);
 
 class StorRpcSimpleImpl : public virtual StorRpcSvIf {
 public:
@@ -124,8 +124,8 @@ static std::shared_ptr<ScopedServerInterfaceThread> StartServer() {
 
 TEST(TgtInterfaceImplTest, NoServerConnectFails) {
 	/* Connect fails without server */
-	auto rpc = HycStorRpcServerConnect();
-	EXPECT_EQ(rpc, kInvalidRpcHandle);
+	auto rc = HycStorRpcServerConnect();
+	EXPECT_NE(rc, 0);
 }
 
 TEST(TgtInterfaceImplTest, ConnectDisconnect) {
@@ -135,13 +135,13 @@ TEST(TgtInterfaceImplTest, ConnectDisconnect) {
 		threads.emplace_back(std::thread([] () mutable {
 			for (auto i = 0; i < 10; ++i) {
 				VLOG(1) << "Connecting " << std::endl;
-				auto rpc = HycStorRpcServerConnect();
-				EXPECT_NE(rpc, kInvalidRpcHandle);
+				auto rc = HycStorRpcServerConnect();
+				EXPECT_EQ(rc, 0);
 
-				VLOG(1) << "Recived rpc " << rpc
-					<< " disconnecting" << std::endl;
+				::sleep(1);
+				VLOG(1) << " disconnecting" << std::endl;
 
-				auto rc = HycStorRpcServerDisconnect(rpc);
+				rc = HycStorRpcServerDisconnect();
 				EXPECT_EQ(rc, 0);
 
 				VLOG(1) << "Disconnected " << std::endl;
@@ -165,12 +165,12 @@ TEST(TgtInterfaceImplTest, Ping) {
 	ts->setNumIOWorkerThreads(1);
 	auto server = std::make_shared<ScopedServerInterfaceThread>(ts);
 
-	auto rpc = HycStorRpcServerConnectTest(1);
+	auto rc = HycStorRpcServerConnectTest(1);
+	EXPECT_EQ(rc, 0);
 	::sleep(kSleep);
 	EXPECT_GT(si->nping_, kSleep);
-	EXPECT_GE(si->nstats_, kSleep);
 
-	auto rc = HycStorRpcServerDisconnect(rpc);
+	rc = HycStorRpcServerDisconnect();
 	EXPECT_EQ(rc, 0);
 }
 
@@ -181,11 +181,13 @@ TEST(TgtInterfaceImplTest, Read) {
 
 	auto server = StartServer();
 
-	auto rpc = HycStorRpcServerConnect();
-	EXPECT_NE(rpc, kInvalidRpcHandle);
+	auto rc = HycStorRpcServerConnect();
+	EXPECT_EQ(rc, rc);
 
-	auto rc = HycOpenVmdk(rpc, "vmid", "vmdkid", -1);
+	VmdkHandle handle = kInvalidVmdkHandle;
+	rc = HycOpenVmdk("vmid", "vmdkid", -1, &handle);
 	EXPECT_EQ(rc, 0);
+	EXPECT_NE(handle, kInvalidVmdkHandle);
 
 	std::mutex mutex;
 	std::set<RequestID> scheduled;
@@ -193,7 +195,7 @@ TEST(TgtInterfaceImplTest, Read) {
 	auto Schedule = [&] () {
 		std::set<RequestID> ids;
 		for (auto i = 0; i < kReadsPerThread; i++) {
-			auto id = HycScheduleRead(rpc, nullptr, buf.data(), buf.size(), 0);
+			auto id = HycScheduleRead(handle, nullptr, buf.data(), buf.size(), 0);
 			EXPECT_NE(id, kInvalidRequestID);
 			ids.insert(id);
 		}
@@ -222,7 +224,7 @@ TEST(TgtInterfaceImplTest, Read) {
 		RequestResult completions;
 		bool more;
 
-		auto c = HycGetCompleteRequests(rpc, &completions, 1, &more);
+		auto c = HycGetCompleteRequests(handle, &completions, 1, &more);
 		if (c == 1) {
 			auto it = scheduled.find(completions.request_id);
 			EXPECT_NE(it, scheduled.end());
@@ -233,8 +235,8 @@ TEST(TgtInterfaceImplTest, Read) {
 		}
 	}
 
-	HycCloseVmdk(rpc);
-	HycStorRpcServerDisconnect(rpc);
+	HycCloseVmdk(handle);
+	HycStorRpcServerDisconnect();
 }
 
 TEST(TgtInterfaceImplTest, PingFailure) {
@@ -257,6 +259,6 @@ TEST(TgtInterfaceImplTest, PingFailure) {
 	ts->setNumIOWorkerThreads(1);
 	auto server = std::make_shared<ScopedServerInterfaceThread>(ts);
 
-	auto rpc = HycStorRpcServerConnect();
-	(void) rpc;
+	auto rc = HycStorRpcServerConnect();
+	(void) rc;
 }
