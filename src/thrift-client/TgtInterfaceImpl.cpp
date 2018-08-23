@@ -124,8 +124,8 @@ public:
 	StordConnection(std::string ip, uint16_t port, uint16_t cpu, uint32_t ping);
 	~StordConnection();
 	int32_t Connect();
-	folly::EventBase* GetEventBase() const noexcept;
-	StorRpcAsyncClient* GetRpcClient() const noexcept;
+	inline folly::EventBase* GetEventBase() const noexcept;
+	inline StorRpcAsyncClient* GetRpcClient() const noexcept;
 
 private:
 	int32_t Disconnect();
@@ -147,7 +147,9 @@ private:
 	} requests_;
 
 	std::unique_ptr<StorRpcAsyncClient> client_;
+	StorRpcAsyncClient* clientp_;
 	std::unique_ptr<folly::EventBase> base_;
+	folly::EventBase* basep_;
 	std::unique_ptr<std::thread> runner_;
 };
 
@@ -157,11 +159,11 @@ StordConnection::StordConnection(std::string ip, uint16_t port, uint16_t cpu,
 }
 
 folly::EventBase* StordConnection::GetEventBase() const noexcept {
-	return base_.get();
+	return basep_;
 }
 
 StorRpcAsyncClient* StordConnection::GetRpcClient() const noexcept {
-	return client_.get();
+	return clientp_;
 }
 
 StordConnection::~StordConnection() {
@@ -220,7 +222,9 @@ int StordConnection::Connect() {
 			auto chan =
 				dynamic_cast<HeaderClientChannel*>(client->getHeaderChannel());
 
+			this->basep_ = base.get();
 			this->base_ = std::move(base);
+			this->clientp_ = client.get();
 			this->client_ = std::move(client);
 			SetPingTimeout();
 
@@ -324,8 +328,8 @@ public:
 	StordConnection* GetStordConnection() const noexcept;
 	void SetPolicy(SchedulePolicy policy);
 private:
-	StordConnection* GetStordConnectionRR() const noexcept;
-	StordConnection* GetStordConnectionCpu() const noexcept;
+	inline StordConnection* GetStordConnectionRR() const noexcept;
+	inline StordConnection* GetStordConnectionCpu() const noexcept;
 
 private:
 	const std::string ip_;
@@ -337,7 +341,7 @@ private:
 	} connections_;
 
 	struct {
-		SchedulePolicy policy_{SchedulePolicy::kCurrentCpu};
+		SchedulePolicy policy_{SchedulePolicy::kRoundRobin};
 		mutable std::mutex mutex_;
 		mutable uint16_t last_cpu_{0};
 	} policy_;
@@ -358,7 +362,7 @@ int32_t StordRpc::Connect(uint32_t ping_secs) {
 	connections_.uptrs_.reserve(nthreads_);
 	connections_.ptrs_.reserve(nthreads_);
 	for (auto i = 0u; i < nthreads_; ++i) {
-		auto cpu = i % cores;
+		auto cpu = (cores-1) - (i % cores);
 		auto c = std::make_unique<StordConnection>(ip_, port_, cpu, ping_secs);
 		auto rc = c->Connect();
 		if (hyc_unlikely(rc < 0)) {
@@ -375,8 +379,7 @@ void StordRpc::SetPolicy(SchedulePolicy policy) {
 }
 
 StordConnection* StordRpc::GetStordConnectionCpu() const noexcept {
-	auto cpu = os::GetCurCpuCore();
-	policy_.last_cpu_ = cpu;
+	auto cpu = os::GetCurCpuCore() % this->nthreads_;
 	return connections_.ptrs_[cpu];
 }
 
@@ -426,8 +429,9 @@ public:
 	StordVmdk& operator = (const StordVmdk& rhs) = delete;
 	StordVmdk& operator = (const StordVmdk&& rhs) = delete;
 public:
-	StordVmdk(StordRpc* stord, std::string vmid, std::string vmdkid, int eventfd);
+	StordVmdk(std::string vmid, std::string vmdkid, int eventfd);
 	~StordVmdk();
+	void SetStordConnection(StordConnection* connectp) noexcept;
 	int32_t OpenVmdk();
 	int32_t CloseVmdk();
 	RequestID ScheduleRead(const void* privatep, char* bufferp, int32_t buf_sz,
@@ -453,16 +457,22 @@ private:
 	int PostRequestCompletion() const;
 	void ReadDataCopy(Request* reqp, const ReadResult& result);
 private:
-	StordRpc* stord_{nullptr};
 	std::string vmid_;
 	std::string vmdkid_;
 	VmdkHandle vmdk_handle_{kInvalidVmdkHandle};
 	int eventfd_{-1};
+	StordConnection* connectp_{nullptr};
 
 	struct {
-		mutable std::mutex mutex_;
-		std::unordered_map<RequestID, std::unique_ptr<Request>> scheduled_;
-		std::vector<std::unique_ptr<Request>> complete_;
+		struct {
+			mutable std::mutex mutex_;
+			std::unordered_map<RequestID, std::unique_ptr<Request>> map_;
+		} scheduled_;
+
+		struct {
+			mutable std::mutex mutex_;
+			std::vector<Request*> vec_;
+		} complete_;
 	} requests_;
 
 	VmdkStats stats_;
@@ -480,10 +490,9 @@ std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk) {
 	return os;
 }
 
-StordVmdk::StordVmdk(StordRpc* stord, std::string vmid, std::string vmdkid,
-		int eventfd) : stord_(stord), vmid_(std::move(vmid)),
-		vmdkid_(std::move(vmdkid)), eventfd_(eventfd) {
-
+StordVmdk::StordVmdk(std::string vmid, std::string vmdkid, int eventfd) :
+		vmid_(std::move(vmid)), vmdkid_(std::move(vmdkid)),
+		eventfd_(eventfd) {
 }
 
 StordVmdk::~StordVmdk() {
@@ -498,14 +507,17 @@ const std::string& StordVmdk::GetVmdkId() const noexcept {
 	return vmdkid_;
 }
 
+void StordVmdk::SetStordConnection(StordConnection* connectp) noexcept {
+	connectp_ = connectp;
+}
+
 int32_t StordVmdk::OpenVmdk() {
 	if (hyc_unlikely(vmdk_handle_ != kInvalidVmdkHandle)) {
 		/* already open */
 		return -EBUSY;
 	}
 
-	auto vmdk_handle = stord_->GetStordConnection()
-		->GetRpcClient()
+	auto vmdk_handle = connectp_->GetRpcClient()
 		->future_OpenVmdk(vmid_, vmdkid_)
 		.get();
 	if (hyc_unlikely(vmdk_handle == kInvalidVmHandle)) {
@@ -524,8 +536,7 @@ int StordVmdk::CloseVmdk() {
 		return -EBUSY;
 	}
 
-	auto rc = stord_->GetStordConnection()
-		->GetRpcClient()
+	auto rc = connectp_->GetRpcClient()
 		->future_CloseVmdk(vmdk_handle_)
 		.get();
 	if (hyc_unlikely(rc < 0)) {
@@ -555,8 +566,8 @@ Request* StordVmdk::NewRequest(Request::Type type, const void* privatep,
 	request->offset = offset;
 
 	auto reqp = request.get();
-	std::lock_guard<std::mutex> lock(requests_.mutex_);
-	requests_.scheduled_.emplace(request->id, std::move(request));
+	std::lock_guard<std::mutex> lock(requests_.scheduled_.mutex_);
+	requests_.scheduled_.map_.emplace(request->id, std::move(request));
 	return reqp;
 }
 
@@ -598,13 +609,10 @@ void StordVmdk::RequestComplete(Request* reqp) {
 	UpdateStats(reqp);
 	bool post = false;
 	{
-		std::lock_guard<std::mutex> lock(requests_.mutex_);
-		auto it = requests_.scheduled_.find(reqp->id);
-		assert(hyc_unlikely(it != requests_.scheduled_.end()));
-
-		requests_.complete_.emplace_back(std::move(it->second));
-		requests_.scheduled_.erase(it);
-		post = requests_.scheduled_.empty();
+		std::lock_guard<std::mutex> lock(requests_.complete_.mutex_);
+		requests_.complete_.vec_.emplace_back(reqp);
+		post = requests_.scheduled_.map_.size() ==
+			requests_.complete_.vec_.size();
 	}
 
 	if (post) {
@@ -615,7 +623,8 @@ void StordVmdk::RequestComplete(Request* reqp) {
 
 int StordVmdk::PostRequestCompletion() const {
 	if (hyc_likely(eventfd_ >= 0)) {
-		auto rc = ::eventfd_write(eventfd_, requests_.complete_.size());
+		auto rc = ::eventfd_write(eventfd_,
+			requests_.complete_.vec_.size());
 		if (hyc_unlikely(rc < 0)) {
 			LOG(ERROR) << "eventfd_write write failed RPC " << *this;
 			return rc;
@@ -627,23 +636,47 @@ int StordVmdk::PostRequestCompletion() const {
 uint32_t StordVmdk::GetCompleteRequests(RequestResult* resultsp,
 		uint32_t nresults, bool *has_morep) {
 	*has_morep = false;
-	std::lock_guard<std::mutex> lock(requests_.mutex_);
-	auto tocopy = std::min(requests_.complete_.size(), static_cast<size_t>(nresults));
-	if (not tocopy) {
+	auto vec = [&] () mutable -> std::optional<std::vector<Request*>> {
+		std::lock_guard<std::mutex> lock(requests_.complete_.mutex_);
+		const auto tocopy = std::min(requests_.complete_.vec_.size(),
+			static_cast<size_t>(nresults));
+		if (not tocopy) {
+			return {};
+		}
+
+		std::vector<Request*> c;
+		c.reserve(tocopy);
+
+		auto eit = requests_.complete_.vec_.end();
+		auto sit = std::prev(eit, tocopy);
+
+		std::move(sit, eit, std::back_inserter(c));
+		requests_.complete_.vec_.erase(sit, eit);
+		*has_morep = not requests_.complete_.vec_.empty();
+		return c;
+	} ();
+
+	if (not vec) {
+		assert(hyc_likely(not *has_morep));
 		return 0;
 	}
 
-	auto eit = requests_.complete_.end();
-	auto sit = std::prev(eit, tocopy);
+	auto c = std::move(vec.value());
+	auto sit = c.begin();
+	auto eit = c.end();
+
+	std::lock_guard<std::mutex> lock(requests_.scheduled_.mutex_);
 	for (auto resultp = resultsp; sit != eit; ++sit, ++resultp) {
-		const auto* reqp = sit->get();
+		const auto* reqp = *sit;
 		resultp->privatep   = reqp->privatep;
 		resultp->request_id = reqp->id;
 		resultp->result     = reqp->result;
+
+		auto it = requests_.scheduled_.map_.find(reqp->id);
+		assert(hyc_likely(it != requests_.scheduled_.map_.end()));
+		requests_.scheduled_.map_.erase(it);
 	}
-	requests_.complete_.erase(std::prev(eit, tocopy), eit);
-	*has_morep = not requests_.complete_.empty();
-	return tocopy;
+	return c.size();
 }
 
 void StordVmdk::ReadDataCopy(Request* reqp, const ReadResult& result) {
@@ -674,9 +707,8 @@ RequestID StordVmdk::ScheduleRead(const void* privatep, char* bufferp,
 
 	++stats_.pending_;
 
-	auto connectp = stord_->GetStordConnection();
-	auto basep = connectp->GetEventBase();
-	auto clientp = connectp->GetRpcClient();
+	auto basep = connectp_->GetEventBase();
+	auto clientp = connectp_->GetRpcClient();
 	basep->runInEventBaseThread([this, clientp, reqp, buf_sz, offset] () mutable {
 		clientp->future_Read(vmdk_handle_, reqp->id, buf_sz, offset)
 		.then([this, reqp] (const ReadResult& result) mutable {
@@ -705,9 +737,8 @@ RequestID StordVmdk::ScheduleWrite(const void* privatep, char* bufferp,
 
 	++stats_.pending_;
 
-	auto connectp = stord_->GetStordConnection();
-	auto basep = connectp->GetEventBase();
-	auto clientp = connectp->GetRpcClient();
+	auto basep = connectp_->GetEventBase();
+	auto clientp = connectp_->GetRpcClient();
 	basep->runInEventBaseThread(
 			[this, clientp, reqp, bufferp, buf_sz, offset] () mutable {
 		auto data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
@@ -737,9 +768,8 @@ RequestID StordVmdk::ScheduleWriteSame(const void* privatep, char* bufferp,
 
 	++stats_.pending_;
 
-	auto connectp = stord_->GetStordConnection();
-	auto basep = connectp->GetEventBase();
-	auto clientp = connectp->GetRpcClient();
+	auto basep = connectp_->GetEventBase();
+	auto clientp = connectp_->GetRpcClient();
 	basep->runInEventBaseThread([this, clientp, reqp, bufferp, buf_sz, write_sz,
 			offset] () mutable {
 		auto data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
@@ -799,9 +829,9 @@ Stord::~Stord() {
 }
 
 int32_t Stord::Connect(uint32_t ping_secs) {
-	auto cores = std::max(os::NumberOfCpus(), 1u);
+	auto cores = std::max(os::NumberOfCpus()/2, 1u);
 	auto rpc = std::make_unique<StordRpc>(StordIp, StordPort, cores,
-		StordRpc::SchedulePolicy::kCurrentCpu);
+		StordRpc::SchedulePolicy::kRoundRobin);
 	if (hyc_unlikely(not rpc)) {
 		return -ENOMEM;
 	}
@@ -812,7 +842,7 @@ int32_t Stord::Connect(uint32_t ping_secs) {
 	}
 
 	/* TODO: use pthread_once */
-	rpc->SetPolicy(StordRpc::SchedulePolicy::kCurrentCpu);
+	rpc->SetPolicy(StordRpc::SchedulePolicy::kRoundRobin);
 	stord_.rpcp_ = rpc.get();
 	stord_.rpc_ = std::move(rpc);
 	return 0;
@@ -859,14 +889,15 @@ int32_t Stord::OpenVmdk(const char* vmid, const char* vmdkid, int eventfd,
 		return -EEXIST;
 	}
 
-	auto rpcp = stord_.rpcp_;
-	assert(hyc_unlikely(not rpcp));
-
-	auto vmdk = std::make_unique<StordVmdk>(rpcp, vmid, vmdkid, eventfd);
+	auto vmdk = std::make_unique<StordVmdk>(vmid, vmdkid, eventfd);
 	if (hyc_unlikely(not vmdk)) {
 		return -ENOMEM;
 	}
 	vmdkp = vmdk.get();
+
+	auto rpcp = stord_.rpcp_;
+	assert(hyc_unlikely(not rpcp));
+	vmdkp->SetStordConnection(rpcp->GetStordConnection());
 
 	auto rc = vmdk->OpenVmdk();
 	if (hyc_unlikely(rc < 0)) {

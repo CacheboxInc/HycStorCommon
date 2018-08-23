@@ -17,7 +17,7 @@ int32_t HycOpenVmdk(const char* vmid, const char* vmdkid, int eventfd,
 int32_t HycCloseVmdk(VmdkHandle handle);
 RequestID HycScheduleRead(VmdkHandle handle, const void* privatep,
 		char* bufferp, int32_t buf_sz, int64_t offset);
-uint32_t HycGetCompleteRequests(VmdkHandle handle, RequestResult *resultsp,
+uint32_t HycGetCompleteRequests(VmdkHandle handle, struct RequestResult *resultsp,
 		uint32_t nresults, bool *has_morep);
 RequestID HycScheduleWrite(VmdkHandle handle, const void* privatep,
 		char* bufferp, int32_t buf_sz, int64_t offset);
