@@ -4,6 +4,7 @@
 #include <mutex>
 #include <string>
 #include <algorithm>
+#include <atomic>
 
 #include <cassert>
 #include <cstdint>
@@ -342,8 +343,7 @@ private:
 
 	struct {
 		SchedulePolicy policy_{SchedulePolicy::kRoundRobin};
-		mutable std::mutex mutex_;
-		mutable uint16_t last_cpu_{0};
+		mutable std::atomic<uint64_t> last_cpu_{0};
 	} policy_;
 };
 
@@ -384,13 +384,8 @@ StordConnection* StordRpc::GetStordConnectionCpu() const noexcept {
 }
 
 StordConnection* StordRpc::GetStordConnectionRR() const noexcept {
-	auto cpu = [this] () mutable {
-		std::lock_guard<std::mutex> lock(this->policy_.mutex_);
-		auto cpu = (this->policy_.last_cpu_ + 1) % this->nthreads_;
-		this->policy_.last_cpu_ = cpu;
-		return cpu;
-	} ();
-	return connections_.ptrs_[cpu];
+	const auto cpu = policy_.last_cpu_.fetch_add(1u, std::memory_order_relaxed);
+	return connections_.ptrs_[cpu % nthreads_];
 }
 
 StordConnection* StordRpc::GetStordConnection() const noexcept {
@@ -896,7 +891,7 @@ int32_t Stord::OpenVmdk(const char* vmid, const char* vmdkid, int eventfd,
 	vmdkp = vmdk.get();
 
 	auto rpcp = stord_.rpcp_;
-	assert(hyc_unlikely(not rpcp));
+	assert(hyc_likely(rpcp));
 	vmdkp->SetStordConnection(rpcp->GetStordConnection());
 
 	auto rc = vmdk->OpenVmdk();
@@ -928,7 +923,7 @@ int32_t Stord::CloseVmdk(VmdkHandle handle) {
 	const auto& id = vmdkp->GetVmdkId();
 
 	auto iit = vmdk_.ids_.find(id);
-	assert(hyc_likely(iit != vmdk_.ids_));
+	assert(hyc_likely(iit != vmdk_.ids_.end()));
 
 	auto vmdk = std::move(iit->second);
 	try {
