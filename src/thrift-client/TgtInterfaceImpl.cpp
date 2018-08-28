@@ -399,6 +399,8 @@ StordConnection* StordRpc::GetStordConnection() const noexcept {
 		return GetStordConnectionCpu();
 	case StordRpc::SchedulePolicy::kStatic:
 		return GetStordConnectionRR();
+	default:
+		return nullptr;
 	}
 }
 
