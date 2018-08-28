@@ -6,8 +6,8 @@
 #include <algorithm>
 #include <atomic>
 
-#include <cassert>
 #include <cstdint>
+#include <cassert>
 
 #include <sys/eventfd.h>
 #include <thrift/lib/cpp/async/TAsyncSocket.h>
@@ -25,6 +25,7 @@
 #include "gen-cpp2/StorRpc.h"
 #include "TgtInterface.h"
 #include "TimePoint.h"
+#include "Common.h"
 
 static std::string StordIp = "127.0.0.1";
 static uint16_t StordPort = 9876;
@@ -168,7 +169,7 @@ StorRpcAsyncClient* StordConnection::GetRpcClient() const noexcept {
 }
 
 StordConnection::~StordConnection() {
-	assert(not PendingOperations());
+	log_assert(not PendingOperations());
 	Disconnect();
 }
 
@@ -297,7 +298,7 @@ void StordConnection::SetThreadAffinity(uint16_t cpu, std::thread* threadp) {
 }
 
 void StordConnection::SetPingTimeout() {
-	assert(base_ != nullptr);
+	log_assert(base_ != nullptr);
 	std::chrono::seconds s(ping_.timeout_secs_);
 	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(s).count();
 	ping_.timeout_ = std::make_unique<ReschedulingTimeout>(base_.get(), ms);
@@ -445,12 +446,22 @@ public:
 	friend std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
 private:
 	uint64_t PendingOperations() const noexcept;
-	Request* NewRequest(Request::Type type, const void* privatep,
-		char* bufferp, size_t buf_sz, size_t xfer_sz, int64_t offset);
+	std::pair<Request*, bool> NewRequest(Request::Type type,
+		const void* privatep, char* bufferp, size_t buf_sz, size_t xfer_sz,
+		int64_t offset);
 	void RequestComplete(Request* reqp);
 	void UpdateStats(Request* reqp);
 	int PostRequestCompletion() const;
 	void ReadDataCopy(Request* reqp, const ReadResult& result);
+
+	void ScheduleMore(folly::EventBase* basep, StorRpcAsyncClient* clientp);
+	void ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp);
+	void ScheduleRead(folly::EventBase* basep, StorRpcAsyncClient* clientp,
+		Request* reqp);
+	void ScheduleWrite(folly::EventBase* basep, StorRpcAsyncClient* clientp,
+		Request* reqp);
+	void ScheduleWriteSame(folly::EventBase* basep, StorRpcAsyncClient* clientp,
+		Request* reqp);
 private:
 	std::string vmid_;
 	std::string vmdkid_;
@@ -462,6 +473,7 @@ private:
 		struct {
 			mutable std::mutex mutex_;
 			std::unordered_map<RequestID, std::unique_ptr<Request>> map_;
+			std::vector<Request*> pending_;
 		} scheduled_;
 
 		struct {
@@ -545,11 +557,12 @@ uint64_t StordVmdk::PendingOperations() const noexcept {
 	return stats_.pending_;
 }
 
-Request* StordVmdk::NewRequest(Request::Type type, const void* privatep,
-		char* bufferp, size_t buf_sz, size_t xfer_sz, int64_t offset) {
+std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
+		const void* privatep, char* bufferp, size_t buf_sz, size_t xfer_sz,
+		int64_t offset) {
 	auto request = std::make_unique<Request>();
 	if (hyc_unlikely(not request)) {
-		return nullptr;
+		return std::make_pair(nullptr, false);
 	}
 
 	request->id = ++requestid_;
@@ -562,8 +575,11 @@ Request* StordVmdk::NewRequest(Request::Type type, const void* privatep,
 
 	auto reqp = request.get();
 	std::lock_guard<std::mutex> lock(requests_.scheduled_.mutex_);
+	auto empty = requests_.scheduled_.map_.empty();
 	requests_.scheduled_.map_.emplace(request->id, std::move(request));
-	return reqp;
+	requests_.scheduled_.pending_.emplace_back(reqp);
+	++stats_.pending_;
+	return std::make_pair(reqp, empty);
 }
 
 void StordVmdk::UpdateStats(Request* reqp) {
@@ -652,7 +668,7 @@ uint32_t StordVmdk::GetCompleteRequests(RequestResult* resultsp,
 	} ();
 
 	if (not vec) {
-		assert(hyc_likely(not *has_morep));
+		log_assert(hyc_likely(not *has_morep));
 		return 0;
 	}
 
@@ -668,15 +684,15 @@ uint32_t StordVmdk::GetCompleteRequests(RequestResult* resultsp,
 		resultp->result     = reqp->result;
 
 		auto it = requests_.scheduled_.map_.find(reqp->id);
-		assert(hyc_likely(it != requests_.scheduled_.map_.end()));
+		log_assert(it != requests_.scheduled_.map_.end());
 		requests_.scheduled_.map_.erase(it);
 	}
 	return c.size();
 }
 
 void StordVmdk::ReadDataCopy(Request* reqp, const ReadResult& result) {
-	assert(hyc_likely(result.data->computeChainDataLength() ==
-		static_cast<size_t>(reqp->buf_sz)));
+	log_assert(result.data->computeChainDataLength() ==
+		static_cast<size_t>(reqp->buf_sz));
 
 	auto bufp = reqp->bufferp;
 	auto const* p = result.data.get();
@@ -691,96 +707,153 @@ void StordVmdk::ReadDataCopy(Request* reqp, const ReadResult& result) {
 	}
 }
 
+void StordVmdk::ScheduleWriteSame(folly::EventBase* basep,
+		StorRpcAsyncClient* clientp, Request* reqp) {
+	auto data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
+		reqp->bufferp, reqp->buf_sz);
+	clientp->future_WriteSame(vmdk_handle_, reqp->id, data, reqp->buf_sz,
+		reqp->xfer_sz, reqp->offset)
+	.then([this, reqp, data = std::move(data), basep, clientp]
+			(const WriteResult& result) mutable {
+		reqp->result = result.get_result();
+		RequestComplete(reqp);
+		ScheduleMore(basep, clientp);
+	})
+	.onError([this, reqp, basep, clientp] (const std::exception& e) mutable {
+		reqp->result = -EIO;
+		RequestComplete(reqp);
+		ScheduleMore(basep, clientp);
+	});
+}
+
+void StordVmdk::ScheduleWrite(folly::EventBase* basep,
+		StorRpcAsyncClient* clientp, Request* reqp) {
+	log_assert(reqp && basep->isInEventBaseThread());
+
+	auto data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
+		reqp->bufferp, reqp->buf_sz);
+	clientp->future_Write(vmdk_handle_, reqp->id, data, reqp->buf_sz, reqp->offset)
+	.then([this, reqp, data = std::move(data), basep, clientp]
+			(const WriteResult& result) mutable {
+		reqp->result = result.get_result();
+		RequestComplete(reqp);
+		ScheduleMore(basep, clientp);
+	})
+	.onError([this, reqp, basep, clientp] (const std::exception& e) mutable {
+		reqp->result = -EIO;
+		RequestComplete(reqp);
+		ScheduleMore(basep, clientp);
+	});
+}
+
+void StordVmdk::ScheduleRead(folly::EventBase* basep,
+		StorRpcAsyncClient* clientp, Request* reqp) {
+	log_assert(reqp && basep->isInEventBaseThread());
+
+	clientp->future_Read(vmdk_handle_, reqp->id, reqp->buf_sz, reqp->offset)
+	.then([this, reqp, basep, clientp] (const ReadResult& result) mutable {
+		reqp->result = result.get_result();
+		if (hyc_likely(reqp->result == 0)) {
+			ReadDataCopy(reqp, result);
+		}
+		RequestComplete(reqp);
+		ScheduleMore(basep, clientp);
+	})
+	.onError([this, reqp, basep, clientp] (const std::exception& e) mutable {
+		reqp->result = -EIO;
+		RequestComplete(reqp);
+		ScheduleMore(basep, clientp);
+	});
+}
+
+void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp) {
+	auto GetPending = [this] (std::vector<Request*>& pending) mutable {
+		pending.clear();
+		std::lock_guard<std::mutex> lock(requests_.scheduled_.mutex_);
+		requests_.scheduled_.pending_.swap(pending);
+		requests_.scheduled_.pending_.reserve(32);
+	};
+
+	std::vector<Request*> pending;
+	GetPending(pending);
+
+	if (pending.empty()) {
+		return;
+	}
+
+	basep->runInEventBaseThread([this, clientp, basep,
+			pending = std::move(pending)] () {
+		for (auto reqp : pending) {
+			switch (reqp->type) {
+			case Request::Type::kRead:
+				ScheduleRead(basep, clientp, reqp);
+				break;
+			case Request::Type::kWrite:
+				ScheduleWrite(basep, clientp, reqp);
+				break;
+			case Request::Type::kWriteSame:
+				ScheduleWriteSame(basep, clientp, reqp);
+				break;
+			}
+		}
+	});
+}
+
+void StordVmdk::ScheduleMore(folly::EventBase* basep,
+		StorRpcAsyncClient* clientp) {
+	ScheduleNow(basep, clientp);
+}
+
 RequestID StordVmdk::ScheduleRead(const void* privatep, char* bufferp,
 		int32_t buf_sz, int64_t offset) {
-	assert(hyc_likely(vmdk_handle_ != kInvalidVmdkHandle));
-	auto reqp = NewRequest(Request::Type::kRead, privatep, bufferp, buf_sz,
+	log_assert(vmdk_handle_ != kInvalidVmdkHandle);
+	auto [reqp, now] = NewRequest(Request::Type::kRead, privatep, bufferp, buf_sz,
 		buf_sz, offset);
 	if (hyc_unlikely(not reqp)) {
 		return kInvalidRequestID;
 	}
 
-	++stats_.pending_;
-
-	auto basep = connectp_->GetEventBase();
-	auto clientp = connectp_->GetRpcClient();
-	basep->runInEventBaseThread([this, clientp, reqp, buf_sz, offset] () mutable {
-		clientp->future_Read(vmdk_handle_, reqp->id, buf_sz, offset)
-		.then([this, reqp] (const ReadResult& result) mutable {
-			reqp->result = result.get_result();
-			if (hyc_likely(reqp->result == 0)) {
-				ReadDataCopy(reqp, result);
-			}
-			RequestComplete(reqp);
-		})
-		.onError([this, reqp] (const std::exception& e) mutable {
-			reqp->result = -EIO;
-			RequestComplete(reqp);
-		});
-	});
+	if (now) {
+		auto basep = connectp_->GetEventBase();
+		auto clientp = connectp_->GetRpcClient();
+		ScheduleNow(basep, clientp);
+	}
 	return reqp->id;
 }
 
 RequestID StordVmdk::ScheduleWrite(const void* privatep, char* bufferp,
 		int32_t buf_sz, int64_t offset) {
-	assert(hyc_likely(vmdk_handle_ != kInvalidVmdkHandle));
-	auto reqp = NewRequest(Request::Type::kWrite, privatep, bufferp, buf_sz,
+	log_assert(vmdk_handle_ != kInvalidVmdkHandle);
+	auto [reqp, now] = NewRequest(Request::Type::kWrite, privatep, bufferp, buf_sz,
 		buf_sz, offset);
 	if (hyc_unlikely(not reqp)) {
 		return kInvalidRequestID;
 	}
 
-	++stats_.pending_;
+	if (now) {
+		auto basep = connectp_->GetEventBase();
+		auto clientp = connectp_->GetRpcClient();
+		ScheduleNow(basep, clientp);
+	}
 
-	auto basep = connectp_->GetEventBase();
-	auto clientp = connectp_->GetRpcClient();
-	basep->runInEventBaseThread(
-			[this, clientp, reqp, bufferp, buf_sz, offset] () mutable {
-		auto data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
-			bufferp, buf_sz);
-		clientp->future_Write(vmdk_handle_, reqp->id, data, buf_sz, offset)
-		.then([this, reqp, data = std::move(data)]
-				(const WriteResult& result) mutable {
-			reqp->result = result.get_result();
-			RequestComplete(reqp);
-		})
-		.onError([this, reqp] (const std::exception& e) mutable {
-			reqp->result = -EIO;
-			RequestComplete(reqp);
-		});
-	});
 	return reqp->id;
 }
 
 RequestID StordVmdk::ScheduleWriteSame(const void* privatep, char* bufferp,
 		int32_t buf_sz, int32_t write_sz, int64_t offset) {
-	assert(hyc_likely(vmdk_handle_ != kInvalidVmdkHandle));
-	auto reqp = NewRequest(Request::Type::kWrite, privatep, bufferp, buf_sz,
+	log_assert(vmdk_handle_ != kInvalidVmdkHandle);
+	auto [reqp, now] = NewRequest(Request::Type::kWrite, privatep, bufferp, buf_sz,
 		write_sz, offset);
 	if (hyc_unlikely(not reqp)) {
 		return kInvalidRequestID;
 	}
 
-	++stats_.pending_;
+	if (now) {
+		auto basep = connectp_->GetEventBase();
+		auto clientp = connectp_->GetRpcClient();
+		ScheduleNow(basep, clientp);
+	}
 
-	auto basep = connectp_->GetEventBase();
-	auto clientp = connectp_->GetRpcClient();
-	basep->runInEventBaseThread([this, clientp, reqp, bufferp, buf_sz, write_sz,
-			offset] () mutable {
-		auto data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
-			bufferp, buf_sz);
-		clientp->future_WriteSame(vmdk_handle_, reqp->id, data, buf_sz,
-			write_sz, offset)
-		.then([this, reqp, data = std::move(data)]
-				(const WriteResult& result) mutable {
-			reqp->result = result.get_result();
-			RequestComplete(reqp);
-		})
-		.onError([this, reqp] (const std::exception& e) mutable {
-			reqp->result = -EIO;
-			RequestComplete(reqp);
-		});
-	});
 	return reqp->id;
 }
 
@@ -819,7 +892,7 @@ Stord::~Stord() {
 	auto rc = Disconnect();
 	if (rc < 0) {
 		rc = Disconnect(true);
-		assert(rc == 0);
+		log_assert(rc == 0);
 	}
 }
 
@@ -891,7 +964,7 @@ int32_t Stord::OpenVmdk(const char* vmid, const char* vmdkid, int eventfd,
 	vmdkp = vmdk.get();
 
 	auto rpcp = stord_.rpcp_;
-	assert(hyc_likely(rpcp));
+	log_assert(rpcp);
 	vmdkp->SetStordConnection(rpcp->GetStordConnection());
 
 	auto rc = vmdk->OpenVmdk();
@@ -923,7 +996,7 @@ int32_t Stord::CloseVmdk(VmdkHandle handle) {
 	const auto& id = vmdkp->GetVmdkId();
 
 	auto iit = vmdk_.ids_.find(id);
-	assert(hyc_likely(iit != vmdk_.ids_.end()));
+	log_assert(iit != vmdk_.ids_.end());
 
 	auto vmdk = std::move(iit->second);
 	try {
@@ -1023,7 +1096,7 @@ int32_t HycStorRpcServerDisconnect(void) {
 
 int32_t HycOpenVmdk(const char* vmid, const char* vmdkid, int eventfd,
 		VmdkHandle* handlep) {
-	assert(vmid != nullptr and vmdkid != nullptr and handlep);
+	log_assert(vmid != nullptr and vmdkid != nullptr and handlep);
 	try {
 		return g_stord.OpenVmdk(vmid, vmdkid, eventfd, handlep);
 	} catch (std::exception& e) {
