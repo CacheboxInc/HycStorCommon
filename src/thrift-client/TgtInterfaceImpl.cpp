@@ -470,16 +470,10 @@ private:
 	StordConnection* connectp_{nullptr};
 
 	struct {
-		struct {
-			mutable std::mutex mutex_;
-			std::unordered_map<RequestID, std::unique_ptr<Request>> map_;
-			std::vector<Request*> pending_;
-		} scheduled_;
-
-		struct {
-			mutable std::mutex mutex_;
-			std::vector<Request*> vec_;
-		} complete_;
+		mutable std::mutex mutex_;
+		std::unordered_map<RequestID, std::unique_ptr<Request>> scheduled_;
+		std::vector<Request*> pending_;
+		std::vector<std::unique_ptr<Request>> complete_;
 	} requests_;
 
 	VmdkStats stats_;
@@ -574,10 +568,10 @@ std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 	request->offset = offset;
 
 	auto reqp = request.get();
-	std::lock_guard<std::mutex> lock(requests_.scheduled_.mutex_);
-	auto empty = requests_.scheduled_.map_.empty();
-	requests_.scheduled_.map_.emplace(request->id, std::move(request));
-	requests_.scheduled_.pending_.emplace_back(reqp);
+	std::lock_guard<std::mutex> lock(requests_.mutex_);
+	auto empty = requests_.scheduled_.empty();
+	requests_.scheduled_.emplace(request->id, std::move(request));
+	requests_.pending_.emplace_back(reqp);
 	++stats_.pending_;
 	return std::make_pair(reqp, empty);
 }
@@ -620,10 +614,12 @@ void StordVmdk::RequestComplete(Request* reqp) {
 	UpdateStats(reqp);
 	bool post = false;
 	{
-		std::lock_guard<std::mutex> lock(requests_.complete_.mutex_);
-		requests_.complete_.vec_.emplace_back(reqp);
-		post = requests_.scheduled_.map_.size() ==
-			requests_.complete_.vec_.size();
+		std::lock_guard<std::mutex> lock(requests_.mutex_);
+		auto it = requests_.scheduled_.find(reqp->id);
+		log_assert(it != requests_.scheduled_.end());
+		requests_.complete_.emplace_back(std::move(it->second));
+		requests_.scheduled_.erase(it);
+		post = requests_.scheduled_.empty();
 	}
 
 	if (post) {
@@ -634,8 +630,7 @@ void StordVmdk::RequestComplete(Request* reqp) {
 
 int StordVmdk::PostRequestCompletion() const {
 	if (hyc_likely(eventfd_ >= 0)) {
-		auto rc = ::eventfd_write(eventfd_,
-			requests_.complete_.vec_.size());
+		auto rc = ::eventfd_write(eventfd_, requests_.complete_.size());
 		if (hyc_unlikely(rc < 0)) {
 			LOG(ERROR) << "eventfd_write write failed RPC " << *this;
 			return rc;
@@ -647,47 +642,22 @@ int StordVmdk::PostRequestCompletion() const {
 uint32_t StordVmdk::GetCompleteRequests(RequestResult* resultsp,
 		uint32_t nresults, bool *has_morep) {
 	*has_morep = false;
-	auto vec = [&] () mutable -> std::optional<std::vector<Request*>> {
-		std::lock_guard<std::mutex> lock(requests_.complete_.mutex_);
-		const auto tocopy = std::min(requests_.complete_.vec_.size(),
-			static_cast<size_t>(nresults));
-		if (not tocopy) {
-			return {};
-		}
-
-		std::vector<Request*> c;
-		c.reserve(tocopy);
-
-		auto eit = requests_.complete_.vec_.end();
-		auto sit = std::prev(eit, tocopy);
-
-		std::move(sit, eit, std::back_inserter(c));
-		requests_.complete_.vec_.erase(sit, eit);
-		*has_morep = not requests_.complete_.vec_.empty();
-		return c;
-	} ();
-
-	if (not vec) {
-		log_assert(hyc_likely(not *has_morep));
+	std::lock_guard<std::mutex> lock(requests_.mutex_);
+	auto tocopy = std::min(requests_.complete_.size(), static_cast<size_t>(nresults));
+	if (not tocopy) {
 		return 0;
 	}
 
-	auto c = std::move(vec.value());
-	auto sit = c.begin();
-	auto eit = c.end();
-
-	std::lock_guard<std::mutex> lock(requests_.scheduled_.mutex_);
+	auto eit = requests_.complete_.end();
+	auto sit = std::prev(eit, tocopy);
 	for (auto resultp = resultsp; sit != eit; ++sit, ++resultp) {
-		const auto* reqp = *sit;
-		resultp->privatep   = reqp->privatep;
-		resultp->request_id = reqp->id;
-		resultp->result     = reqp->result;
-
-		auto it = requests_.scheduled_.map_.find(reqp->id);
-		log_assert(it != requests_.scheduled_.map_.end());
-		requests_.scheduled_.map_.erase(it);
+		resultp->privatep   = sit->get()->privatep;
+		resultp->request_id = sit->get()->id;
+		resultp->result     = sit->get()->result;
 	}
-	return c.size();
+	requests_.complete_.erase(std::prev(eit, tocopy), eit);
+	*has_morep = not requests_.complete_.empty();
+	return tocopy;
 }
 
 void StordVmdk::ReadDataCopy(Request* reqp, const ReadResult& result) {
@@ -769,9 +739,9 @@ void StordVmdk::ScheduleRead(folly::EventBase* basep,
 void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp) {
 	auto GetPending = [this] (std::vector<Request*>& pending) mutable {
 		pending.clear();
-		std::lock_guard<std::mutex> lock(requests_.scheduled_.mutex_);
-		requests_.scheduled_.pending_.swap(pending);
-		requests_.scheduled_.pending_.reserve(32);
+		std::lock_guard<std::mutex> lock(requests_.mutex_);
+		requests_.pending_.swap(pending);
+		requests_.pending_.reserve(32);
 	};
 
 	std::vector<Request*> pending;
