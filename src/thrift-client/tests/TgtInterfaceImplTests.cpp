@@ -195,7 +195,8 @@ TEST(TgtInterfaceImplTest, Read) {
 	auto Schedule = [&] () {
 		std::set<RequestID> ids;
 		for (auto i = 0; i < kReadsPerThread; i++) {
-			auto id = HycScheduleRead(handle, nullptr, buf.data(), buf.size(), 0);
+			bool fetch = false;
+			auto id = HycScheduleRead(handle, nullptr, buf.data(), buf.size(), 0, &fetch);
 			EXPECT_NE(id, kInvalidRequestID);
 			ids.insert(id);
 		}
