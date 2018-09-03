@@ -32,7 +32,8 @@ public:
 	}
 
 	void async_tm_PushVmdkStats(std::unique_ptr<HandlerCallbackBase> cb,
-			VmdkHandle vmdk, std::unique_ptr<VmdkStats> stats) override {
+			::hyc_thrift::VmdkHandle vmdk, std::unique_ptr<VmdkStats> stats)
+			override {
 		++nstats_;
 	}
 
@@ -48,7 +49,8 @@ public:
 		++nclose_vm_;
 	}
 
-	void async_tm_OpenVmdk(std::unique_ptr<HandlerCallback<VmdkHandle>> cb,
+	void async_tm_OpenVmdk(
+			std::unique_ptr<HandlerCallback<::hyc_thrift::VmdkHandle>> cb,
 			std::unique_ptr<std::string> vmid,
 			std::unique_ptr<std::string> vmdkid) override {
 		cb->result(++vmdk_handle_);
@@ -56,15 +58,15 @@ public:
 	}
 
 	void async_tm_CloseVmdk(std::unique_ptr<HandlerCallback<int32_t>> cb,
-			VmdkHandle vmdk) override {
+			::hyc_thrift::VmdkHandle vmdk) override {
 		cb->result(0);
 		++nclose_vmdk_;
 	}
 
 	void async_tm_Read(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<ReadResult>>> cb,
-			VmdkHandle vmdk, RequestId reqid, int32_t size, int64_t offset)
-			override {
+			::hyc_thrift::VmdkHandle vmdk, RequestId reqid, int32_t size,
+			int64_t offset) override {
 		auto iobuf = folly::IOBuf::create(size);
 		::memset(iobuf->writableTail(), 'A', size);
 		iobuf->append(size);
@@ -78,8 +80,9 @@ public:
 
 	void async_tm_Write(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
-			VmdkHandle vmdk, RequestId reqid, std::unique_ptr<IOBufPtr> data,
-			int32_t size, int64_t offset) override {
+			::hyc_thrift::VmdkHandle vmdk, RequestId reqid,
+			std::unique_ptr<IOBufPtr> data, int32_t size, int64_t offset)
+			override {
 		auto write = std::make_unique<WriteResult>();
 		write->set_reqid(reqid);
 		write->set_result(0);
@@ -89,8 +92,9 @@ public:
 
 	void async_tm_WriteSame(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
-			VmdkHandle vmdk, RequestId reqid, std::unique_ptr<IOBufPtr> data,
-			int32_t data_size, int32_t write_size, int64_t offset) override {
+			::hyc_thrift::VmdkHandle vmdk, RequestId reqid,
+			std::unique_ptr<IOBufPtr> data, int32_t data_size,
+			int32_t write_size, int64_t offset) override {
 		auto write = std::make_unique<WriteResult>();
 		write->set_reqid(reqid);
 		write->set_result(0);
@@ -110,7 +114,7 @@ public:
 	std::atomic<uint32_t> nstats_{0};
 private:
 	std::atomic<VmHandle> vm_handle_{0};
-	std::atomic<VmdkHandle> vmdk_handle_{0};
+	std::atomic<::hyc_thrift::VmdkHandle> vmdk_handle_{0};
 };
 
 static std::shared_ptr<ScopedServerInterfaceThread> StartServer() {
@@ -184,10 +188,10 @@ TEST(TgtInterfaceImplTest, Read) {
 	auto rc = HycStorRpcServerConnect();
 	EXPECT_EQ(rc, rc);
 
-	VmdkHandle handle = kInvalidVmdkHandle;
+	::VmdkHandle handle = nullptr;
 	rc = HycOpenVmdk("vmid", "vmdkid", -1, &handle);
 	EXPECT_EQ(rc, 0);
-	EXPECT_NE(handle, kInvalidVmdkHandle);
+	EXPECT_NE(handle, nullptr);
 
 	std::mutex mutex;
 	std::set<RequestID> scheduled;

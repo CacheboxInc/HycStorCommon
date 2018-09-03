@@ -442,7 +442,7 @@ public:
 	uint32_t GetCompleteRequests(RequestResult* resultsp, uint32_t nresults,
 		bool *has_morep);
 
-	VmdkHandle GetHandle() const noexcept;
+	::hyc_thrift::VmdkHandle GetHandle() const noexcept;
 	const std::string& GetVmdkId() const noexcept;
 
 	friend std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
@@ -466,7 +466,7 @@ private:
 private:
 	std::string vmid_;
 	std::string vmdkid_;
-	VmdkHandle vmdk_handle_{kInvalidVmdkHandle};
+	::hyc_thrift::VmdkHandle vmdk_handle_{kInvalidVmdkHandle};
 	int eventfd_{-1};
 	StordConnection* connectp_{nullptr};
 
@@ -501,7 +501,7 @@ StordVmdk::~StordVmdk() {
 	CloseVmdk();
 }
 
-VmdkHandle StordVmdk::GetHandle() const noexcept {
+::hyc_thrift::VmdkHandle StordVmdk::GetHandle() const noexcept {
 	return vmdk_handle_;
 }
 
@@ -838,18 +838,18 @@ public:
 	int32_t Connect(uint32_t ping_secs = 30);
 	int32_t Disconnect(bool force = false);
 	int32_t OpenVmdk(const char* vmid, const char* vmdkid, int eventfd,
-		VmdkHandle* handlep);
-	int32_t CloseVmdk(VmdkHandle handle);
-	auto VmdkRead(VmdkHandle handle, const void* privatep, char* bufferp,
+		StordVmdk** vmdkpp);
+	int32_t CloseVmdk(StordVmdk* vmdkp);
+	auto VmdkRead(StordVmdk* vmdkp, const void* privatep, char* bufferp,
 		int32_t buf_sz, int64_t offset);
-	uint32_t VmdkGetCompleteRequest(VmdkHandle handle, RequestResult* resultsp,
+	uint32_t VmdkGetCompleteRequest(StordVmdk* vmdkp, RequestResult* resultsp,
 		uint32_t nresults, bool *has_morep);
-	auto VmdkWrite(VmdkHandle handle, const void* privatep, char* bufferp,
+	auto VmdkWrite(StordVmdk* vmdkp, const void* privatep, char* bufferp,
 		int32_t buf_sz, int64_t offset);
-	auto VmdkWriteSame(VmdkHandle handle, const void* privatep,
+	auto VmdkWriteSame(StordVmdk* vmdkp, const void* privatep,
 		char* bufferp, int32_t buf_sz, int32_t write_sz, int64_t offset);
 private:
-	StordVmdk* FindVmdk(VmdkHandle handle);
+	StordVmdk* FindVmdk(::hyc_thrift::VmdkHandle handle);
 	StordVmdk* FindVmdk(const std::string& vmdkid);
 private:
 	struct {
@@ -859,7 +859,6 @@ private:
 	struct {
 		mutable std::mutex mutex_;
 		std::unordered_map<std::string, std::unique_ptr<StordVmdk>> ids_;
-		std::unordered_map<VmdkHandle, StordVmdk*> handles_;
 	} vmdk_;
 };
 
@@ -899,19 +898,8 @@ int32_t Stord::Disconnect(bool force) {
 			return -EBUSY;
 		}
 	}
-	vmdk_.handles_.clear();
 	stord_.rpc_ = nullptr;
 	return 0;
-}
-
-StordVmdk* Stord::FindVmdk(VmdkHandle handle) {
-	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
-	auto it = vmdk_.handles_.find(handle);
-	if (hyc_unlikely(it == vmdk_.handles_.end())) {
-		return nullptr;
-	}
-
-	return it->second;
 }
 
 StordVmdk* Stord::FindVmdk(const std::string& vmdkid) {
@@ -925,8 +913,8 @@ StordVmdk* Stord::FindVmdk(const std::string& vmdkid) {
 }
 
 int32_t Stord::OpenVmdk(const char* vmid, const char* vmdkid, int eventfd,
-		VmdkHandle* handlep) {
-	*handlep = kInvalidVmdkHandle;
+		StordVmdk** vmdkpp) {
+	*vmdkpp = nullptr;
 	auto vmdkp = FindVmdk(vmdkid);
 	if (hyc_unlikely(vmdkp)) {
 		return -EEXIST;
@@ -947,87 +935,46 @@ int32_t Stord::OpenVmdk(const char* vmid, const char* vmdkid, int eventfd,
 		return rc;
 	}
 
-	*handlep = vmdkp->GetHandle();
+	*vmdkpp = vmdkp;
 	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
 	vmdk_.ids_.emplace(vmdkid, std::move(vmdk));
-	try {
-		vmdk_.handles_.emplace(*handlep, vmdkp);
-	} catch (...) {
-		auto it = vmdk_.ids_.find(vmdkp->GetVmdkId());
-		vmdk_.ids_.erase(it);
-		throw;
-	}
 	return 0;
 }
 
-int32_t Stord::CloseVmdk(VmdkHandle handle) {
+int32_t Stord::CloseVmdk(StordVmdk* vmdkp) {
+	const auto& id = vmdkp->GetVmdkId();
+
 	std::unique_lock<std::mutex> lock(vmdk_.mutex_);
-	auto hit = vmdk_.handles_.find(handle);
-	if (hyc_unlikely(hit == vmdk_.handles_.end())) {
+	auto it = vmdk_.ids_.find(id);
+	if (hyc_unlikely(it == vmdk_.ids_.end())) {
 		return -ENODEV;
 	}
 
-	auto vmdkp = hit->second;
-	const auto& id = vmdkp->GetVmdkId();
-
-	auto iit = vmdk_.ids_.find(id);
-	log_assert(iit != vmdk_.ids_.end());
-
-	auto vmdk = std::move(iit->second);
-	try {
-		vmdk_.ids_.erase(iit);
-	} catch (...) {
-		iit->second = std::move(vmdk);
-		throw;
-	}
-	vmdk_.handles_.erase(hit);
+	auto vmdk = std::move(it->second);
+	vmdk_.ids_.erase(it);
 	lock.unlock();
 
 	vmdk->CloseVmdk();
 	return 0;
 }
 
-auto Stord::VmdkRead(VmdkHandle handle, const void* privatep,
+auto Stord::VmdkRead(StordVmdk* vmdkp, const void* privatep,
 		char* bufferp, int32_t buf_sz, int64_t offset) {
-	auto vmdkp = FindVmdk(handle);
-	if (hyc_unlikely(not vmdkp)) {
-		RequestID id = kInvalidRequestID;
-		return std::make_pair(id, false);
-	}
-
 	return vmdkp->ScheduleRead(privatep, bufferp, buf_sz, offset);
 }
 
-uint32_t Stord::VmdkGetCompleteRequest(VmdkHandle handle,
+uint32_t Stord::VmdkGetCompleteRequest(StordVmdk* vmdkp,
 		RequestResult* resultsp, uint32_t nresults, bool *has_morep) {
-	auto vmdkp = FindVmdk(handle);
-	if (hyc_unlikely(not vmdkp)) {
-		*has_morep = false;
-		return 0;
-	}
-
 	return vmdkp->GetCompleteRequests(resultsp, nresults, has_morep);
 }
 
-auto Stord::VmdkWrite(VmdkHandle handle, const void* privatep,
+auto Stord::VmdkWrite(StordVmdk* vmdkp, const void* privatep,
 		char* bufferp, int32_t buf_sz, int64_t offset) {
-	auto vmdkp = FindVmdk(handle);
-	if (hyc_unlikely(not vmdkp)) {
-		RequestID id = kInvalidRequestID;
-		return std::make_pair(id, false);
-	}
-
 	return vmdkp->ScheduleWrite(privatep, bufferp, buf_sz, offset);
 }
 
-auto Stord::VmdkWriteSame(VmdkHandle handle, const void* privatep,
+auto Stord::VmdkWriteSame(StordVmdk* vmdkp, const void* privatep,
 		char* bufferp, int32_t buf_sz, int32_t write_sz, int64_t offset) {
-	auto vmdkp = FindVmdk(handle);
-	if (hyc_unlikely(not vmdkp)) {
-		RequestID id = kInvalidRequestID;
-		return std::make_pair(id, false);
-	}
-
 	return vmdkp->ScheduleWriteSame(privatep, bufferp, buf_sz, write_sz, offset);
 }
 
@@ -1076,16 +1023,24 @@ int32_t HycOpenVmdk(const char* vmid, const char* vmdkid, int eventfd,
 		VmdkHandle* handlep) {
 	log_assert(vmid != nullptr and vmdkid != nullptr and handlep);
 	try {
-		return g_stord.OpenVmdk(vmid, vmdkid, eventfd, handlep);
+		::hyc::StordVmdk* vmdkp;
+		auto rc = g_stord.OpenVmdk(vmid, vmdkid, eventfd, &vmdkp);
+		if (hyc_unlikely(rc < 0)) {
+			*handlep = nullptr;
+			return rc;
+		}
+		*handlep = vmdkp;
+		return rc;
 	} catch (std::exception& e) {
-		*handlep = kInvalidVmdkHandle;
+		*handlep = nullptr;
 		return -ENODEV;
 	}
 }
 
 int32_t HycCloseVmdk(VmdkHandle handle) {
 	try {
-		return g_stord.CloseVmdk(handle);
+		auto vmdkp = reinterpret_cast<::hyc::StordVmdk*>(handle);
+		return g_stord.CloseVmdk(vmdkp);
 	} catch (std::exception& e) {
 		return -ENODEV;
 	}
@@ -1094,7 +1049,8 @@ int32_t HycCloseVmdk(VmdkHandle handle) {
 RequestID HycScheduleRead(VmdkHandle handle, const void* privatep,
 		char* bufferp, int32_t buf_sz, int64_t offset, bool* fetch_completep) {
 	try {
-		auto [id, fetch] =  g_stord.VmdkRead(handle, privatep, bufferp, buf_sz, offset);
+		auto vmdkp = reinterpret_cast<::hyc::StordVmdk*>(handle);
+		auto [id, fetch] =  g_stord.VmdkRead(vmdkp, privatep, bufferp, buf_sz, offset);
 		*fetch_completep = fetch;
 		return id;
 	} catch(std::exception& e) {
@@ -1105,7 +1061,8 @@ RequestID HycScheduleRead(VmdkHandle handle, const void* privatep,
 uint32_t HycGetCompleteRequests(VmdkHandle handle, RequestResult *resultsp,
 		uint32_t nresults, bool *has_morep) {
 	try {
-		return g_stord.VmdkGetCompleteRequest(handle, resultsp, nresults,
+		auto vmdkp = reinterpret_cast<::hyc::StordVmdk*>(handle);
+		return g_stord.VmdkGetCompleteRequest(vmdkp, resultsp, nresults,
 			has_morep);
 	} catch (const std::exception& e) {
 		*has_morep = true;
@@ -1116,7 +1073,8 @@ uint32_t HycGetCompleteRequests(VmdkHandle handle, RequestResult *resultsp,
 RequestID HycScheduleWrite(VmdkHandle handle, const void* privatep,
 		char* bufferp, int32_t buf_sz, int64_t offset, bool* fetch_completep) {
 	try {
-		auto [id, fetch] = g_stord.VmdkWrite(handle, privatep, bufferp, buf_sz, offset);
+		auto vmdkp = reinterpret_cast<::hyc::StordVmdk*>(handle);
+		auto [id, fetch] = g_stord.VmdkWrite(vmdkp, privatep, bufferp, buf_sz, offset);
 		*fetch_completep = fetch;
 		return id;
 	} catch(std::exception& e) {
@@ -1128,7 +1086,8 @@ RequestID HycScheduleWriteSame(VmdkHandle handle, const void* privatep,
 		char* bufferp, int32_t buf_sz, int32_t write_sz, int64_t offset,
 		bool* fetch_completep) {
 	try {
-		auto [id, fetch ] = g_stord.VmdkWriteSame(handle, privatep, bufferp,
+		auto vmdkp = reinterpret_cast<::hyc::StordVmdk*>(handle);
+		auto [id, fetch ] = g_stord.VmdkWriteSame(vmdkp, privatep, bufferp,
 			buf_sz, write_sz, offset);
 		*fetch_completep = fetch;
 		return id;
