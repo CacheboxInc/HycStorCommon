@@ -276,6 +276,7 @@ int StordConnection::Connect() {
 			}
 
 			VLOG(1) << " EventBase looping forever";
+			this->base_->runBeforeLoop(&this->sched_pending_);
 			this->base_->loopForever();
 			VLOG(1) << " EventBase loop stopped";
 
@@ -317,7 +318,6 @@ int StordConnection::Connect() {
 
 	/* ensure that EventBase loop is started */
 	this->base_->waitUntilRunning();
-	this->base_->runInLoop(&sched_pending_);
 	VLOG(1) << " Connection Result " << result;
 	return 0;
 }
@@ -530,11 +530,11 @@ private:
 
 void SchedulePending::runLoopCallback() noexcept {
 	auto basep = connectp_->GetEventBase();
+	basep->runBeforeLoop(this);
 
 	std::vector<StordVmdk*> vmdks;
 	connectp_->GetRegisteredVmdks(vmdks);
 	if (vmdks.empty()) {
-		basep->runInLoop(this);
 		return;
 	}
 
@@ -748,16 +748,14 @@ void StordVmdk::ScheduleWriteSame(folly::EventBase* basep,
 		reqp->bufferp, reqp->buf_sz);
 	clientp->future_WriteSame(vmdk_handle_, reqp->id, data, reqp->buf_sz,
 		reqp->xfer_sz, reqp->offset)
-	.then([this, reqp, data = std::move(data), basep, clientp]
+	.then([this, reqp, data = std::move(data)]
 			(const WriteResult& result) mutable {
 		reqp->result = result.get_result();
 		RequestComplete(reqp);
-		ScheduleMore(basep, clientp);
 	})
-	.onError([this, reqp, basep, clientp] (const std::exception& e) mutable {
+	.onError([this, reqp] (const std::exception& e) mutable {
 		reqp->result = -EIO;
 		RequestComplete(reqp);
-		ScheduleMore(basep, clientp);
 	});
 }
 
@@ -768,16 +766,14 @@ void StordVmdk::ScheduleWrite(folly::EventBase* basep,
 	auto data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
 		reqp->bufferp, reqp->buf_sz);
 	clientp->future_Write(vmdk_handle_, reqp->id, data, reqp->buf_sz, reqp->offset)
-	.then([this, reqp, data = std::move(data), basep, clientp]
+	.then([this, reqp, data = std::move(data)]
 			(const WriteResult& result) mutable {
 		reqp->result = result.get_result();
 		RequestComplete(reqp);
-		ScheduleMore(basep, clientp);
 	})
-	.onError([this, reqp, basep, clientp] (const std::exception& e) mutable {
+	.onError([this, reqp] (const std::exception& e) mutable {
 		reqp->result = -EIO;
 		RequestComplete(reqp);
-		ScheduleMore(basep, clientp);
 	});
 }
 
@@ -786,18 +782,16 @@ void StordVmdk::ScheduleRead(folly::EventBase* basep,
 	log_assert(reqp && basep->isInEventBaseThread());
 
 	clientp->future_Read(vmdk_handle_, reqp->id, reqp->buf_sz, reqp->offset)
-	.then([this, reqp, basep, clientp] (const ReadResult& result) mutable {
+	.then([this, reqp] (const ReadResult& result) mutable {
 		reqp->result = result.get_result();
 		if (hyc_likely(reqp->result == 0)) {
 			ReadDataCopy(reqp, result);
 		}
 		RequestComplete(reqp);
-		ScheduleMore(basep, clientp);
 	})
-	.onError([this, reqp, basep, clientp] (const std::exception& e) mutable {
+	.onError([this, reqp] (const std::exception& e) mutable {
 		reqp->result = -EIO;
 		RequestComplete(reqp);
-		ScheduleMore(basep, clientp);
 	});
 }
 
