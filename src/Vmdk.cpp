@@ -664,7 +664,6 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 		size = 0;
 	}
 
-	LOG (ERROR) << "Outside the loop";
 	LOG (ERROR) << "blk count::" << block_cnt
 		<< "start block::" << start_block << "size::" << size;
 	/* Submit any last pending accumlated IOs */

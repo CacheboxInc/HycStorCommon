@@ -13,8 +13,6 @@
 #include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/MetaData_constants.h"
 #include "DaemonCommon.h"
-#include "QLock.h"
-#include "Rendez.h"
 #include "AeroConn.h"
 #include "AeroFiberThreads.h"
 #include "VmConfig.h"
@@ -29,6 +27,7 @@ const std::string kAsNamespaceCacheClean = "CLEAN";
 const std::string kAsNamespaceMeta = "META";
 const std::string kAsCacheBin = "data_map";
 const std::string kAsMetaBin = "meta_map";
+const auto kMaxRetryCnt = 5;
 
 struct WriteBatch;
 struct WriteRecord {
@@ -49,7 +48,6 @@ public:
 struct WriteBatch {
 	WriteBatch(Request* reqp, const ::ondisk::VmdkID& vmdkid, const std::string& ns,
 			const std::string set);
-
 	Request* req_{nullptr};
 	const ::ondisk::VmdkID& pre_keyp_;
 	const std::string& ns_;
@@ -64,11 +62,8 @@ struct WriteBatch {
 		uint16_t ncomplete_{0};
 	} batch;
 
-	QLock q_lock_;
-	Rendez rendez_;
-
 	bool retry_{false};
-	int retry_cnt_{5};
+	std::atomic <int> retry_cnt_{kMaxRetryCnt};
 	std::unique_ptr<folly::Promise<int>> promise_{nullptr};
 	::ondisk::CheckPointID ckpt_{
 		::ondisk::MetaData_constants::kInvalidCheckPointID()
@@ -107,18 +102,47 @@ struct ReadBatch {
 
 	as_batch_read_records *aero_recordsp_{nullptr};
 	std::vector<std::unique_ptr<ReadRecord>> recordsp_;
-	QLock q_lock_;
-	Rendez rendez_;
 	uint16_t nreads_{0};
 	uint16_t ncomplete_{0};
 	as_status as_result_{AEROSPIKE_OK};
 	bool failed_{false};
 
 	bool retry_{false};
-	int retry_cnt_{5};
+	std::atomic <int> retry_cnt_{kMaxRetryCnt};
 	std::unique_ptr<folly::Promise<int>> promise_{nullptr};
 
 	AeroSpikeConn *aero_conn_{nullptr};
+};
+
+
+struct ReadSingle {
+	ReadSingle(Request* reqp, const ::ondisk::VmdkID& vmdkid, const std::string& ns,
+			const std::string set,  const std::vector<RequestBlock*>& process,
+			ActiveVmdk *vmdkp);
+	~ReadSingle();
+
+	Request *req_{nullptr};
+	const std::string& ns_;
+	const ::ondisk::VmdkID& pre_keyp_;
+	const std::string setp_;
+
+	as_status as_result_{AEROSPIKE_OK};
+	bool failed_{false};
+
+	bool retry_{false};
+	std::atomic <int> retry_cnt_{kMaxRetryCnt};
+	std::unique_ptr<folly::Promise<int>> promise_{nullptr};
+	uint16_t nreads_{0};
+
+	as_key key_;
+	AeroSpikeConn *aero_conn_{nullptr};
+	RequestBlock  *rq_block_{nullptr};
+	::ondisk::CheckPointID ckpt_{
+		::ondisk::MetaData_constants::kInvalidCheckPointID()
+	};
+
+	size_t blk_size_{4096};
+	std::unique_ptr<RequestBuffer> destp_{nullptr};
 };
 
 struct DelBatch;
@@ -157,11 +181,9 @@ struct DelBatch {
 	AeroSpikeConn *aero_conn_{nullptr};
 
 	bool retry_{false};
-	int retry_cnt_{5};
+	std::atomic<int> retry_cnt_{kMaxRetryCnt};
 	std::unique_ptr<folly::Promise<int>> promise_{nullptr};
 
-	QLock q_lock_;
-	Rendez rendez_;
 	bool failed_{false};
 	bool submitted_{false};
 };
@@ -172,6 +194,14 @@ public:
 	~AeroSpike();
 	std::shared_ptr<AeroFiberThreads> instance_{nullptr};
 public:
+
+	folly::Future<int> AeroSingleRead(ActiveVmdk *vmdkp,
+		Request *reqp, const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed, const std::string& ns,
+		std::shared_ptr<AeroSpikeConn> aero_conn);
+
+	folly::Future<int> ReadSingleSubmit(ReadSingle *batchp);
+
 
 	folly::Future<int> AeroReadCmdProcess(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
@@ -245,9 +275,10 @@ public:
 		Request *reqp, const std::string& ns,
 		const std::string& setp);
 
-	int ResetWriteBatchState(WriteBatch *batchp, uint16_t nwrites);
-	int ResetDelBatchState(DelBatch *batchp, uint16_t ndeletes);
-	int ResetReadBatchState(ReadBatch *batchp, uint16_t nreads);
+	int ResetWriteBatchState(WriteBatch *batchp);
+	int ResetDelBatchState(DelBatch *batchp);
+	int ResetReadBatchState(ReadBatch *batchp);
+	int ResetReadSingleState(ReadSingle *batchp);
 
 	folly::Future<int> AeroMetaWrite(ActiveVmdk *vmdkp,
 		const std::string& ns,
