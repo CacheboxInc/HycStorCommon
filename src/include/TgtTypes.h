@@ -19,7 +19,7 @@ extern "C"  {
 
 typedef int64_t RequestID;
 typedef int64_t VmHandle;
-typedef int64_t VmdkHandle;
+typedef void* VmdkHandle;
 
 struct RequestResult {
 	const void* privatep;
