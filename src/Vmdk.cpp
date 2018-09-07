@@ -70,6 +70,10 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	if (not aux_info_) {
 		throw std::bad_alloc();
 	}
+
+	if (not config_->GetCleanupOnWrite(cleanup_on_write_)) {
+		cleanup_on_write_ = true;
+	}
 }
 
 ActiveVmdk::~ActiveVmdk() = default;
@@ -408,7 +412,7 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 	});
 }
 
-int ActiveVmdk::FlushStages(CheckPointID ckpt_id) {
+int ActiveVmdk::FlushStages(CheckPointID ckpt_id, bool perform_move) {
 
 	auto rc = FlushStage(ckpt_id);
 	if (rc) {
@@ -427,9 +431,11 @@ int ActiveVmdk::FlushStages(CheckPointID ckpt_id) {
 	 * case we can ignore errors.
 	 */
 
-	rc = MoveStage(ckpt_id);
-	if (rc) {
-		return rc;
+	if (pio_likely(perform_move)) {
+		rc = MoveStage(ckpt_id);
+		if (rc) {
+			return rc;
+		}
 	}
 
 	/* TBD: Mark flush done for this checkpoint and searalize this

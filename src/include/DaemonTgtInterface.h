@@ -22,7 +22,7 @@ std::shared_ptr<AeroSpikeConn> GetAeroConnUsingVmID(ondisk::VmID vmid);
 
 void RemoveVm(::hyc_thrift::VmdkHandle vm_handle);
 int RemoveVmUsingVmID(ondisk::VmID vmid);
-int NewFlushReq(ondisk::VmID vmid);
+int NewFlushReq(ondisk::VmID vmid, const std::string& config);
 int NewFlushStatusReq(ondisk::VmID vmid, flush_stats &flush_stat);
 int NewAeroCacheStatReq(ondisk::VmID vmid, AeroStats *);
 

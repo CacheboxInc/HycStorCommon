@@ -92,6 +92,14 @@ folly::Future<int> DirtyHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 			return rc;
 		}
 
+		if (pio_unlikely(!vmdkp->CleanupOnWrite())) {
+			failed.clear();
+			for (auto blockp : process) {
+				blockp->SetResult(0, RequestStatus::kSuccess);
+			}
+			return 0;
+		}
+
 		return aero_obj_->AeroDelCmdProcess(vmdkp, reqp, ckpt, process, failed,
 			kAsNamespaceCacheClean, connect)
 		.then([&process, &failed]  (int rc) mutable {

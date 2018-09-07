@@ -26,7 +26,7 @@ public:
 	int InitFlushManager();
 	void DeinitFlushManager();
 	int CreateInstance(struct _ha_instance *);
-	int NewInstance(::ondisk::VmID vmid);
+	int NewInstance(::ondisk::VmID vmid, const std::string& config);
 	FlushInstance* GetInstance(const ::ondisk::VmID& vmid);
 	void FreeInstance(const ::ondisk::VmID& vmid);
 private:

@@ -56,6 +56,7 @@ const std::string VmdkConfig::kRamMetaDataKV = "RamMetaDataKV";
 const std::string VmdkConfig::kAeroMetaDataKV = "AeroMetaDataKV";
 const std::string VmdkConfig::kMetaDataKV = "MetaDataKV";
 const std::string VmdkConfig::kParentDiskName = "ParentDiskName";
+const std::string VmdkConfig::kCleanupOnWrite = "CleanupOnWrite";
 
 VmdkConfig::VmdkConfig(const std::string& config) : JsonConfig(config) {
 }
@@ -542,6 +543,14 @@ bool VmdkConfig::IsRamMetaDataKV() {
 	}
 
 	return kv == kRamMetaDataKV;
+}
+
+void VmdkConfig::SetCleanupOnWrite(const bool& val) {
+	JsonConfig::SetKey(kCleanupOnWrite, val);
+}
+
+bool VmdkConfig::GetCleanupOnWrite(bool& val) const {
+	return JsonConfig::GetKey(kCleanupOnWrite, val);
 }
 
 }}

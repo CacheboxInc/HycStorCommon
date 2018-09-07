@@ -27,6 +27,7 @@
 #include "AeroFiberThreads.h"
 #include "FlushManager.h"
 #include "FlushInstance.h"
+#include "FlushConfig.h"
 #include "FileTargetHandler.h"
 #include "AeroOps.h"
 
@@ -176,7 +177,7 @@ AeroClusterHandle DelAeroCluster(AeroClusterID cluster_id,
 	return kValidAeroClusterHandle;
 }
 
-int NewFlushReq(VmID vmid) {
+int NewFlushReq(VmID vmid, const std::string& config) {
 	auto managerp = SingletonHolder<FlushManager>::GetInstance();
 	auto ptr = managerp->GetInstance(vmid);
 	if (ptr != nullptr) {
@@ -185,7 +186,7 @@ int NewFlushReq(VmID vmid) {
 	}
 
 	try {
-		auto rc = managerp->NewInstance(vmid);
+		auto rc = managerp->NewInstance(vmid, config);
 		if (pio_unlikely(rc)) {
 			return -ENOMEM;
 		}

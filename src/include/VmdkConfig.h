@@ -50,6 +50,8 @@ public:
 	bool GetFileTargetCreate() const;
 	void ConfigureFileTargetSize(const off_t& file_size);
 	void ConfigureFileTargetCreate(const bool& file_create);
+	void SetCleanupOnWrite(const bool& val);
+	bool GetCleanupOnWrite(bool& val) const;
 
 	enum class ErrorType {
 		kThrow,
@@ -118,6 +120,7 @@ public:
 	static const std::string kAeroMetaDataKV;
 	static const std::string kMetaDataKV;
 	static const std::string kParentDiskName;
+	static const std::string kCleanupOnWrite;
 };
 
 std::ostream& operator <<(std::ostream& os, const VmdkConfig::ErrorType& type);

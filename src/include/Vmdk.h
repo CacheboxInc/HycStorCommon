@@ -30,6 +30,7 @@ namespace pio {
 namespace config {
 	class VmdkConfig;
 	class AeroConfig;
+	class FlushConfig;
 }
 
 class CheckPoint {
@@ -131,7 +132,7 @@ public:
 	folly::Future<int> Write(Request* reqp, ::ondisk::CheckPointID ckpt_id);
 	folly::Future<int> WriteSame(Request* reqp, ::ondisk::CheckPointID ckpt_id);
 	folly::Future<int> TakeCheckPoint(::ondisk::CheckPointID check_point);
-	int FlushStages(::ondisk::CheckPointID check_point);
+	int FlushStages(::ondisk::CheckPointID check_point, bool perform_move);
 	int FlushStage(::ondisk::CheckPointID check_point);
 	int MoveStage(::ondisk::CheckPointID check_point);
 	const CheckPoint* GetCheckPoint(::ondisk::CheckPointID ckpt_id) const;
@@ -140,6 +141,9 @@ public:
 	size_t BlockSize() const;
 	size_t BlockShift() const;
 	size_t BlockMask() const;
+	bool CleanupOnWrite() const {
+		return cleanup_on_write_;
+	};
 	VirtualMachine* GetVM() const noexcept;
 	const config::VmdkConfig* GetJsonConfig() const noexcept;
 
@@ -177,6 +181,7 @@ private:
 	int            eventfd_{-1};
 
 	uint32_t block_shift_{0};
+	bool cleanup_on_write_{true};
 	std::unique_ptr<config::VmdkConfig> config_;
 
 	struct {

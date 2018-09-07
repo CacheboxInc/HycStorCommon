@@ -10,12 +10,13 @@
 #include <algorithm>
 #include <chrono>
 #include "gen-cpp2/MetaData_types.h"
+#include "FlushConfig.h"
 
 namespace pio {
 
 class FlushInstance {
 public:
-	FlushInstance(::ondisk::VmID vmid_);
+	FlushInstance(::ondisk::VmID vmid_, const std::string& config);
 	~FlushInstance();
 
 	uint64_t flushed_blocks_{0};
@@ -27,8 +28,10 @@ public:
 					(std::chrono::steady_clock::now() - start_time_);
 		return duration.count();
 	}
+	config::FlushConfig* GetJsonConfig() const noexcept;
 private:
 	::ondisk::VmID vmid_;
 	std::chrono::steady_clock::time_point start_time_;
+	std::unique_ptr<config::FlushConfig> config_;
 };
 }

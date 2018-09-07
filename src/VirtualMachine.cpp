@@ -258,7 +258,7 @@ int VirtualMachine::AeroCacheStats(AeroStats *aero_statsp, AeroSpikeConn *aerop)
 	return rc;
 }
 
-int VirtualMachine::FlushStart(CheckPointID ckpt_id) {
+int VirtualMachine::FlushStart(CheckPointID ckpt_id, bool perform_move) {
 	if (flush_in_progress_.test_and_set()) {
 		return -EAGAIN;
 	}
@@ -279,8 +279,8 @@ int VirtualMachine::FlushStart(CheckPointID ckpt_id) {
 			folly::Promise<int> promise;
 			auto fut = promise.getFuture();
 			managerp->threadpool_.pool_->AddTask([vmdkp, ckpt_id,
-				promise = std::move(promise)]() mutable {
-				auto rc = vmdkp->FlushStages(ckpt_id);
+				promise = std::move(promise), perform_move]() mutable {
+				auto rc = vmdkp->FlushStages(ckpt_id, perform_move);
 				promise.setValue(rc);
 			});
 

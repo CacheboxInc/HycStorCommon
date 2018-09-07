@@ -52,9 +52,9 @@ void FlushManager::DeinitFlushManager() {
 	threadpool_.pool_ = nullptr;
 }
 
-int FlushManager::NewInstance(VmID vmid) {
+int FlushManager::NewInstance(VmID vmid, const std::string& config) {
 	try {
-		auto fi = std::make_unique<FlushInstance>(vmid);
+		auto fi = std::make_unique<FlushInstance>(vmid, config);
 		instances_.insert(std::make_pair(std::move(vmid), std::move(fi)));
 		return 0;
 	} catch (const std::bad_alloc& e) {

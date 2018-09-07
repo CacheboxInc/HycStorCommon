@@ -685,6 +685,15 @@ static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp)
 	}
 	std::string vmid(param_valuep);
 
+	auto data = ha_get_data(reqp);
+	std::string req_data;
+	if (data != nullptr) {
+		req_data.assign(data);
+		::free(data);
+	} else {
+		req_data.clear();
+	}
+
 	if (GuardHandler()) {
 		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
 			"Too many requests already pending");
@@ -702,7 +711,7 @@ static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp)
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	auto ret = pio::NewFlushReq(vmid);
+	auto ret = pio::NewFlushReq(vmid, req_data);
 	if (ret) {
 		std::ostringstream es;
 		LOG(ERROR) << "Staring flush request for VMID::"  << vmid << "Failed";

@@ -11,13 +11,16 @@
 #include "VmdkFactory.h"
 #include "VmManager.h"
 #include "FlushInstance.h"
+#include "FlushConfig.h"
 #include <chrono>
 
 using namespace ::ondisk;
 
 namespace pio {
 
-FlushInstance::FlushInstance(VmID vmid):vmid_(std::move(vmid)) {
+FlushInstance::FlushInstance(VmID vmid, const std::string& config):
+	vmid_(std::move(vmid)),
+	config_(std::make_unique<config::FlushConfig>(config)) {
 	start_time_ = std::chrono::steady_clock::now();
 }
 
@@ -42,7 +45,12 @@ int FlushInstance::StartFlush(const VmID& vmid) {
 		return rc;
 	}
 
-	rc = vmp->FlushStart(ckpt_id);
+	bool perform_move;
+	if (not GetJsonConfig()->GetMoveAllowedStatus(perform_move)) {
+		perform_move = true;
+	}
+
+	rc = vmp->FlushStart(ckpt_id, perform_move);
 	if (pio_unlikely(rc)) {
 		return rc;
 	}
@@ -64,6 +72,10 @@ int FlushInstance::FlushStatus(const VmID& vmid, flush_stats &flush_stat) {
 	}
 
 	return 0;
+}
+
+config::FlushConfig* FlushInstance::GetJsonConfig() const noexcept {
+	return config_.get();
 }
 
 }
