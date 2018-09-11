@@ -65,7 +65,7 @@ public:
 
 	void async_tm_Read(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<ReadResult>>> cb,
-			::hyc_thrift::VmdkHandle vmdk, RequestId reqid, int32_t size,
+			::hyc_thrift::VmdkHandle vmdk, RequestID reqid, int32_t size,
 			int64_t offset) override {
 		auto iobuf = folly::IOBuf::create(size);
 		::memset(iobuf->writableTail(), 'A', size);
@@ -80,7 +80,7 @@ public:
 
 	void async_tm_Write(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
-			::hyc_thrift::VmdkHandle vmdk, RequestId reqid,
+			::hyc_thrift::VmdkHandle vmdk, RequestID reqid,
 			std::unique_ptr<IOBufPtr> data, int32_t size, int64_t offset)
 			override {
 		auto write = std::make_unique<WriteResult>();
@@ -92,7 +92,7 @@ public:
 
 	void async_tm_WriteSame(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
-			::hyc_thrift::VmdkHandle vmdk, RequestId reqid,
+			::hyc_thrift::VmdkHandle vmdk, RequestID reqid,
 			std::unique_ptr<IOBufPtr> data, int32_t data_size,
 			int32_t write_size, int64_t offset) override {
 		auto write = std::make_unique<WriteResult>();
