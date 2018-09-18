@@ -49,17 +49,21 @@ public:
 	}
 
 	void timeoutExpired() noexcept override {
-		if (func_()) {
+		if (not cancel_ && func_()) {
 			ScheduleTimeout(func_);
 		}
 	}
 
 	void ScheduleTimeout(std::function<bool (void)> func) {
+		if (cancel_) {
+			return;
+		}
 		func_ = func;
 		scheduleTimeout(milli_);
 	}
 
 	void Cancel() {
+		cancel_ = true;
 		if (not isScheduled()) {
 			return;
 		}
@@ -68,6 +72,7 @@ public:
 
 private:
 	uint32_t milli_{0};
+	bool cancel_{false};
 	std::function<bool (void)> func_;
 };
 
@@ -143,6 +148,7 @@ public:
 	inline folly::EventBase* GetEventBase() const noexcept;
 	inline StorRpcAsyncClient* GetRpcClient() const noexcept;
 	void RegisterVmdk(StordVmdk* vmdkp);
+	void UnregisterVmdk(StordVmdk* vmdkp);
 	void GetRegisteredVmdks(std::vector<StordVmdk*>& vmdks) const noexcept;
 
 private:
@@ -205,6 +211,7 @@ int32_t StordConnection::Disconnect() {
 		return -EBUSY;
 	}
 
+	ping_.timeout_ = nullptr;
 	sched_pending_.~SchedulePending();
 
 	if (base_) {
@@ -227,6 +234,14 @@ void StordConnection::GetRegisteredVmdks(std::vector<StordVmdk*>& vmdks) const n
 	vmdks.reserve(registered_.vmdks_.size());
 	std::copy(registered_.vmdks_.begin(), registered_.vmdks_.end(),
 		std::back_inserter(vmdks));
+}
+
+void StordConnection::UnregisterVmdk(StordVmdk* vmdkp) {
+	std::lock_guard<std::mutex> l(registered_.mutex_);
+	auto it = std::find(registered_.vmdks_.begin(),
+		registered_.vmdks_.end(), vmdkp);
+	log_assert(it != registered_.vmdks_.end());
+	registered_.vmdks_.erase(it);
 }
 
 int StordConnection::Connect() {
@@ -607,6 +622,7 @@ int StordVmdk::CloseVmdk() {
 	if (hyc_unlikely(rc < 0)) {
 		return rc;
 	}
+	connectp_->UnregisterVmdk(this);
 	vmdk_handle_ = kInvalidVmdkHandle;
 	return 0;
 }
@@ -1008,8 +1024,7 @@ int32_t Stord::CloseVmdk(StordVmdk* vmdkp) {
 	vmdk_.ids_.erase(it);
 	lock.unlock();
 
-	vmdk->CloseVmdk();
-	return 0;
+	return vmdk->CloseVmdk();
 }
 
 RequestID Stord::VmdkRead(StordVmdk* vmdkp, const void* privatep,
