@@ -2,10 +2,13 @@
 #include <iterator>
 #include <vector>
 #include "Singleton.h"
+#include "VmdkConfig.h"
+
 #include <TargetManager.hpp>
-#include "TargetHandler.h"
+#include "NetworkTargetHandler.h"
 #include "Request.h"
 #include "Vmdk.h"
+
 #if 0
 #include "cksum.h"
 #endif
@@ -16,11 +19,14 @@ using namespace hyc;
 using namespace std;
 using req_buf_type = std::unique_ptr<RequestBuffer>;
 
-TargetHandler::TargetHandler(std::string vm_id, std::string vmdk_id) :
-       RequestHandler(nullptr), vm_id_(vm_id), vmdk_id_(vmdk_id) {
+NetworkTargetHandler::NetworkTargetHandler(const config::VmdkConfig* configp) :
+	RequestHandler(nullptr) {
+	configp->GetVmId(vm_id_);
+	configp->GetVmdkId(vmdk_id_);
+	Open();
 }
 
-TargetHandler::~TargetHandler() {
+NetworkTargetHandler::~NetworkTargetHandler() {
 	if (io_session_) {
 		UnRegisterIOProcessor();
 	}
@@ -31,7 +37,7 @@ TargetHandler::~TargetHandler() {
 	}
 }
 
-int TargetHandler::Open() {
+int NetworkTargetHandler::Open() {
 	TargetManager *tmgr = SingletonHolder<TargetManager>::GetInstance().get();
 	log_assert(tmgr != nullptr);
 
@@ -52,10 +58,9 @@ int TargetHandler::Open() {
 	return 0;
 }
 
-folly::Future<int> TargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
+folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
-
 	failed.clear();
 	std::shared_ptr<hyc::IO> io = std::make_shared<IO>(READDIR);
 	if (pio_unlikely(not io)) {
@@ -118,10 +123,9 @@ folly::Future<int> TargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	});
 }
 
-folly::Future<int> TargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
+folly::Future<int> NetworkTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
-
 	failed.clear();
 	std::shared_ptr<hyc::IO> io = std::make_shared<IO>(WRITEDIR);
 	if (pio_unlikely(not io)) {
@@ -152,7 +156,7 @@ folly::Future<int> TargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 	return promise->getFuture()
 	.then([io, promise, &process, &failed] (int rc) mutable {
 		#if 0
-		LOG(ERROR) << __func__ << "In TargetHandler::Write future";
+		LOG(ERROR) << __func__ << "In NetworkTargetHandler::Write future";
 		#endif
 		if (rc != 0) {
 			failed.reserve(process.size());
@@ -163,24 +167,23 @@ folly::Future<int> TargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 	});
 }
 
-int TargetHandler::IOProcessed(IOSession *session, std::shared_ptr<IO> io) {
+int NetworkTargetHandler::IOProcessed(IOSession *session, std::shared_ptr<IO> io) {
 	auto promise = reinterpret_cast<folly::Promise<int>*>(io->GetOpaque());
 	promise->setValue(io->GetStatus());
 	return 0;
 }
 
-folly::Future<int> TargetHandler::ReadPopulate(ActiveVmdk *vmdkp,
+folly::Future<int> NetworkTargetHandler::ReadPopulate(ActiveVmdk *vmdkp,
 		Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
-
 	failed.clear();
 	failed.reserve(process.size());
 	std::copy(process.begin(), process.end(), std::back_inserter(failed));
 	return -ENODEV;
 }
 
-int TargetHandler::RegisterIOProcessor(IOProcessor *io_processor, bool preferred,
+int NetworkTargetHandler::RegisterIOProcessor(IOProcessor *io_processor, bool preferred,
 		int srcid, int destid) {
 
 	io_session_ = new IOSession(this, io_processor, srcid, destid);
@@ -192,12 +195,12 @@ int TargetHandler::RegisterIOProcessor(IOProcessor *io_processor, bool preferred
 	return 0;
 }
 
-int TargetHandler::UnRegisterIOProcessor() {
+int NetworkTargetHandler::UnRegisterIOProcessor() {
 	delete io_session_;
 	return 0;
 }
 
-int TargetHandler::Cleanup(ActiveVmdk *vmdkp) {
+int NetworkTargetHandler::Cleanup(ActiveVmdk *vmdkp) {
 	#if 0
 	UnRegisterIOProcessor();
 	TargetManager *tmgr = SingletonHolder<TargetManager>::GetInstance().get();

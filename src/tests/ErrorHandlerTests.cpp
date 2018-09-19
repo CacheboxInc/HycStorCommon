@@ -9,7 +9,9 @@
 #include "Vmdk.h"
 #include "DaemonUtils.h"
 #include "VmdkConfig.h"
-#include "CacheHandler.h"
+
+#include "LockHandler.h"
+#include "MultiTargetHandler.h"
 
 using namespace pio;
 using namespace pio::config;
@@ -44,9 +46,15 @@ protected:
 		vmdkp = std::make_unique<ActiveVmdk>(1, "1", nullptr, config.Serialize());
 		EXPECT_NE(vmdkp, nullptr);
 
-		auto h = std::make_unique<CacheHandler>(vmdkp.get(), vmdkp->GetJsonConfig());
-		EXPECT_NE(vmdkp, nullptr);
-		vmdkp->RegisterRequestHandler(std::move(h));
+		auto configp = vmdkp->GetJsonConfig();
+		auto lock = std::make_unique<LockHandler>();
+		EXPECT_NE(lock, nullptr);
+
+		auto multi_target = std::make_unique<MultiTargetHandler>(vmdkp.get(), configp);
+		EXPECT_NE(multi_target, nullptr);
+
+		vmdkp->RegisterRequestHandler(std::move(lock));
+		vmdkp->RegisterRequestHandler(std::move(multi_target));
 	}
 
 	void DefaultVmdkConfig(VmdkConfig& config, VmdkConfig::ErrorType type,
@@ -56,9 +64,11 @@ protected:
 		config.SetBlockSize(kVmdkBlockSize);
 		config.ConfigureCompression("snappy", 1);
 		config.ConfigureEncrytption("abcd");
+		config.DisableCompression();
 		config.DisableEncryption();
 		config.DisableFileCache();
 		config.DisableFileTarget();
+		config.DisableNetworkTarget();
 		config.DisableRamCache();
 		config.ConfigureErrorHandler(type, 1, error);
 		config.DisableSuccessHandler();

@@ -6,6 +6,7 @@
 #include "IO.hpp"
 #include "IOSession.hpp"
 #include "Target.hpp"
+
 #include <folly/fibers/Fiber.h>
 #include <folly/fibers/FiberManager.h>
 #include <folly/fibers/GenericBaton.h>
@@ -13,10 +14,10 @@
 
 namespace pio {
 using namespace hyc;
-class TargetHandler : public RequestHandler, public IORequestor {
+class NetworkTargetHandler : public RequestHandler, public IORequestor {
 public:
-       TargetHandler(std::string vm_id, std::string vmdk_id);
-	~TargetHandler();
+	NetworkTargetHandler(const config::VmdkConfig* configp);
+	~NetworkTargetHandler();
 
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,

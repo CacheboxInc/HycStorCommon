@@ -126,9 +126,6 @@ private:
 	std::vector<std::unique_ptr<RequestBlock>> request_blocks_;
 	bool FlushReq_{false};
 	::ondisk::CheckPointID FlushCkptID_{1}; //Should it be 0
-public:
-	int active_level{0};
-
 };
 
 class RequestBlock {

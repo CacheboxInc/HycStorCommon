@@ -38,6 +38,9 @@ public:
 	bool IsRamCacheEnabled() const;
 	uint16_t GetRamCacheMemoryLimit() const;
 
+	void DisableNetworkTarget();
+	bool IsNetworkTargetEnabled() const;
+
 	void DisableFileCache();
 	void DisableFileTarget();
 	void ConfigureFileCache(const std::string& file_path);
@@ -98,6 +101,8 @@ public:
 
 	static const std::string kFileCache;
 	static const std::string kFileCachePath;
+
+	static const std::string kNetworkTarget;
 
 	static const std::string kFileTarget;
 	static const std::string kFileTargetPath;

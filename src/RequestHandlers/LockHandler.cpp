@@ -28,20 +28,8 @@ LockHandler::~LockHandler() {
 folly::Future<int> LockHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
-
-	/*
-	 * If active level is greater than 1 then Lock is being
-	 * called for same request again, simply return from top.
-	 */
-
-	if (reqp->active_level > 1) {
-		if (not nextp_) {
-			return folly::makeFuture(0);
-		}
-		return nextp_->Read(vmdkp, reqp, process, failed);
-	}
-
 	auto[start, end] = reqp->Blocks();
+
 	auto g = std::make_unique<Guard>(range_lock_.get(), start, end);
 	return g->Lock()
 	.then([g = std::move(g), vmdkp, reqp, &process, &failed, this] () mutable {

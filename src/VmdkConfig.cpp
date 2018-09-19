@@ -32,6 +32,8 @@ const std::string VmdkConfig::kRamCacheMemoryInMB = "MemoryInMB";
 const std::string VmdkConfig::kFileCache = "FileCache";
 const std::string VmdkConfig::kFileCachePath = "Path";
 
+const std::string VmdkConfig::kNetworkTarget = "NetworkTarget";
+
 const std::string VmdkConfig::kFileTarget = "FileTarget";
 const std::string VmdkConfig::kFileTargetPath = "TargetFilePath";
 const std::string VmdkConfig::kFileTargetSize = "TargetFileSize";
@@ -269,6 +271,27 @@ std::string VmdkConfig::GetFileCachePath() const {
 	}
 
 	return fp;
+}
+
+void VmdkConfig::DisableNetworkTarget() {
+	std::string key;
+
+	StringDelimAppend(key, '.', {kNetworkTarget, kEnabled});
+	JsonConfig::SetKey(key, false);
+}
+
+bool VmdkConfig::IsNetworkTargetEnabled() const {
+	std::string key;
+	StringDelimAppend(key, '.', {kNetworkTarget, kEnabled});
+
+	bool enabled;
+	/* by default NetworkTarget is enabled */
+	auto rc = JsonConfig::GetKey(key, enabled);
+	if (rc == false) {
+		return true;
+	}
+
+	return enabled;
 }
 
 void VmdkConfig::DisableFileTarget() {

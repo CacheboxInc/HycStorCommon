@@ -16,8 +16,6 @@
 #include "ThreadPool.h"
 #include "VirtualMachine.h"
 #include "Vmdk.h"
-#include "BlockTraceHandler.h"
-#include "CacheHandler.h"
 #include "VmdkConfig.h"
 #include "VmdkFactory.h"
 #include "VmConfig.h"
@@ -28,11 +26,17 @@
 #include "FlushManager.h"
 #include "FlushInstance.h"
 #include "FlushConfig.h"
-#include "FileTargetHandler.h"
 #include "AeroOps.h"
 
+#include "BlockTraceHandler.h"
+#include "LockHandler.h"
+#include "UnalignedHandler.h"
+#include "CompressHandler.h"
+#include "EncryptHandler.h"
+#include "MultiTargetHandler.h"
+
 #ifdef USE_NEP
-#include "TargetHandler.h"
+#include <NetworkTargetHandler.h>
 #include "halib.h"
 #include <TargetManager.hpp>
 #endif
@@ -369,25 +373,22 @@ VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 		if (pio_unlikely(vmdkp == nullptr)) {
 			throw std::runtime_error("Fatal error");
 		}
+		auto configp = vmdkp->GetJsonConfig();
 
-		vmdkp->RegisterRequestHandler(std::make_unique<BlockTraceHandler>());
-		auto ch = std::make_unique<CacheHandler>(vmdkp, vmdkp->GetJsonConfig());
-		vmdkp->RegisterRequestHandler(std::move(ch));
+		auto blktrace = std::make_unique<BlockTraceHandler>();
+		auto lock = std::make_unique<LockHandler>();
+		auto unalingned = std::make_unique<UnalignedHandler>();
+		auto compress = std::make_unique<CompressHandler>(configp);
+		auto encrypt = std::make_unique<EncryptHandler>(configp);
+		auto multi_target = std::make_unique<MultiTargetHandler>(vmdkp, configp);
 
-#ifdef USE_NEP
-		auto vmid = vmdkp->GetVM()->GetID();
-		LOG(ERROR) << __func__ << "Registering NEP target handler" << vmid;
-		std::unique_ptr<TargetHandler> tghandler =
-			std::make_unique<TargetHandler>(vmid, local_vmdkid);
-		if (pio_unlikely(tghandler->Open() != 0)) {
-			throw std::runtime_error("Fatal error");
-		}
-		vmdkp->RegisterRequestHandler(std::move(tghandler));
-#else
-		LOG(ERROR) << __func__ << "Register FileTargetHandler";
-		vmdkp->RegisterRequestHandler(std::make_unique<FileTargetHandler>
-				(vmdkp->GetJsonConfig()));
-#endif
+		vmdkp->RegisterRequestHandler(std::move(blktrace));
+		vmdkp->RegisterRequestHandler(std::move(lock));
+		vmdkp->RegisterRequestHandler(std::move(unalingned));
+		vmdkp->RegisterRequestHandler(std::move(compress));
+		vmdkp->RegisterRequestHandler(std::move(encrypt));
+		vmdkp->RegisterRequestHandler(std::move(multi_target));
+
 		vmp->AddVmdk(vmdkp);
 	} catch (const std::exception& e) {
 		managerp->FreeVmdkInstance(handle);

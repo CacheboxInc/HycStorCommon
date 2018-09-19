@@ -8,11 +8,10 @@ namespace config {
 	class VmdkConfig;
 }
 
-class CacheHandler : public RequestHandler {
+class MultiTargetHandler : public RequestHandler {
 public:
-	CacheHandler(const ActiveVmdk* vmdkp,
-		const config::VmdkConfig* configp);
-	~CacheHandler();
+	MultiTargetHandler(const ActiveVmdk* vmdkp, const config::VmdkConfig* configp);
+	~MultiTargetHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
@@ -29,9 +28,9 @@ public:
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 private:
-	void InitializeRequestHandlers(const ActiveVmdk* vmdkp,
+	void InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 		const config::VmdkConfig* configp);
 private:
-	std::unique_ptr<RequestHandler> headp_;
+	std::vector<std::unique_ptr<RequestHandler>> targets_;
 };
 }

@@ -110,7 +110,7 @@ set(StorageLayerFiles
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/UnalignedHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/RamCacheHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/BlockTraceHandler.cpp"
-	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/CacheHandler.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/CacheTargetHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/DirtyHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/CleanHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/EncryptHandler.cpp"
@@ -120,12 +120,13 @@ set(StorageLayerFiles
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/SuccessHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/AeroOps.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/FileTargetHandler.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/MultiTargetHandler.cpp"
 )
 
 if(USE_NEP)
 	set (StorageLayerFiles
 		${StorageLayerFiles}
-		"${CMAKE_SOURCE_DIR}/src/RequestHandlers/TargetHandler.cpp"
+		"${CMAKE_SOURCE_DIR}/src/RequestHandlers/NetworkTargetHandler.cpp"
 	)
 endif(USE_NEP)
 

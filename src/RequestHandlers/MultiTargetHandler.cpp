@@ -4,16 +4,11 @@
 #include <vector>
 
 #include "gen-cpp2/MetaData_types.h"
-#include "CacheHandler.h"
-#include "LockHandler.h"
-#include "UnalignedHandler.h"
-#include "CompressHandler.h"
-#include "EncryptHandler.h"
-#include "DirtyHandler.h"
-#include "CleanHandler.h"
-#include "RamCacheHandler.h"
-#include "ErrorHandler.h"
-#include "SuccessHandler.h"
+#include "MultiTargetHandler.h"
+#include "CacheTargetHandler.h"
+#include "NetworkTargetHandler.h"
+#include "FileTargetHandler.h"
+#include "Vmdk.h"
 #include "VmdkConfig.h"
 #include "Request.h"
 #include "DaemonUtils.h"
@@ -21,50 +16,35 @@
 using namespace ::ondisk;
 
 namespace pio {
-CacheHandler::CacheHandler(const ActiveVmdk* vmdkp,
+MultiTargetHandler::MultiTargetHandler(const ActiveVmdk* vmdkp,
 		const config::VmdkConfig* configp) : RequestHandler(nullptr) {
-	InitializeRequestHandlers(vmdkp, configp);
+	InitializeTargetHandlers(vmdkp, configp);
 }
 
-void CacheHandler::InitializeRequestHandlers(const ActiveVmdk* vmdkp,
+void MultiTargetHandler::InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 		const config::VmdkConfig* configp) {
-	auto lock = std::make_unique<LockHandler>();
-	auto unalingned = std::make_unique<UnalignedHandler>();
-	auto compress = std::make_unique<CompressHandler>(configp);
-	auto ram_cache = std::make_unique<RamCacheHandler>(configp);
-	auto encrypt = std::make_unique<EncryptHandler>(configp);
-	auto dirty = std::make_unique<DirtyHandler>(vmdkp, configp);
-	auto clean = std::make_unique<CleanHandler>(vmdkp, configp);
+	auto cache_target = std::make_unique<CacheTargetHandler>(vmdkp, configp);
+	targets_.push_back(std::move(cache_target));
 
-	headp_ = std::move(lock);
-	headp_->RegisterNextRequestHandler(std::move(unalingned));
-	headp_->RegisterNextRequestHandler(std::move(compress));
-	headp_->RegisterNextRequestHandler(std::move(ram_cache));
-	headp_->RegisterNextRequestHandler(std::move(encrypt));
-	headp_->RegisterNextRequestHandler(std::move(dirty));
-	headp_->RegisterNextRequestHandler(std::move(clean));
-
-	if (configp->ErrorHandlerEnabled()) {
-		auto error = std::make_unique<ErrorHandler>(configp);
-		headp_->RegisterNextRequestHandler(std::move(error));
+	if (configp->IsFileTargetEnabled()) {
+		auto file_target = std::make_unique<FileTargetHandler>(configp);
+		targets_.push_back(std::move(file_target));
 	}
 
-	if (configp->IsSuccessHandlerEnabled()) {
-		auto success = std::make_unique<SuccessHandler>(configp);
-		headp_->RegisterNextRequestHandler(std::move(success));
+	if (configp->IsNetworkTargetEnabled()) {
+		auto network_target = std::make_unique<NetworkTargetHandler>(configp);
+		targets_.push_back(std::move(network_target));
 	}
 }
 
-CacheHandler::~CacheHandler() {
-
+MultiTargetHandler::~MultiTargetHandler() {
 }
 
-folly::Future<int> CacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
+folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
-	log_assert(headp_);
-	reqp->active_level++;
-	return headp_->Read(vmdkp, reqp, process, failed)
+	log_assert(not targets_.empty());
+	return targets_[0]->Read(vmdkp, reqp, process, failed)
 	.then([this, vmdkp, reqp, &process, &failed] (int rc) mutable -> folly::Future<int> {
 
 		/* Read from CacheLayer complete */
@@ -79,7 +59,7 @@ folly::Future<int> CacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 			return 0;
 		}
 
-		if (pio_unlikely(not nextp_)) {
+		if (pio_unlikely(targets_.size() <= 1)) {
 			LOG(ERROR) << __func__ << "No Target handler registered";
 			failed.reserve(process.size());
 			std::copy(process.begin(), process.end(), std::back_inserter(failed));
@@ -92,7 +72,7 @@ folly::Future<int> CacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		failed.clear();
 
 		/* Read from next StorageLayer - probably Network or File */
-		return nextp_->Read(vmdkp, reqp, *read_missed, failed)
+		return targets_[1]->Read(vmdkp, reqp, *read_missed, failed)
 		.then([this, vmdkp, reqp, read_missed = std::move(read_missed), &failed] (int rc)
 				mutable -> folly::Future<int> {
 			if (pio_unlikely(rc != 0)) {
@@ -101,13 +81,9 @@ folly::Future<int> CacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 			}
 
 			log_assert(failed.empty());
-			/* Follow up operations is ReadModify, don't populate the cache */
-			if (reqp->active_level > 1) {
-				return 0;
-			}
 
 			/* now read populate */
-			return this->ReadPopulate(vmdkp, reqp, *read_missed, failed)
+			return targets_[0]->ReadPopulate(vmdkp, reqp, *read_missed, failed)
 			.then([read_missed = std::move(read_missed)]
 					(int rc) -> folly::Future<int> {
 				if (rc) {
@@ -119,12 +95,11 @@ folly::Future<int> CacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	});
 }
 
-folly::Future<int> CacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
+folly::Future<int> MultiTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
-	log_assert(headp_);
-	reqp->active_level++;
-	return headp_->Write(vmdkp, reqp, ckpt, process, failed)
+	log_assert(not targets_.empty());
+	return targets_[0]->Write(vmdkp, reqp, ckpt, process, failed)
 	.then([this, vmdkp, reqp, &process, &failed] (int rc) mutable -> folly::Future<int> {
 
 		/* Write from CacheLayer complete */
@@ -139,7 +114,7 @@ folly::Future<int> CacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 			return 0;
 		}
 
-		if (pio_unlikely(not nextp_)) {
+		if (pio_unlikely(targets_.size() <= 1)) {
 			LOG(ERROR) << __func__ << "No Target handler registered";
 			failed.reserve(process.size());
 			std::copy(process.begin(), process.end(), std::back_inserter(failed));
@@ -152,7 +127,7 @@ folly::Future<int> CacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		failed.clear();
 
 		/* Read from next StorageLayer - probably Network or File */
-		return nextp_->Write(vmdkp, reqp, 0, *write_missed, failed)
+		return targets_[1]->Write(vmdkp, reqp, 0, *write_missed, failed)
 		.then([write_missed = std::move(write_missed), &failed] (int rc)
 					mutable -> folly::Future<int> {
 			if (pio_unlikely(rc != 0)) {
@@ -166,21 +141,20 @@ folly::Future<int> CacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 	});
 }
 
-folly::Future<int> CacheHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
+folly::Future<int> MultiTargetHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
-	log_assert(headp_);
-	reqp->active_level++;
-	return headp_->ReadPopulate(vmdkp, reqp, process, failed);
+	log_assert(not targets_.empty());
+	return targets_[0]->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
-folly::Future<int> CacheHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
+folly::Future<int> MultiTargetHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
-	log_assert(headp_);
-	reqp->active_level++;
+	log_assert(not targets_.empty());
+
 	/* Read from DIRTY NAMESPACE only */
-	return headp_->Read(vmdkp, reqp, process, failed)
+	return targets_[0]->Read(vmdkp, reqp, process, failed)
 	.then([this, vmdkp, reqp, &process, &failed] (int rc) mutable -> folly::Future<int> {
 		/* Read from CacheLayer complete */
 		if(pio_unlikely(rc != 0)) {
@@ -197,8 +171,15 @@ folly::Future<int> CacheHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
 			return -EIO;
 		}
 
+		if (pio_unlikely(targets_.size() <= 1)) {
+			LOG(ERROR) << __func__ << "No Target handler registered";
+			failed.reserve(process.size());
+			std::copy(process.begin(), process.end(), std::back_inserter(failed));
+			return -ENODEV;
+		}
+
 		/* Write on prem, Next layer is target handler layer */
-		return nextp_->Write(vmdkp, reqp, 0, process, failed)
+		return targets_[1]->Write(vmdkp, reqp, 0, process, failed)
 		.then([&failed] (int rc) mutable -> folly::Future<int> {
 			if (pio_unlikely(rc != 0)) {
 				LOG(ERROR) << __func__ << "In future context on prem write error";
@@ -212,10 +193,10 @@ folly::Future<int> CacheHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
 	});
 }
 
-folly::Future<int> CacheHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
+folly::Future<int> MultiTargetHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
-	log_assert(headp_);
-	return headp_->Move(vmdkp, reqp, process, failed);
+	log_assert(not targets_.empty());
+	return targets_[0]->Move(vmdkp, reqp, process, failed);
 }
 }

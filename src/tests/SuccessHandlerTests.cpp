@@ -9,7 +9,9 @@
 #include "Vmdk.h"
 #include "DaemonUtils.h"
 #include "VmdkConfig.h"
-#include "CacheHandler.h"
+
+#include "LockHandler.h"
+#include "MultiTargetHandler.h"
 
 using namespace pio;
 using namespace pio::config;
@@ -26,6 +28,7 @@ class SuccessHandlerTests : public ::testing::Test {
 protected:
 	const CheckPointID ckpt_id{1};
 	std::unique_ptr<ActiveVmdk> vmdkp;
+	std::unique_ptr<ActiveVmdk> vmp;
 	std::atomic<RequestID> req_id_;
 
 	RequestID NextRequestID() {
@@ -39,9 +42,15 @@ protected:
 		vmdkp = std::make_unique<ActiveVmdk>(1, "1", nullptr, config.Serialize());
 		EXPECT_NE(vmdkp, nullptr);
 
-		auto h = std::make_unique<CacheHandler>(vmdkp.get(), vmdkp->GetJsonConfig());
-		EXPECT_NE(vmdkp, nullptr);
-		vmdkp->RegisterRequestHandler(std::move(h));
+		auto configp = vmdkp->GetJsonConfig();
+		auto lock = std::make_unique<LockHandler>();
+		auto multi_target = std::make_unique<MultiTargetHandler>(
+			vmdkp.get(), configp);
+		EXPECT_NE(lock, nullptr);
+		EXPECT_NE(multi_target, nullptr);
+
+		vmdkp->RegisterRequestHandler(std::move(lock));
+		vmdkp->RegisterRequestHandler(std::move(multi_target));
 	}
 
 	void DefaultVmdkConfig(VmdkConfig& config) {
@@ -50,12 +59,14 @@ protected:
 		config.SetBlockSize(kVmdkBlockSize);
 		config.ConfigureCompression("snappy", 1);
 		config.ConfigureEncrytption("abcd");
+		config.DisableCompression();
 		config.DisableEncryption();
 		config.DisableFileCache();
 		config.DisableRamCache();
 		config.DisableErrorHandler();
 		config.EnableSuccessHandler();
 		config.DisableFileTarget();
+		config.DisableNetworkTarget();
 	}
 
 	folly::Future<int> VmdkWrite(BlockID block, size_t skip, size_t size,
