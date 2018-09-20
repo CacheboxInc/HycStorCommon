@@ -7,9 +7,6 @@
 #include "CacheTargetHandler.h"
 #include "DirtyHandler.h"
 #include "CleanHandler.h"
-#include "RamCacheHandler.h"
-#include "ErrorHandler.h"
-#include "SuccessHandler.h"
 #include "VmdkConfig.h"
 #include "Request.h"
 #include "DaemonUtils.h"
@@ -24,23 +21,11 @@ CacheTargetHandler::CacheTargetHandler(const ActiveVmdk* vmdkp,
 
 void CacheTargetHandler::InitializeRequestHandlers(const ActiveVmdk* vmdkp,
 		const config::VmdkConfig* configp) {
-	auto ram_cache = std::make_unique<RamCacheHandler>(configp);
 	auto dirty = std::make_unique<DirtyHandler>(vmdkp, configp);
 	auto clean = std::make_unique<CleanHandler>(vmdkp, configp);
 
-	headp_ = std::move(ram_cache);
-	headp_->RegisterNextRequestHandler(std::move(dirty));
+	headp_ = std::move(dirty);
 	headp_->RegisterNextRequestHandler(std::move(clean));
-
-	if (configp->ErrorHandlerEnabled()) {
-		auto error = std::make_unique<ErrorHandler>(configp);
-		headp_->RegisterNextRequestHandler(std::move(error));
-	}
-
-	if (configp->IsSuccessHandlerEnabled()) {
-		auto success = std::make_unique<SuccessHandler>(configp);
-		headp_->RegisterNextRequestHandler(std::move(success));
-	}
 }
 
 CacheTargetHandler::~CacheTargetHandler() {

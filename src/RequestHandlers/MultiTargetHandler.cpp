@@ -7,6 +7,9 @@
 #include "MultiTargetHandler.h"
 #include "CacheTargetHandler.h"
 #include "FileTargetHandler.h"
+#include "RamCacheHandler.h"
+#include "ErrorHandler.h"
+#include "SuccessHandler.h"
 #include "Vmdk.h"
 #include "VmdkConfig.h"
 #include "Request.h"
@@ -26,13 +29,28 @@ MultiTargetHandler::MultiTargetHandler(const ActiveVmdk* vmdkp,
 
 void MultiTargetHandler::InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 		const config::VmdkConfig* configp) {
-	auto cache_target = std::make_unique<CacheTargetHandler>(vmdkp, configp);
-	targets_.push_back(std::move(cache_target));
+	if (configp->ErrorHandlerEnabled()) {
+		auto error = std::make_unique<ErrorHandler>(configp);
+		targets_.emplace_back(std::move(error));
+	}
+
+	if (configp->IsSuccessHandlerEnabled()) {
+		auto success = std::make_unique<SuccessHandler>(configp);
+		targets_.emplace_back(std::move(success));
+	}
+
+	if (configp->IsRamCacheEnabled()) {
+		auto ram_cache = std::make_unique<RamCacheHandler>(configp);
+		targets_.emplace_back(std::move(ram_cache));
+	}
 
 	if (configp->IsFileTargetEnabled()) {
 		auto file_target = std::make_unique<FileTargetHandler>(configp);
 		targets_.push_back(std::move(file_target));
 	}
+
+	auto cache_target = std::make_unique<CacheTargetHandler>(vmdkp, configp);
+	targets_.push_back(std::move(cache_target));
 
 #ifdef USE_NEP
 	if (configp->IsNetworkTargetEnabled()) {
@@ -104,46 +122,7 @@ folly::Future<int> MultiTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	log_assert(not targets_.empty());
-	return targets_[0]->Write(vmdkp, reqp, ckpt, process, failed)
-	.then([this, vmdkp, reqp, &process, &failed] (int rc) mutable -> folly::Future<int> {
-
-		/* Write from CacheLayer complete */
-		if (pio_unlikely(rc != 0)) {
-			/* Failed Return error, miss is not a failed case*/
-			LOG(ERROR) << __func__ << "Error in reading from Cache Layer";
-			return rc;
-		}
-
-		/* No write miss to process, return from here */
-		if (failed.size() == 0) {
-			return 0;
-		}
-
-		if (pio_unlikely(targets_.size() <= 1)) {
-			LOG(ERROR) << __func__ << "No Target handler registered";
-			failed.reserve(process.size());
-			std::copy(process.begin(), process.end(), std::back_inserter(failed));
-			return -ENODEV;
-		}
-
-		/* Handle Write Miss */
-		auto write_missed = std::make_unique<std::remove_reference<decltype(failed)>::type>();
-		write_missed->swap(failed);
-		failed.clear();
-
-		/* Read from next StorageLayer - probably Network or File */
-		return targets_[1]->Write(vmdkp, reqp, 0, *write_missed, failed)
-		.then([write_missed = std::move(write_missed), &failed] (int rc)
-					mutable -> folly::Future<int> {
-			if (pio_unlikely(rc != 0)) {
-				LOG(ERROR) << __func__ << "Writing on TargetHandler layer failed";
-				return rc;
-			}
-
-			log_assert(failed.empty());
-			return 0;
-		});
-	});
+	return targets_[0]->Write(vmdkp, reqp, ckpt, process, failed);
 }
 
 folly::Future<int> MultiTargetHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
