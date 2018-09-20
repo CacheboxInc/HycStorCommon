@@ -22,8 +22,6 @@
 
 namespace pio {
 
-const std::string kAsNamespaceCacheDirty = "DIRTY";
-const std::string kAsNamespaceCacheClean = "CLEAN";
 const std::string kAsNamespaceMeta = "META";
 const std::string kAsCacheBin = "data_map";
 const std::string kAsMetaBin = "meta_map";

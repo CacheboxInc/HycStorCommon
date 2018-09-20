@@ -54,6 +54,15 @@ ActiveVmdk* VirtualMachine::FindVmdk(const VmdkID& vmdk_id) const {
 	return *it;
 }
 
+std::vector <::ondisk::VmdkID> VirtualMachine::GetVmdkIDs() {
+	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+	std::vector <::ondisk::VmdkID> vmdk_ids;
+	for (const auto& vmdkp : vmdk_.list_) {
+		vmdk_ids.emplace_back(vmdkp->GetID());
+	}
+	return vmdk_ids;
+}
+
 ActiveVmdk* VirtualMachine::FindVmdk(VmdkHandle vmdk_handle) const {
 	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
 	auto eit = vmdk_.list_.end();
@@ -140,7 +149,7 @@ folly::Future<CheckPointResult> VirtualMachine::TakeCheckPoint() {
 	});
 }
 
-int VirtualMachine::FlushStatus(flush_stats &flush_stat) {
+int VirtualMachine::FlushStatus(FlushStats &flush_stat) {
 	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
 	per_disk_flush_stat disk_stats;
 	for (const auto& vmdkp : vmdk_.list_) {

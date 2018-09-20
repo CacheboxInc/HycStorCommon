@@ -6,8 +6,11 @@
 #include "IDs.h"
 #include <map>
 #include "CommonMacros.h"
+#include <chrono>
 
 namespace pio {
+const std::string kAsNamespaceCacheClean = "CLEAN";
+const std::string kAsNamespaceCacheDirty = "DIRTY";
 class Vmdk;
 class VirtualMachine;
 
@@ -20,12 +23,18 @@ class CheckPoint;
 class ActiveVmdk;
 class SnapshotVmdk;
 using per_disk_flush_stat = std::pair<uint64_t, uint64_t>;
-using flush_stats = std::map<::ondisk::VmID, per_disk_flush_stat>;
+using FlushStats = std::map<::ondisk::VmID, per_disk_flush_stat>;
 
 struct AeroStats {
 	uint64_t dirty_cnt_{0};
 	uint64_t clean_cnt_{0};
 	uint64_t parent_cnt_{0};
+};
+
+struct ScanStats {
+	std::chrono::steady_clock::time_point start_time_;
+	uint32_t progress_pct{0};
+	uint64_t records_scanned;
 };
 
 static constexpr auto kBlockIDMax = std::numeric_limits<::ondisk::BlockID>::max();

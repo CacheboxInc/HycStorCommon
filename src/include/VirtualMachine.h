@@ -50,9 +50,10 @@ public:
 	folly::Future<int> Flush(ActiveVmdk* vmdkp, Request* reqp, const CheckPoints& min_max);
 	folly::Future<CheckPointResult> TakeCheckPoint();
 	int FlushStart(::ondisk::CheckPointID ckpt_id, bool perform_move);
-	int FlushStatus(flush_stats &flush_stat);
+	int FlushStatus(FlushStats &flush_stat);
 	int AeroCacheStats(AeroStats *aero_statsp, AeroSpikeConn *aerop);
 	folly::Future<int> Stun(::ondisk::CheckPointID ckpt_id);
+	std::vector <::ondisk::VmdkID> GetVmdkIDs();
 
 public:
 	const ::ondisk::VmID& GetID() const noexcept;

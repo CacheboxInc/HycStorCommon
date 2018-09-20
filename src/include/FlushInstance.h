@@ -22,7 +22,7 @@ public:
 	uint64_t flushed_blocks_{0};
 	uint64_t moved_blocks_{0};
 	int StartFlush(const ::ondisk::VmID& vmid);
-	int FlushStatus(const ::ondisk::VmID& vmid, flush_stats &flush_stat);
+	int FlushStatus(const ::ondisk::VmID& vmid, FlushStats &flush_stat);
 	uint64_t ElapsedTime() {
 		auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
 					(std::chrono::steady_clock::now() - start_time_);

@@ -58,7 +58,7 @@ int FlushInstance::StartFlush(const VmID& vmid) {
 	return 0;
 }
 
-int FlushInstance::FlushStatus(const VmID& vmid, flush_stats &flush_stat) {
+int FlushInstance::FlushStatus(const VmID& vmid, FlushStats &flush_stat) {
 	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vmid);
 	log_assert(vmp != nullptr);
 

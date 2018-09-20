@@ -96,6 +96,8 @@ set(StorageLayerFiles
 	VmManager.cpp
 	FlushManager.cpp
 	FlushInstance.cpp
+	ScanManager.cpp
+	ScanInstance.cpp
 	FlushConfig.cpp
 	AeroFiberThreads.cpp
 

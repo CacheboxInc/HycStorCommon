@@ -25,6 +25,7 @@
 #include "Singleton.h"
 #include "AeroFiberThreads.h"
 #include "FlushManager.h"
+#include "ScanManager.h"
 #include <boost/format.hpp>
 #include <boost/property_tree/ini_parser.hpp>
 
@@ -64,7 +65,9 @@ static const std::string kNewVmdk = "new_vmdk";
 static const std::string kNewAero = "new_aero";
 static const std::string kDelAero = "del_aero";
 static const std::string kFlushReq = "flush_req";
+static const std::string kScanReq = "scan_del_req";
 static const std::string kFlushStatus = "flush_status";
+static const std::string kScanStatus = "scan_status";
 static const std::string kAeroSetCleanup = "aero_set_cleanup";
 static const std::string kRemoveVmdk = "vmdk_delete";
 static const std::string kRemoveVm = "vm_delete";
@@ -311,7 +314,9 @@ enum StordSvcErr {
 	STORD_ERR_INVALID_PARAM,
 	STORD_ERR_INVALID_AERO,
 	STORD_ERR_INVALID_FLUSH,
+	STORD_ERR_INVALID_SCAN,
 	STORD_ERR_FLUSH_NOT_STARTED,
+	STORD_ERR_SCAN_NOT_STARTED,
 	STORD_ERR_AERO_STAT,
 	STORD_ERR_MAX_LIMIT,
 };
@@ -675,6 +680,112 @@ static int RemoveVmdk(const _ha_request *reqp, _ha_response *resp, void *userp )
 	return HA_CALLBACK_CONTINUE;
 }
 
+static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+
+	LOG(ERROR) << "NewScanReq start";
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	auto data = ha_get_data(reqp);
+	std::string req_data;
+	if (data != nullptr) {
+		req_data.assign(data);
+		::free(data);
+	} else {
+		req_data.clear();
+	}
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.lock_);
+	g_thread_.p_cnt_--;
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
+		std::ostringstream es;
+		LOG(ERROR) << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		es << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto ret = pio::NewScanReq(vmid, req_data);
+	if (ret) {
+		std::ostringstream es;
+		LOG(ERROR) << "Starting Scan request for VMID::"  << vmid << "Failed";
+		es << "Starting Scan request for VMID::"  << vmid << " Failed";
+		SetErrMsg(resp, STORD_ERR_INVALID_SCAN, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	LOG(INFO) << "Scan for VM:" << vmid << "started successfully.";
+
+	const auto res = std::to_string(ret);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+	return HA_CALLBACK_CONTINUE;
+}
+
+
+static int NewScanStatusReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "aero-cluster-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"aero-cluter-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string id(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.lock_);
+	g_thread_.p_cnt_--;
+
+	ScanStats scan_stat;
+	auto ret = pio::NewScanStatusReq(id, scan_stat);
+	if (ret) {
+		std::ostringstream es;
+		LOG(ERROR) << "Scan status request for aero-cluster-id::"  << id << " Failed, errno:" << ret;
+		if (ret == -EINVAL) {
+			es << "Scan not started for aero-cluster-id::"  << id;
+			SetErrMsg(resp, STORD_ERR_SCAN_NOT_STARTED, es.str());
+		} else {
+			es << "Failed to get scan status for aero-cluster-id::"  << id;
+			SetErrMsg(resp, STORD_ERR_INVALID_SCAN, es.str());
+		}
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	LOG(INFO) << "Scan status for aero-cluster-id:" << id << "completed successfully";
+
+	json_t *scan_params = json_object();
+	if (pio_likely(scan_stat.progress_pct != 100)) {
+		json_object_set(scan_params, "scan_running", json_boolean(true));
+	} else {
+		json_object_set(scan_params, "scan_running", json_boolean(false));
+	}
+	json_object_set(scan_params, "progress_pct", json_integer(scan_stat.progress_pct));
+	json_object_set(scan_params, "records_scanned", json_integer(scan_stat.records_scanned));
+	std::string scan_params_str = json_dumps(scan_params, JSON_ENCODE_ANY);
+	json_object_clear(scan_params);
+	json_decref(scan_params);
+	ha_set_response_body(resp, HTTP_STATUS_OK, scan_params_str.c_str(),
+			strlen(scan_params_str.c_str()));
+
+	return HA_CALLBACK_CONTINUE;
+}
+
 static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
 
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
@@ -714,8 +825,8 @@ static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp)
 	auto ret = pio::NewFlushReq(vmid, req_data);
 	if (ret) {
 		std::ostringstream es;
-		LOG(ERROR) << "Staring flush request for VMID::"  << vmid << "Failed";
-		es << "Staring flush request for VMID::"  << vmid << " Failed";
+		LOG(ERROR) << "Starting flush request for VMID::"  << vmid << "Failed";
+		es << "Starting flush request for VMID::"  << vmid << " Failed";
 		SetErrMsg(resp, STORD_ERR_INVALID_FLUSH, es.str());
 		return HA_CALLBACK_CONTINUE;
 	}
@@ -755,7 +866,7 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	flush_stats flush_stat;
+	FlushStats flush_stat;
 	auto ret = pio::NewFlushStatusReq(vmid, flush_stat);
 	if (ret) {
 		std::ostringstream es;
@@ -771,7 +882,7 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 	}
 
 	bool first = true;
-	flush_stats::iterator itr;
+	FlushStats::iterator itr;
 
 	uint64_t total_flushed_blks = 0;
 	uint64_t total_moved_blks = 0;
@@ -954,7 +1065,7 @@ int main(int argc, char* argv[])
 	std::signal(SIGUSR1, Usr1SignalHandler);
 
 #endif
-	auto size = sizeof(struct ha_handlers) + 10 * sizeof(struct ha_endpoint_handlers);
+	auto size = sizeof(struct ha_handlers) + 12 * sizeof(struct ha_endpoint_handlers);
 
 	auto handlers =
 		std::unique_ptr<struct ha_handlers,
@@ -1007,11 +1118,27 @@ int main(int argc, char* argv[])
 	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
 	handlers->ha_count += 1;
 
+	/* Scan Request */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kScanReq.c_str(),
+			kScanReq.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = NewScanReq;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
 	/* Flush Status Request */
 	handlers->ha_endpoints[handlers->ha_count].ha_http_method = GET;
 	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kFlushStatus.c_str(),
 			kFlushStatus.size() + 1);
 	handlers->ha_endpoints[handlers->ha_count].callback_function = NewFlushStatusReq;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
+	/* Scan Status Request */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kScanStatus.c_str(),
+			kScanStatus.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = NewScanStatusReq;
 	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
 	handlers->ha_count += 1;
 

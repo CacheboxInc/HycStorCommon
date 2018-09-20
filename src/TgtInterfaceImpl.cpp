@@ -8,6 +8,7 @@
 #include <folly/futures/Future.h>
 #include <glog/logging.h>
 #include <chrono>
+#include <algorithm>
 
 #include "gen-cpp2/StorRpc_types.h"
 #include "gen-cpp2/StorRpc_constants.h"
@@ -24,7 +25,9 @@
 #include "Singleton.h"
 #include "AeroFiberThreads.h"
 #include "FlushManager.h"
+#include "ScanManager.h"
 #include "FlushInstance.h"
+#include "ScanInstance.h"
 #include "FlushConfig.h"
 #include "AeroOps.h"
 
@@ -65,6 +68,7 @@ int InitStordLib() {
 			SingletonHolder<VmManager>::CreateInstance();
 			SingletonHolder<AeroFiberThreads>::CreateInstance();
 			SingletonHolder<FlushManager>::CreateInstance();
+			SingletonHolder<ScanManager>::CreateInstance();
 #ifdef USE_NEP
 			SingletonHolder<TargetManager>::CreateInstance(false);
 #endif
@@ -183,6 +187,8 @@ AeroClusterHandle DelAeroCluster(AeroClusterID cluster_id,
 
 int NewFlushReq(VmID vmid, const std::string& config) {
 	auto managerp = SingletonHolder<FlushManager>::GetInstance();
+
+	std::lock_guard<std::mutex> flush_lock(managerp->lock_);
 	auto ptr = managerp->GetInstance(vmid);
 	if (ptr != nullptr) {
 		LOG(ERROR) << "Flush is already running for given VM";
@@ -200,6 +206,7 @@ int NewFlushReq(VmID vmid, const std::string& config) {
 					mutable {
 			auto rc = fi->StartFlush(vmid);
 			/* Remove fi Instance */
+			std::lock_guard<std::mutex> lock(managerp->lock_);
 			managerp->FreeInstance(vmid);
 			return rc;
 		});
@@ -210,15 +217,100 @@ int NewFlushReq(VmID vmid, const std::string& config) {
 	return 0;
 }
 
-int NewFlushStatusReq(VmID vmid, flush_stats &flush_stat) {
+int NewScanReq(VmID vmid, const std::string& config) {
+
+	auto managerp = SingletonHolder<ScanManager>::GetInstance();
+	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vmid);
+	if(pio_unlikely(vmp == nullptr)) {
+		LOG(ERROR) << __func__ << " Given vmid is not valid";
+		return 1;
+	}
+
+	/* Get Aerospike cluster ID */
+	AeroClusterID cluster_id;
+	vmp->GetJsonConfig()->GetAeroClusterID(cluster_id);
+
+	/* Check if a scan task is already running for the given cluster ID */
+	std::unique_lock<std::mutex> scan_lock(managerp->lock_);
+	auto start_instance = false;
+	auto si = managerp->GetInstance(cluster_id);
+	if (pio_likely(si == nullptr)) {
+		LOG(ERROR) << __func__ << " No instance found, creating a new one";
+		auto rc = managerp->NewInstance(cluster_id);
+		if (pio_unlikely(rc)) {
+			return -ENOMEM;
+		}
+
+		si = managerp->GetInstance(cluster_id);
+		start_instance = true;
+	} else {
+		LOG(ERROR) << __func__ << " Scan Instance found, scan is already running" <<
+			" for given cluster";
+	}
+
+	/* Add VMDKIDs for given VM into the pending list */
+	for (const auto& id : vmp->GetVmdkIDs()){
+		LOG(INFO) << __func__ << "Adding ID in pending list::" << id.c_str();
+		si->pending_list_.emplace_back(stol(id));
+	}
+
+	scan_lock.unlock();
+	if (pio_unlikely(!start_instance)) {
+#if 0
+		/*
+		 * TBD: Abort any already running scan session if it is processing 
+		 * less than 32 VmDKs. This will help scan to start with larger
+		 * set of VmDKs instead of keep on working on narrow set of entries.
+		 */
+
+		auto size = si->working_list_.size();
+		if (size && size < kMaxVmdkstoScan) {
+			LOG(ERROR) << __func__ <<
+				"Try to abort the session to start from begining";
+		}
+#endif
+		return 0;
+	}
+
+	auto aero_conn = AeroSpikeConnFromClusterID(cluster_id);
+	if (pio_unlikely(not aero_conn)) {
+		LOG(ERROR) << __func__ <<
+			" Unable to get the aerospike connection info";
+		return -EINVAL;
+	}
+
+	/* Start a new scan thread for given aerospike cluster */
+	si->aero_conn_ = aero_conn.get();
+	return si->StartScanThread();
+}
+
+int NewFlushStatusReq(VmID vmid, FlushStats &flush_stat) {
 	auto managerp = SingletonHolder<FlushManager>::GetInstance();
+	/* Check if already a scan running for the given cluster ID */
+	std::unique_lock<std::mutex> flush_lock(managerp->lock_);
 	auto fi = managerp->GetInstance(vmid);
 	if (fi == nullptr) {
-		LOG(ERROR) << "Flush is not unning for given VM";
+		LOG(ERROR) << __func__ << " Flush is not unning for given VM";
 		return -EINVAL;
 	}
 
 	auto rc = fi->FlushStatus(vmid, flush_stat);
+	return rc;
+}
+
+
+int NewScanStatusReq(AeroClusterID id, ScanStats &scan_stat) {
+	auto managerp = SingletonHolder<ScanManager>::GetInstance();
+	/* Check if already a scan running for the given cluster ID */
+	std::unique_lock<std::mutex> scan_lock(managerp->lock_);
+
+	auto si = managerp->GetInstance(id);
+	if (si == nullptr) {
+		LOG(ERROR) << __func__ << " Scan is not running for given AeroSpike cluster";
+		return -EINVAL;
+	}
+
+	auto rc = si->ScanStatus(scan_stat);
 	return rc;
 }
 
@@ -227,7 +319,7 @@ std::shared_ptr<AeroSpikeConn> GetAeroConnUsingVmID(VmID vmid) {
 	auto managerp = SingletonHolder<VmManager>::GetInstance();
 	auto vmp = managerp->GetInstance(vmid);
 	if (pio_unlikely(not vmp)) {
-		LOG(ERROR) << "Given VmID is not present";
+		LOG(ERROR) << __func__ << " Given VmID is not present";
 		return nullptr;
 	}
 
@@ -235,7 +327,7 @@ std::shared_ptr<AeroSpikeConn> GetAeroConnUsingVmID(VmID vmid) {
 	AeroClusterID aero_cluster_id;
 	auto ret = vm_confp->GetAeroClusterID(aero_cluster_id);
 	if (pio_unlikely(ret == 0)) {
-		LOG(ERROR) << __func__ << "Unable to find aerospike cluster "
+		LOG(ERROR) << __func__ << " Unable to find aerospike cluster "
 			"id for given disk." " Please check JSON configuration "
 			"with associated VM. Moving ahead without"
 			" Aero connection object";
@@ -252,7 +344,7 @@ int NewAeroCacheStatReq(VmID vmid, AeroStats *aero_statsp) {
 	auto managerp = SingletonHolder<VmManager>::GetInstance();
 	auto vmp = managerp->GetInstance(vmid);
 	if (pio_unlikely(not vmp)) {
-		LOG(ERROR) << "Given VmID is not present";
+		LOG(ERROR) << " Given VmID is not present";
 		return -EINVAL;
 	}
 

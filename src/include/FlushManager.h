@@ -14,10 +14,6 @@
 namespace pio {
 class FlushManager {
 public:
-	#if 0
-	FlushManager(struct _ha_instance *ha_instance);
-	~FlushManager(){};
-	#endif
 	struct threadpool {
 		std::once_flag initialized_;
 		std::unique_ptr<ThreadPool> pool_;
@@ -29,6 +25,7 @@ public:
 	int NewInstance(::ondisk::VmID vmid, const std::string& config);
 	FlushInstance* GetInstance(const ::ondisk::VmID& vmid);
 	void FreeInstance(const ::ondisk::VmID& vmid);
+	std::mutex lock_;
 private:
 	SpinLock mutex_;
 	std::unordered_map<::ondisk::VmID, std::unique_ptr<FlushInstance>> instances_;
