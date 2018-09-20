@@ -1,5 +1,6 @@
 #include <chrono>
 #include <thread>
+#include <algorithm>
 
 #include <gtest/gtest.h>
 #include <folly/futures/FutureSplitter.h>
@@ -18,6 +19,92 @@ TEST(RangeLockTest, LockGuard_Basic_InLoop) {
 		auto f = lock.Lock();
 		EXPECT_TRUE(f.isReady());
 	}
+}
+
+TEST(RangeLockTest, LockGuard_LockRange_Sorted) {
+	pio::RangeLock::RangeLock range_lock;
+
+	std::vector<pio::RangeLock::range_t> ranges(10);
+	std::generate(ranges.begin(), ranges.end(), [n = 0] () mutable {
+		auto p = n++;
+		return std::make_pair(p*2, (p*2)+1);
+	});
+
+	pio::RangeLock::LockGuard lock(&range_lock, std::move(ranges));
+	auto f = lock.Lock();
+	EXPECT_TRUE(f.isReady());
+}
+
+TEST(RangeLockTest, LockGuard_LockRange_Sorted_Threaded) {
+	using Guard = pio::RangeLock::LockGuard;
+	using namespace std::chrono_literals;
+
+	pio::RangeLock::RangeLock range_lock;
+
+	std::vector<pio::RangeLock::range_t> ranges(10);
+	std::generate(ranges.begin(), ranges.end(), [n = 0] () mutable {
+		auto p = n++;
+		return std::make_pair(p*2, (p*2)+1);
+	});
+
+	auto cores = std::thread::hardware_concurrency();
+	std::vector<std::thread> threads;
+	for (auto c = cores; c > 0; --c) {
+		threads.emplace_back(std::thread([&range_lock, &ranges] () {
+			const auto kLoop = 128;
+			for (auto i = 0; i < kLoop; ++i) {
+				auto r = ranges;
+				auto g = Guard(&range_lock, std::move(r));
+				auto f = g.Lock();
+				f.wait(1s);
+				EXPECT_TRUE(f.isReady());
+			}
+		}));
+	}
+
+	for (auto& thread : threads) {
+		thread.join();
+	}
+}
+
+TEST(RangeLockTest, LockGuard_LockRange_NotSorted) {
+	pio::RangeLock::RangeLock range_lock;
+
+	std::vector<pio::RangeLock::range_t> ranges(10);
+	std::generate(ranges.begin(), ranges.end(), [n = 0] () mutable {
+		auto p = n++;
+		return std::make_pair(p*2, (p*2)+1);
+	});
+
+	std::random_shuffle(ranges.begin(), ranges.end());
+
+	pio::RangeLock::LockGuard lock(&range_lock, std::move(ranges));
+	auto f = lock.Lock();
+	EXPECT_TRUE(f.isReady());
+}
+
+TEST(RangeLockTest, LockGuard_LockRange_Deadlock) {
+	using namespace std::chrono_literals;
+
+	pio::RangeLock::RangeLock range_lock;
+
+	std::vector<pio::RangeLock::range_t> ranges(10);
+	std::generate(ranges.begin(), ranges.end(), [n = 0] () mutable {
+		/* adding coninciding ranges will result in deadlock */
+		return std::make_pair(n, n+1);
+	});
+
+	std::random_shuffle(ranges.begin(), ranges.end());
+
+#ifdef NDEBUG
+	pio::RangeLock::LockGuard lock(&range_lock, std::move(ranges));
+	auto f = lock.Lock();
+	f.wait(100ms);
+	EXPECT_FALSE(f.isReady());
+	f.cancel();
+#else
+	EXPECT_ANY_THROW(pio::RangeLock::LockGuard lock(&range_lock, std::move(ranges)));
+#endif
 }
 
 TEST(RangeLockTest, LockGuard_BasicConcurrent_InLock) {

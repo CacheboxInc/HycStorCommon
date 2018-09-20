@@ -5,25 +5,23 @@
 #include <folly/futures/Future.h>
 #include <folly/futures/FutureSplitter.h>
 
+#include "CommonMacros.h"
 #include "RangeLock.h"
 
 namespace pio { namespace RangeLock {
-
 bool RangeCompare::operator() (const Range& lhs, const Range& rhs) const {
 	return lhs.range_.second < rhs.range_.first;
 }
 
-bool RangeCompare::operator() (const Range& lhs,
-		const std::pair<uint64_t, uint64_t>& rhs) const {
+bool RangeCompare::operator() (const Range& lhs, const range_t& rhs) const {
 	return lhs.range_.second < rhs.first;
 }
 
-bool RangeCompare::operator() (const std::pair<uint64_t, uint64_t>& lhs,
-		const Range& rhs) const {
+bool RangeCompare::operator() (const range_t& lhs, const Range& rhs) const {
 	return lhs.second < rhs.range_.first;
 }
 
-Range::Range(const std::pair<uint64_t, uint64_t>& range) : range_(range) {
+Range::Range(const range_t& range) : range_(range) {
 }
 
 folly::Future<int> Range::GetFuture() const {
@@ -47,11 +45,11 @@ std::unique_ptr<folly::Promise<int>> Range::MovePromise() const {
 	return std::move(details_.promise_);
 }
 
-void RangeLock::LockRange(const std::pair<uint64_t, uint64_t>& range) {
+void RangeLock::LockRange(const range_t& range) {
 	ranges_.emplace(range);
 }
 
-folly::Future<int> RangeLock::Lock(const std::pair<uint64_t, uint64_t>& range) {
+folly::Future<int> RangeLock::Lock(const range_t& range) {
 	std::lock_guard<std::mutex> l(mutex_);
 	auto it = ranges_.find(range);
 	if (it == ranges_.end()) {
@@ -60,15 +58,15 @@ folly::Future<int> RangeLock::Lock(const std::pair<uint64_t, uint64_t>& range) {
 	}
 
 	return it->GetFuture()
-	.then([range = std::move(range), this] () {
-		return this->Lock(std::move(range));
+	.then([this, &range] () {
+		return this->Lock(range);
 	});
 }
 
-void RangeLock::Unlock(const std::pair<uint64_t, uint64_t>& range) {
+void RangeLock::Unlock(const range_t& range) {
 	std::unique_lock<std::mutex> l(mutex_);
 	auto it = ranges_.find(range);
-	if (it == ranges_.end()) {
+	if (pio_unlikely(it == ranges_.end())) {
 		assert(0);
 		return;
 	}
@@ -82,11 +80,11 @@ void RangeLock::Unlock(const std::pair<uint64_t, uint64_t>& range) {
 	}
 }
 
-bool RangeLock::IsRangeLocked(const std::pair<uint64_t, uint64_t>& range) const {
+bool RangeLock::IsRangeLocked(const range_t& range) const {
 	return ranges_.find(range) != ranges_.end();
 }
 
-bool RangeLock::TryLock(const std::pair<uint64_t, uint64_t>& range) {
+bool RangeLock::TryLock(const range_t& range) {
 	std::lock_guard<std::mutex> l(mutex_);
 	if (IsRangeLocked(range)) {
 		return false;
@@ -96,20 +94,78 @@ bool RangeLock::TryLock(const std::pair<uint64_t, uint64_t>& range) {
 }
 
 LockGuard::LockGuard(RangeLock* lockp, uint64_t start, uint64_t end) :
-		lockp_(lockp), range_(start, end) {
+		lockp_(lockp) {
+	ranges_.emplace_back(start, end);
+}
+
+LockGuard::LockGuard(RangeLock* lockp, std::vector<range_t> ranges) :
+		lockp_(lockp), ranges_(std::move(ranges)) {
+	struct {
+		bool operator() (const range_t& f, const range_t& s) {
+			return f.first < s.first;
+		}
+	} RangeLessThan;
+
+	if (not std::is_sorted(ranges_.begin(), ranges_.end(), RangeLessThan)) {
+		std::sort(ranges_.begin(), ranges_.end(), RangeLessThan);
+	}
+
+#ifndef NDEBUG
+	/* ensure no range coincides */
+	bool first = true;
+	range_t prev;
+	for (const auto& r : ranges_) {
+		if (first) {
+			prev = r;
+			first = false;
+			continue;
+		}
+
+		if (prev.second >= r.first) {
+			throw std::runtime_error("Will cause deadlock");
+		}
+		prev = r;
+	}
+#endif
 }
 
 LockGuard::~LockGuard() {
 	if (is_locked_) {
-		lockp_->Unlock(range_);
+		auto it = ranges_.rbegin();
+		auto eit = ranges_.rend();
+		for (; it != eit; ++it) {
+			lockp_->Unlock(*it);
+		}
 		is_locked_ = false;
 	}
 }
 
+folly::Future<int> LockGuard::LockIterate(std::vector<range_t>::iterator it,
+		std::vector<range_t>::iterator eit) {
+	if (pio_unlikely(it == eit)) {
+		return folly::makeFuture(0);
+	}
+
+	return lockp_->Lock(*it)
+	.then([this, it = std::move(it), eit = std::move(eit)] (int rc) mutable {
+		if (pio_unlikely(rc)) {
+			return folly::makeFuture(rc < 0 ? rc : -rc);
+		}
+
+		++it;
+		if (it == eit) {
+			return folly::makeFuture(0);
+		}
+		return LockIterate(std::move(it), std::move(eit));
+	});
+}
+
 folly::Future<int> LockGuard::Lock() {
-	return lockp_->Lock(range_)
+	auto it = ranges_.begin();
+	auto eit = ranges_.end();
+	return LockIterate(std::move(it), std::move(eit))
 	.then([this] (int rc) {
-		this->is_locked_ = true;
+		this->is_locked_ = rc == 0;
 		return rc;
 	});
 }
