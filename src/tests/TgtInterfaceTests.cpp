@@ -85,11 +85,6 @@ TEST_F(TgtInterfaceTest, RemoveInvalidVms) {
 TEST_F(TgtInterfaceTest, ReadWriteSuccess) {
 	const VmID kVmid = "VmID";
 	const VmdkID kVmdkid = "VmdkID";
-
-	#ifdef USE_NEP
-		std::cerr << "Skipping test ReadWriteSuccess, integration with NEP pending!!\n";
-		return;
-	#endif
 	auto vm_handle = AddVm(kVmid);
 	EXPECT_NE(vm_handle, StorRpc_constants::kInvalidVmHandle());
 
@@ -101,6 +96,7 @@ TEST_F(TgtInterfaceTest, ReadWriteSuccess) {
 	config.ConfigureEncrytption("abcd");
 	config.DisableEncryption();
 	config.DisableFileCache();
+	config.DisableNetworkTarget();
 	config.DisableRamCache();
 	config.DisableErrorHandler();
 	config.EnableSuccessHandler();

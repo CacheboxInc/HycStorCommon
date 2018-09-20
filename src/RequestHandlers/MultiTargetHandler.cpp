@@ -6,12 +6,15 @@
 #include "gen-cpp2/MetaData_types.h"
 #include "MultiTargetHandler.h"
 #include "CacheTargetHandler.h"
-#include "NetworkTargetHandler.h"
 #include "FileTargetHandler.h"
 #include "Vmdk.h"
 #include "VmdkConfig.h"
 #include "Request.h"
 #include "DaemonUtils.h"
+
+#ifdef USE_NEP
+#include "NetworkTargetHandler.h"
+#endif
 
 using namespace ::ondisk;
 
@@ -31,10 +34,12 @@ void MultiTargetHandler::InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 		targets_.push_back(std::move(file_target));
 	}
 
+#ifdef USE_NEP
 	if (configp->IsNetworkTargetEnabled()) {
 		auto network_target = std::make_unique<NetworkTargetHandler>(configp);
 		targets_.push_back(std::move(network_target));
 	}
+#endif
 }
 
 MultiTargetHandler::~MultiTargetHandler() {

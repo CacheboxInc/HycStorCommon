@@ -35,11 +35,6 @@ public:
 	}
 
 	virtual void SetUp() {
-	#ifdef USE_NEP
-		std::cerr << "Skipping setup";
-		return;
-	#endif
-
 		vm_handle_ = AddVm();
 		EXPECT_NE(vm_handle_, StorRpc_constants::kInvalidVmHandle());
 		vmdk_handle_ = AddVmdk(vm_handle_);
@@ -47,11 +42,6 @@ public:
 	}
 
 	virtual void TearDown() {
-	#ifdef USE_NEP
-		std::cerr << "Skipping TearDown";
-		return;
-	#endif
-
 		RemoveVmdk(vmdk_handle_);
 		RemoveVm(vm_handle_);
 		vm_handle_ = StorRpc_constants::kInvalidVmHandle();
@@ -79,17 +69,12 @@ public:
 		c.SetSuccessHandlerDelay(10000);
 		c.SetRamMetaDataKV();
 		c.DisableFileTarget();
+	        c.DisableNetworkTarget();
 		return NewActiveVmdk(vm_handle, kVmdkid.c_str(), c.Serialize().c_str());
 	}
 };
 
 TEST_F(VirtualMachineTest, CheckPointSingleIO) {
-
-	#ifdef USE_NEP
-		std::cerr << "Skipping test CheckPointSingleIO, integration pending with NEP!!\n";
-		return;
-	#endif
-
 	char buffer[kBlockSize];
 	::memset(buffer, 'A', sizeof(buffer));
 
@@ -162,11 +147,6 @@ TEST_F(VirtualMachineTest, CheckPointSingleIO) {
  * - Ensure every block is part of a single checkpoint
  */
 TEST_F(VirtualMachineTest, CheckPointConcurrent) {
-
-	#ifdef USE_NEP
-		std::cerr << "Skipping test CheckPointConcurrent, integration with NEP pending!!\n";
-		return;
-	#endif
 
 	const int kCheckPoints = 10;
 	const int kWritesPerCheckpoint = 512;
