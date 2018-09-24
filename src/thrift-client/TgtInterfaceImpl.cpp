@@ -512,7 +512,6 @@ private:
 	std::pair<Request*, bool> NewRequest(Request::Type type,
 		const void* privatep, char* bufferp, size_t buf_sz, size_t xfer_sz,
 		int64_t offset);
-	void RequestComplete(Request* reqp);
 	void UpdateStats(Request* reqp);
 	int PostRequestCompletion() const;
 	void ReadDataCopy(Request* reqp, const ReadResult& result);
@@ -524,6 +523,16 @@ private:
 		Request* reqp);
 	void ScheduleWriteSame(folly::EventBase* basep, StorRpcAsyncClient* clientp,
 		Request* reqp);
+	void ScheduleBulkWrite(folly::EventBase* basep,
+		StorRpcAsyncClient* clientp,
+		std::unique_ptr<std::vector<::hyc_thrift::WriteRequest>> reqs);
+private:
+	void RequestComplete(RequestID id, int32_t result);
+	template <typename T = Request>
+	void RequestComplete(T* reqp);
+	template <typename T, typename... ErrNo>
+	void RequestComplete(const std::vector<T>& requests, ErrNo&&... no);
+
 private:
 	std::string vmid_;
 	std::string vmdkid_;
@@ -691,17 +700,71 @@ void StordVmdk::UpdateStats(Request* reqp) {
 	}
 }
 
-void StordVmdk::RequestComplete(Request* reqp) {
+template <typename R,
+	bool result = std::is_integral_v<decltype(((R*)nullptr)->result)>>
+constexpr bool HasResultHelper(int) {
+	return result;
+}
+
+template <typename R>
+constexpr bool HasResultHelper(...) {
+	return false;
+}
+
+template <typename R>
+constexpr bool HasResult() {
+	return HasResultHelper<R>(0);
+}
+
+template<typename T, typename... Args>
+constexpr T GetErrNo(T arg1, Args... args) {
+	static_assert(sizeof...(args) == 0);
+	return arg1;
+}
+
+void StordVmdk::RequestComplete(RequestID id, int32_t result) {
+	auto it = requests_.scheduled_.find(id);
+	log_assert(it != requests_.scheduled_.end());
+
+	auto req = std::move(it->second);
+	auto reqp = req.get();
+	reqp->result = result;
 	UpdateStats(reqp);
+
+	requests_.scheduled_.erase(it);
+	requests_.complete_.emplace_back(std::move(req));
+}
+
+template <>
+void StordVmdk::RequestComplete(Request* reqp) {
 	bool post = false;
 	{
 		std::lock_guard<std::mutex> lock(requests_.mutex_);
-		auto it = requests_.scheduled_.find(reqp->id);
-		log_assert(it != requests_.scheduled_.end());
-		requests_.complete_.emplace_back(std::move(it->second));
-		requests_.scheduled_.erase(it);
+		RequestComplete(reqp->id, reqp->result);
 		post = requests_.scheduled_.empty();
 	}
+
+	if (post) {
+		auto rc = PostRequestCompletion();
+		(void) rc;
+	}
+}
+
+template <typename T, typename... ErrNo>
+void StordVmdk::RequestComplete(const std::vector<T>& requests, ErrNo&&... no) {
+	std::unique_lock<std::mutex> lock(requests_.mutex_);
+	for (const auto& req : requests) {
+		if constexpr (HasResult<T>()) {
+			RequestComplete(req.reqid, req.result);
+		} else if constexpr (sizeof...(no) == 1)  {
+			RequestComplete(req.reqid, GetErrNo(std::forward<ErrNo>(no)...));
+		} else {
+			static_assert(not std::is_same<T, T>::value,
+					"Not sure what to set result");
+		}
+	}
+	bool post = requests_.scheduled_.empty();
+	lock.unlock();
 
 	if (post) {
 		auto rc = PostRequestCompletion();
@@ -793,6 +856,25 @@ void StordVmdk::ScheduleWrite(folly::EventBase* basep,
 	});
 }
 
+void StordVmdk::ScheduleBulkWrite(folly::EventBase* basep,
+		StorRpcAsyncClient* clientp,
+		std::unique_ptr<std::vector<::hyc_thrift::WriteRequest>> reqs) {
+	log_assert(basep->isInEventBaseThread());
+	clientp->future_BulkWrite(vmdk_handle_, *reqs.get())
+	.then([this, reqs = std::move(reqs)]
+			(const folly::Try<std::vector<::hyc_thrift::WriteResult>>& trie)
+			mutable {
+		if (hyc_unlikely(trie.hasException())) {
+			LOG(ERROR) << __func__ << " STORD sent exception";
+			RequestComplete(*reqs, -ENOMEM);
+			return;
+		}
+
+		const auto& results = trie.value();
+		RequestComplete(results);
+	});
+}
+
 void StordVmdk::ScheduleRead(folly::EventBase* basep,
 		StorRpcAsyncClient* clientp, Request* reqp) {
 	log_assert(reqp && basep->isInEventBaseThread());
@@ -828,18 +910,32 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp
 
 	basep->runInEventBaseThread([this, clientp, basep,
 			pending = std::move(pending)] () {
+		std::unique_ptr<std::vector<::hyc_thrift::WriteRequest>> write;
+		uint32_t nwrites = 0;
+
 		for (auto reqp : pending) {
 			switch (reqp->type) {
 			case Request::Type::kRead:
 				ScheduleRead(basep, clientp, reqp);
 				break;
-			case Request::Type::kWrite:
-				ScheduleWrite(basep, clientp, reqp);
+			case Request::Type::kWrite: {
+				if (nwrites++ == 0) {
+					write = std::make_unique<std::vector<::hyc_thrift::WriteRequest>>();
+				}
+				auto data = std::make_unique<folly::IOBuf>
+					(folly::IOBuf::WRAP_BUFFER, reqp->bufferp, reqp->buf_sz);
+				write->emplace_back(apache::thrift::FragileConstructor(),
+					reqp->id, std::move(data), reqp->buf_sz, reqp->offset);
 				break;
+			}
 			case Request::Type::kWriteSame:
 				ScheduleWriteSame(basep, clientp, reqp);
 				break;
 			}
+		}
+
+		if (write and not write->empty()) {
+			ScheduleBulkWrite(basep, clientp, std::move(write));
 		}
 	});
 }
