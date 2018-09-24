@@ -26,11 +26,15 @@ struct SuccessWork {
 	enum Type {
 		kRead,
 		kWrite,
+		kBulkWrite,
 	};
 
 	SuccessHandler* selfp_;
 	ActiveVmdk* vmdkp_;
-	Request* reqp_;
+
+	Request* reqp_{nullptr};
+	const std::vector<std::unique_ptr<Request>>* requestsp_{nullptr};
+
 	CheckPointID ckpt_;
 	const std::vector<RequestBlock*>& process_;
 	std::vector<RequestBlock *>& failed_;
@@ -44,6 +48,14 @@ struct SuccessWork {
 			failed_(failed), type_(type) {
 	}
 
+	SuccessWork(SuccessHandler* selfp, ActiveVmdk* vmdkp, CheckPointID ckpt,
+			const std::vector<std::unique_ptr<Request>>* requestsp,
+			const std::vector<RequestBlock*>& process,
+			std::vector<RequestBlock*>& failed, Type type) : selfp_(selfp),
+			vmdkp_(vmdkp), requestsp_(requestsp), ckpt_(ckpt),
+			process_(process), failed_(failed), type_(type) {
+	}
+
 	void DoWork() {
 		int rc = 0;
 		switch (type_) {
@@ -52,6 +64,10 @@ struct SuccessWork {
 			break;
 		case kWrite:
 			rc = selfp_->WriteNow(vmdkp_, reqp_, ckpt_, process_, failed_);
+			break;
+		case kBulkWrite:
+			rc = selfp_->BulkWriteNow(vmdkp_, ckpt_, *requestsp_, process_,
+				failed_);
 			break;
 		}
 
@@ -186,4 +202,51 @@ folly::Future<int> SuccessHandler::ReadPopulate(ActiveVmdk *vmdkp,
 	}
 	return 0;
 }
+
+folly::Future<int> SuccessHandler::BulkWriteDelayed(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	auto usec = distr_(gen_);
+	assert(usec > 0);
+	auto write_work = std::make_shared<SuccessWork>(this, vmdkp, ckpt,
+		&requests, process, failed, SuccessWork::kBulkWrite);
+	auto work = std::make_shared<Work>(write_work,
+		Work::Clock::now() + (1us * usec));
+	work_.scheduler_->WorkAdd(work);
+
+	std::lock_guard<std::mutex> lock(work_.mutex_);
+	work_.scheduled_.emplace_back(work);
+	return write_work->promise_.getFuture();
+}
+
+int SuccessHandler::BulkWriteNow(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	failed.clear();
+	for (auto blockp : process) {
+		blockp->SetResult(0, RequestStatus::kSuccess);
+	}
+	return 0;
+}
+
+folly::Future<int> SuccessHandler::BulkWrite(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	if (pio_likely(not enabled_)) {
+		return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
+	}
+
+	if (delay_) {
+		return BulkWriteDelayed(vmdkp, ckpt, requests, process, failed);
+	}
+
+	return BulkWriteNow(vmdkp, ckpt, requests, process, failed);
+}
+
 }

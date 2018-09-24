@@ -334,8 +334,7 @@ folly::Future<int> ActiveVmdk::WriteSame(Request* reqp, CheckPointID ckpt_id) {
 	return WriteCommon(reqp, ckpt_id);
 }
 
-int ActiveVmdk::WriteComplete(Request* reqp, CheckPointID ckpt_id) {
-	--stats_.writes_in_progress_;
+int ActiveVmdk::WriteRequestComplete(Request* reqp, CheckPointID ckpt_id) {
 	auto rc = reqp->Complete();
 	if (pio_unlikely(rc < 0)) {
 		return rc;
@@ -356,6 +355,66 @@ int ActiveVmdk::WriteComplete(Request* reqp, CheckPointID ckpt_id) {
 
 	it->second.insert(modified.begin(), modified.end());
 	return 0;
+}
+
+int ActiveVmdk::WriteComplete(Request* reqp, CheckPointID ckpt_id) {
+	--stats_.writes_in_progress_;
+	return WriteRequestComplete(reqp, ckpt_id);
+}
+
+int ActiveVmdk::WriteComplete(
+		const std::vector<std::unique_ptr<Request>>& requests,
+		CheckPointID ckpt_id) {
+	int ret = 0;
+	--stats_.writes_in_progress_;
+	for (auto& request : requests) {
+		auto rc = WriteRequestComplete(request.get(), ckpt_id);
+		if (pio_unlikely(rc < 0)) {
+			ret = rc;
+		}
+	}
+	return ret;
+}
+
+folly::Future<int> ActiveVmdk::BulkWrite(::ondisk::CheckPointID ckpt_id,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process) {
+	if (pio_unlikely(not headp_)) {
+		return -ENXIO;
+	}
+
+	++stats_.writes_in_progress_;
+	auto failed = std::make_unique<std::vector<RequestBlock*>>();
+
+	return headp_->BulkWrite(this, ckpt_id, requests, process, *failed)
+	.then([this, ckpt_id, &requests, failed = std::move(failed)]
+			(folly::Try<int>& result) mutable {
+		auto failedp = failed.get();
+		auto Fail = [&requests, failedp] (int rc = -ENXIO, bool all = true)
+				mutable {
+			if (all) {
+				for (auto& request : requests) {
+					request->SetResult(rc, RequestStatus::kFailed);
+				}
+			} else {
+				for (auto blockp : *failedp) {
+					auto reqp = blockp->GetRequest();
+					reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
+				}
+			}
+		};
+
+		if (pio_unlikely(result.hasException())) {
+			Fail();
+		} else {
+			auto rc = result.value();
+			if (pio_unlikely(rc < 0 || not failedp->empty())) {
+				Fail(rc, failedp->empty());
+			}
+		}
+
+		return WriteComplete(requests, ckpt_id);
+	});
 }
 
 std::optional<std::unordered_set<BlockID>>

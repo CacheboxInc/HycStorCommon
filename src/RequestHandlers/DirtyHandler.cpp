@@ -187,4 +187,14 @@ folly::Future<int> DirtyHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 		});
 	});
 }
+
+folly::Future<int> DirtyHandler::BulkWrite(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	/* TODO: needs to be implemented */
+	return 0;
+}
+
 }

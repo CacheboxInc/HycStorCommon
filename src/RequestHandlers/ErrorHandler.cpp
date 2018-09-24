@@ -128,4 +128,33 @@ folly::Future<int> ErrorHandler::ReadPopulate(ActiveVmdk *vmdkp,
 	return error_no_;
 }
 
+folly::Future<int> ErrorHandler::BulkWrite(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	if (pio_likely(not enabled_)) {
+		return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
+	}
+
+	failed.clear();
+	if (not FailOperation()) {
+		for (auto blockp : process) {
+			blockp->SetResult(0, RequestStatus::kSuccess);
+		}
+		return 0;
+	}
+
+	if (throw_) {
+		throw std::bad_alloc();
+	}
+
+	failed.clear();
+	for (auto blockp : process) {
+		blockp->SetResult(error_no_, RequestStatus::kFailed);
+		failed.emplace_back(blockp);
+	}
+	return error_no_;
+}
+
 }

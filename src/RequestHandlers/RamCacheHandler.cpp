@@ -177,4 +177,31 @@ folly::Future<int> RamCacheHandler::ReadPopulate(ActiveVmdk *vmdkp,
 
 	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
+
+folly::Future<int> RamCacheHandler::BulkWrite(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	if (pio_likely(not enabled_)) {
+		return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
+	}
+
+	if (pio_unlikely(not nextp_)) {
+		failed.reserve(process.size());
+		std::copy(process.begin(), process.end(), std::back_inserter(failed));
+			return -ENODEV;
+	}
+
+	failed.clear();
+	for (const auto blockp : process) {
+		const auto srcp = blockp->GetRequestBufferAtBack();
+		log_assert(srcp->Size() == vmdkp->BlockSize());
+		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset());
+	}
+	if (pio_unlikely(not nextp_)) {
+		return 0;
+	}
+	return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
+}
 }

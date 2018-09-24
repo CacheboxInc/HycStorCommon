@@ -64,6 +64,10 @@ folly::Future<int> UnalignedHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		return -EINVAL;
 	}
 
+	if (not reqp->HasUnalignedIO()) {
+		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
+	}
+
 	auto read_blocks = std::make_unique<std::vector<RequestBlock *>>();
 	try {
 		read_blocks->reserve(2);
@@ -83,10 +87,7 @@ folly::Future<int> UnalignedHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 			read_blocks->emplace_back(blockp);
 		}
 	}
-
-	if (read_blocks->empty()) {
-		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
-	}
+	log_assert(not read_blocks->empty());
 
 	/* Set the right checkpoint ID before attempting to Read */
 	auto ckpts = std::make_pair(MetaData_constants::kInvalidCheckPointID() + 1,
@@ -153,4 +154,18 @@ folly::Future<int> UnalignedHandler::ReadPopulate(ActiveVmdk *vmdkp,
 
 	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
+
+folly::Future<int> UnalignedHandler::BulkWrite(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+#ifndef NDEBUG
+	for (const auto blockp : process) {
+		log_assert(not blockp->IsPartial());
+	}
+#endif
+	return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
+}
+
 }

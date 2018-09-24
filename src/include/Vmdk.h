@@ -137,6 +137,9 @@ public:
 	int MoveStage(::ondisk::CheckPointID check_point);
 	const CheckPoint* GetCheckPoint(::ondisk::CheckPointID ckpt_id) const;
 
+	folly::Future<int> BulkWrite(::ondisk::CheckPointID ckpt_id,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process);
 public:
 	size_t BlockSize() const;
 	size_t BlockShift() const;
@@ -165,7 +168,10 @@ public:
 
 private:
 	folly::Future<int> WriteCommon(Request* reqp, ::ondisk::CheckPointID ckpt_id);
+	int WriteRequestComplete(Request* reqp, ::ondisk::CheckPointID ckpt_id);
 	int WriteComplete(Request* reqp, ::ondisk::CheckPointID ckpt_id);
+	int WriteComplete(const std::vector<std::unique_ptr<Request>>& requests,
+		::ondisk::CheckPointID ckpt_id);
 	std::optional<std::unordered_set<::ondisk::BlockID>>
 		CopyDirtyBlocksSet(::ondisk::CheckPointID ckpt_id);
 	void RemoveDirtyBlockSet(::ondisk::CheckPointID ckpt_id);

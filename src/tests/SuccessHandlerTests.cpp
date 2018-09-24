@@ -1,4 +1,6 @@
 #include <memory>
+#include <chrono>
+#include <numeric>
 
 #include <gtest/gtest.h>
 #include <glog/logging.h>
@@ -89,6 +91,36 @@ protected:
 		});
 	}
 
+	folly::Future<int> VmdkBulkWrite(std::vector<BlockID> blocks, char fillchar) {
+		auto requests = std::make_unique<std::vector<std::unique_ptr<Request>>>();
+		auto process = std::make_unique<std::vector<RequestBlock*>>();
+
+		for (auto block : blocks) {
+			auto offset = block << vmdkp->BlockShift();
+			auto req_id = NextRequestID();
+			auto bufferp = NewRequestBuffer(vmdkp->BlockSize());
+			auto p = bufferp->Payload();
+			::memset(p, fillchar, bufferp->Size());
+
+			auto req = std::make_unique<Request>(req_id, vmdkp.get(),
+				Request::Type::kWrite, p, bufferp->Size(), bufferp->Size(),
+				offset);
+
+			req->ForEachRequestBlock([&] (RequestBlock *blockp) mutable {
+				process->emplace_back(blockp);
+				return true;
+			});
+
+			requests->emplace_back(std::move(req));
+		}
+
+		return vmdkp->BulkWrite(ckpt_id, *requests, *process)
+		.then([requests = std::move(requests), process = std::move(process)]
+				(int rc) {
+			return rc;
+		});
+	}
+
 	folly::Future<int> VmdkRead(BlockID block, size_t skip, size_t size) {
 		EXPECT_LE(size + skip, vmdkp->BlockSize());
 
@@ -152,4 +184,20 @@ TEST_F(SuccessHandlerTests, RequestSuccess) {
 		}
 	})
 	.wait();
+}
+
+TEST_F(SuccessHandlerTests, BulkRequestSuccess) {
+	using namespace std::chrono_literals;
+
+	const int kMaxWrites = 1024;
+	std::vector<BlockID> blocks(kMaxWrites);
+	std::iota(blocks.begin(), blocks.end(), 0);
+
+	auto f = VmdkBulkWrite(blocks, 'A')
+	.then([] (int rc) {
+		EXPECT_EQ(rc, 0);
+		return rc;
+	});
+	f.wait(1s);
+	EXPECT_TRUE(f.isReady());
 }

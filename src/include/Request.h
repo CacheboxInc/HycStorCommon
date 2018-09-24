@@ -42,6 +42,7 @@ public:
 public:
 	std::pair<::ondisk::BlockID, ::ondisk::BlockID> Blocks() const;
 	uint32_t NumberOfRequestBlocks() const;
+	bool HasUnalignedIO() const noexcept;
 
 	::hyc_thrift::RequestID GetID() const noexcept;
 
@@ -141,6 +142,7 @@ public:
 	::ondisk::BlockID GetBlockID() const;
 	Offset GetOffset() const;
 	Offset GetAlignedOffset() const;
+	Request* GetRequest() const noexcept;
 
 	void SetResult(int return_value, RequestStatus status) noexcept;
 

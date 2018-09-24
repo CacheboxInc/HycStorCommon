@@ -7,6 +7,7 @@
 #include "MultiTargetHandler.h"
 #include "CacheTargetHandler.h"
 #include "FileTargetHandler.h"
+#include "FileCacheHandler.h"
 #include "RamCacheHandler.h"
 #include "ErrorHandler.h"
 #include "SuccessHandler.h"
@@ -44,8 +45,8 @@ void MultiTargetHandler::InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 		targets_.emplace_back(std::move(ram_cache));
 	}
 
-	if (configp->IsFileTargetEnabled()) {
-		auto file_target = std::make_unique<FileTargetHandler>(configp);
+	if (configp->IsFileCacheEnabled()) {
+		auto file_target = std::make_unique<FileCacheHandler>(configp);
 		targets_.push_back(std::move(file_target));
 	}
 
@@ -182,5 +183,13 @@ folly::Future<int> MultiTargetHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 		std::vector<RequestBlock *>& failed) {
 	log_assert(not targets_.empty());
 	return targets_[0]->Move(vmdkp, reqp, process, failed);
+}
+
+folly::Future<int> MultiTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	return targets_[0]->BulkWrite(vmdkp, ckpt, requests, process, failed);
 }
 }

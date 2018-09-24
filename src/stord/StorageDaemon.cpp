@@ -72,6 +72,7 @@ static const std::string kAeroSetCleanup = "aero_set_cleanup";
 static const std::string kRemoveVmdk = "vmdk_delete";
 static const std::string kRemoveVm = "vm_delete";
 static const std::string kAeroCacheStat = "aero_stat";
+static const uint32_t kBulkWriteMaxSize = 256 * 1024;
 
 class StorRpcSvImpl : public virtual StorRpcSvIf {
 public:
@@ -263,6 +264,163 @@ public:
 		cb->result(std::move(write));
 	}
 
+	folly::Future<std::unique_ptr<std::vector<::hyc_thrift::WriteResult>>>
+	future_BulkWrite(::hyc_thrift::VmdkHandle vmdk,
+			std::unique_ptr<std::vector<WriteRequest>> thrift_requests)
+			override {
+		static_assert(kBulkWriteMaxSize >= 32*1024, "kBulkWriteMaxSize too small");
+		using ReqBlockVec = std::vector<RequestBlock*>;
+		using ReqVec = std::vector<std::unique_ptr<Request>>;
+
+		auto AllocDS = [] (size_t nr) {
+			auto process = std::make_unique<ReqBlockVec>();
+			auto reqs = std::make_unique<ReqVec>();
+			reqs->reserve(nr);
+			return std::make_pair(std::move(reqs), std::move(process));
+		};
+
+		auto NewRequest = [] (RequestID reqid, ActiveVmdk* vmdkp,
+				folly::IOBuf* bufp, size_t size, int64_t offset) {
+			bufp->unshare();
+			bufp->coalesce();
+			log_assert(not bufp->isChained());
+			return std::make_unique<Request>(reqid, vmdkp,
+				Request::Type::kWrite, bufp->writableData(), size, size,
+				offset);
+		};
+
+		auto NewResult = [] (RequestID reqid, int rc) {
+			return WriteResult(apache::thrift::FragileConstructor(), reqid, rc);
+		};
+
+		auto BulkWrite = [&NewResult] (VirtualMachine* vmp, ActiveVmdk* vmdkp,
+				std::unique_ptr<ReqVec> reqs,
+				std::unique_ptr<ReqBlockVec> process) mutable {
+			return vmp->BulkWrite(vmdkp, *reqs, *process)
+			.then([&NewResult, reqs = std::move(reqs),
+					process = std::move(process)] (int rc) mutable {
+				std::vector<::hyc_thrift::WriteResult> res;
+				res.reserve(reqs->size());
+				for (const auto& req : *reqs) {
+					res.emplace_back(NewResult(req->GetID(), req->GetResult()));
+				}
+				return res;
+			});
+		};
+
+		auto UnalignWrite = [&NewResult] (VirtualMachine* vmp, ActiveVmdk* vmdkp,
+				std::unique_ptr<Request> req) mutable {
+			auto reqp = req.get();
+			return vmp->Write(vmdkp, reqp)
+			.then([&NewResult, req = std::move(req)] (int rc) mutable {
+				std::vector<::hyc_thrift::WriteResult> res;
+				res.emplace_back(NewResult(req->GetID(), req->GetResult()));
+				return res;
+			});
+		};
+
+		auto ExtractParams = [] (WriteRequest& wr)
+				-> std::tuple<RequestID, int32_t, int64_t> {
+			return {wr.get_reqid(), wr.get_size(), wr.get_offset()};
+		};
+
+		struct {
+			bool operator() (const WriteRequest& wr1, const WriteRequest& wr2) {
+				return wr1.get_offset() < wr2.get_offset();
+			}
+		} CompareOffset;
+		if (not std::is_sorted(thrift_requests->begin(), thrift_requests->end(),
+				CompareOffset)) {
+			std::sort(thrift_requests->begin(), thrift_requests->end(),
+				CompareOffset);
+		}
+
+		auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdk);
+		assert(pio_likely(p));
+		auto vmdkp = dynamic_cast<ActiveVmdk*>(p);
+		assert(pio_likely(vmdkp));
+
+		auto vmp = vmdkp->GetVM();
+		assert(vmp != nullptr);
+
+		std::vector<folly::Future<std::vector<WriteResult>>> futures;
+		::ondisk::BlockID prev_start = 0;
+		::ondisk::BlockID prev_end = 0;
+		std::unique_ptr<ReqBlockVec> process;
+		std::unique_ptr<ReqVec> write_requests;
+
+		size_t pending = thrift_requests->size();
+		std::tie(write_requests, process) = AllocDS(pending);
+		uint32_t write_size = 0;
+
+		for (auto& tr : *thrift_requests) {
+			auto [reqid, size, offset] = ExtractParams(tr);
+			auto& iobuf = tr.get_data();
+			auto req = NewRequest(reqid, vmdkp, iobuf.get(), size, offset);
+			auto reqp = req.get();
+			--pending;
+
+			if (reqp->HasUnalignedIO()) {
+				futures.emplace_back(UnalignWrite(vmp, vmdkp, std::move(req)));
+				continue;
+			}
+
+			auto [cur_start, cur_end] = reqp->Blocks();
+			log_assert(prev_start <= cur_start);
+
+			if (write_size >= kBulkWriteMaxSize &&  prev_end >= cur_start) {
+				/* prev req and current req coincide - submit BulkWrite */
+				futures.emplace_back(BulkWrite(vmp, vmdkp,
+					std::move(write_requests), std::move(process)));
+
+				/* create new data strucutures */
+				log_assert(not process and not write_requests);
+				std::tie(write_requests, process) = AllocDS(pending+1);
+				write_size = 0;
+			}
+
+			process->reserve(process->size() + reqp->NumberOfRequestBlocks());
+			reqp->ForEachRequestBlock([&] (RequestBlock *blockp) mutable {
+				process->emplace_back(blockp);
+				return true;
+			});
+			write_requests->emplace_back(std::move(req));
+
+			write_size += size;
+			std::tie(prev_start, prev_end) = {cur_start, cur_end};
+		}
+
+		if (pio_likely(not write_requests->empty())) {
+			/* submit the last BulkWrite */
+			futures.emplace_back(BulkWrite(vmp, vmdkp,
+				std::move(write_requests), std::move(process)));
+		}
+
+		return folly::collectAll(std::move(futures))
+		.then([thrift_requests = std::move(thrift_requests)]
+				(const folly::Try<
+					std::vector<
+						folly::Try<
+							std::vector<
+								WriteResult>>>>& tries) mutable {
+			using ResultType = std::unique_ptr<std::vector<WriteResult>>;
+			auto results = std::make_unique<ResultType::element_type>();
+			if (pio_unlikely(tries.hasException())) {
+				return folly::makeFuture<ResultType>(tries.exception());
+			}
+
+			const auto& vec1 = tries.value();
+			for (const auto& t1 : vec1) {
+				if (pio_unlikely(t1.hasException())) {
+					return folly::makeFuture<ResultType>(t1.exception());
+				}
+				auto& v2 = t1.value();
+				results->reserve(results->size() + v2.size());
+				std::move(v2.begin(), v2.end(), std::back_inserter(*results));
+			}
+			return folly::makeFuture(std::move(results));
+		});
+	}
 private:
 	std::atomic<VmHandle> vm_handle_{0};
 	std::atomic<VmdkHandle> vmdk_handle_{0};

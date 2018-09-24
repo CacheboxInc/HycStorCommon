@@ -331,6 +331,28 @@ folly::Future<int> VirtualMachine::Write(ActiveVmdk* vmdkp, Request* reqp) {
 	});
 }
 
+folly::Future<int> VirtualMachine::BulkWrite(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process) {
+	if (pio_unlikely(not FindVmdk(vmdkp->GetHandle()))) {
+		throw std::invalid_argument("VMDK not attached to VM");
+	}
+
+	auto ckpt_id = [this] () mutable -> CheckPointID {
+		std::lock_guard<std::mutex> guard(checkpoint_.mutex_);
+		auto ckpt_id = checkpoint_.checkpoint_id_.load();
+		++checkpoint_.writes_per_checkpoint_[ckpt_id];
+		return ckpt_id;
+	} ();
+
+	++stats_.writes_in_progress_;
+	return vmdkp->BulkWrite(ckpt_id, requests, process)
+	.then([this, ckpt_id] (int rc) mutable {
+		WriteComplete(ckpt_id);
+		return rc;
+	});
+}
+
 folly::Future<int> VirtualMachine::Read(ActiveVmdk* vmdkp, Request* reqp) {
 	if (pio_unlikely(not FindVmdk(vmdkp->GetHandle()))) {
 		throw std::invalid_argument("VMDK not attached to VM");

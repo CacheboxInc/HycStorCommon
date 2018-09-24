@@ -24,6 +24,11 @@ uint32_t Request::NumberOfRequestBlocks() const {
 	return block_.nblocks_;
 }
 
+bool Request::HasUnalignedIO() const noexcept {
+	return request_blocks_.front()->IsPartial() ||
+		request_blocks_.back()->IsPartial();
+}
+
 bool Request::IsSuccess() const noexcept {
 	return status_.status_ == RequestStatus::kSuccess and GetResult() == 0;
 }
@@ -237,6 +242,10 @@ bool RequestBlock::IsReadMissed() const noexcept {
 
 bool RequestBlock::IsReadHit() const noexcept {
 	return GetStatus() == RequestStatus::kHit;
+}
+
+Request* RequestBlock::GetRequest() const noexcept {
+	return requestp_;
 }
 
 size_t RequestBlock::GetRequestBufferCount() const {

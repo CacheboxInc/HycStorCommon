@@ -55,6 +55,9 @@ public:
 	folly::Future<int> Stun(::ondisk::CheckPointID ckpt_id);
 	std::vector <::ondisk::VmdkID> GetVmdkIDs();
 
+	folly::Future<int> BulkWrite(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process);
 public:
 	const ::ondisk::VmID& GetID() const noexcept;
 	VmdkHandle GetHandle() const noexcept;

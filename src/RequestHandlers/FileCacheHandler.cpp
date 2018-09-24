@@ -2,6 +2,7 @@
 #include <string>
 #include <fstream>
 #include <sys/stat.h>
+#include <errno.h>
 
 #include <folly/futures/Future.h>
 
@@ -28,8 +29,9 @@ FileCacheHandler::FileCacheHandler(const config::VmdkConfig* configp) :
 		file_path_ = configp->GetFileCachePath();
 
 		std::ofstream {file_path_};
-		fd_ = ::open(file_path_.c_str(), O_RDWR | O_SYNC | O_DIRECT);
+		fd_ = ::open(file_path_.c_str(), O_RDWR | O_CREAT);
 		if (pio_unlikely(fd_ == -1)) {
+			LOG(ERROR) << file_path_ << errno;
 			throw std::runtime_error("File open failed");
 		}
 	}
@@ -125,4 +127,28 @@ folly::Future<int> FileCacheHandler::ReadPopulate(ActiveVmdk *vmdkp,
 
 	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
+
+folly::Future<int> FileCacheHandler::BulkWrite(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	for (const auto& blockp : process) {
+		auto srcp = blockp->GetRequestBufferAtBack();
+		log_assert(srcp->Size() == vmdkp->BlockSize());
+
+		ssize_t nwrite = 0;
+		while ((nwrite = ::pwrite(fd_, srcp->Payload(), srcp->Size(),
+				blockp->GetAlignedOffset())) < 0) {
+			if (nwrite == -1) {
+				if (errno == EINTR) {
+					continue;
+				}
+				return -errno;
+			}
+		}
+	}
+	return 0;
+}
+
 }

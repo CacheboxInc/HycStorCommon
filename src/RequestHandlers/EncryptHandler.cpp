@@ -83,4 +83,13 @@ folly::Future<int> EncryptHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp
 	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
+folly::Future<int> EncryptHandler::BulkWrite(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
+}
+
+
 }

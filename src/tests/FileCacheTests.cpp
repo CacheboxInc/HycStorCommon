@@ -1,3 +1,5 @@
+#include <numeric>
+#include <chrono>
 
 #include <gtest/gtest.h>
 #include <glog/logging.h>
@@ -7,16 +9,19 @@
 #include "gen-cpp2/StorRpc_constants.h"
 #include "Request.h"
 #include "Vmdk.h"
-#include "UnalignedHandler.h"
 #include "LockHandler.h"
-#include "FileCacheHandler.h"
+#include "UnalignedHandler.h"
+#include "MultiTargetHandler.h"
 #include "DaemonUtils.h"
 #include "VmdkConfig.h"
 
 using namespace pio;
+using namespace pio::config;
 using namespace ::ondisk;
 
-const size_t kVmdkBlockSize = 4096;
+static const size_t kVmdkBlockSize = 8192;
+static const VmdkID kVmdkid = "kVmdkid";
+static const VmID kVmid = "kVmid";
 
 class FileCacheTest : public ::testing::Test {
 protected:
@@ -24,29 +29,41 @@ protected:
 	std::unique_ptr<ActiveVmdk> vmdkp;
 	std::atomic<RequestID> req_id;
 
-	void DefaultVmdkConfig(config::VmdkConfig& config, uint64_t block_size) {
-		config.SetVmId("vmdkid");
-		config.SetVmdkId("vmdkid");
-		config.SetBlockSize(block_size);
+	void DefaultVmdkConfig(VmdkConfig& config) {
+		config.SetVmdkId(kVmdkid);
+		config.SetVmId(kVmid);
+		config.SetBlockSize(kVmdkBlockSize);
+		config.ConfigureCompression("snappy", 1);
+		config.ConfigureEncrytption("abcd");
+		config.DisableCompression();
+		config.DisableEncryption();
+		config.DisableRamCache();
+		config.DisableErrorHandler();
+		config.DisableSuccessHandler();
+		config.DisableFileTarget();
+		config.DisableNetworkTarget();
 		config.ConfigureFileCache("/var/tmp/file_cache_0");
 	}
 
 	virtual void SetUp() {
 		config::VmdkConfig config;
-		DefaultVmdkConfig(config, kVmdkBlockSize);
+		DefaultVmdkConfig(config);
 
 		vmdkp = std::make_unique<ActiveVmdk>(1, "1", nullptr, config.Serialize());
+		EXPECT_NE(vmdkp, nullptr);
 
-		auto unaligned_handler = std::make_unique<UnalignedHandler>();
-		auto lock_handler = std::make_unique<LockHandler>();
-		auto filecache_handler = std::make_unique<FileCacheHandler>(vmdkp->GetJsonConfig());
+		auto configp = vmdkp->GetJsonConfig();
+		auto lock = std::make_unique<LockHandler>();
+		auto multi_target = std::make_unique<MultiTargetHandler>(
+				vmdkp.get(), configp);
+		EXPECT_NE(lock, nullptr);
+		EXPECT_NE(multi_target, nullptr);
 
-		vmdkp->RegisterRequestHandler(std::move(lock_handler));
-		vmdkp->RegisterRequestHandler(std::move(unaligned_handler));
-		vmdkp->RegisterRequestHandler(std::move(filecache_handler));
-
+		vmdkp->RegisterRequestHandler(std::move(lock));
+		vmdkp->RegisterRequestHandler(std::move(multi_target));
 		req_id.store(StorRpc_constants::kInvalidRequestID());
 	}
+
 	virtual void TearDown() {
 		vmdkp = nullptr;
 	}
@@ -94,6 +111,39 @@ protected:
 			return std::move(bufferp);
 		});
 	}
+
+	folly::Future<int> VmdkBulkWrite(std::vector<BlockID> blocks) {
+		auto requests = std::make_unique<std::vector<std::unique_ptr<Request>>>();
+		auto process = std::make_unique<std::vector<RequestBlock*>>();
+		auto buffers = std::make_unique<std::vector<std::unique_ptr<RequestBuffer>>>();
+
+		for (auto block : blocks) {
+			auto offset = block << vmdkp->BlockShift();
+			auto req_id = NextRequestID();
+			auto bufferp = NewRequestBuffer(vmdkp->BlockSize());
+			auto p = bufferp->Payload();
+			::memset(p, 'A' + (block % 26), bufferp->Size());
+
+			auto req = std::make_unique<Request>(req_id, vmdkp.get(),
+				Request::Type::kWrite, p, bufferp->Size(), bufferp->Size(),
+				offset);
+
+			req->ForEachRequestBlock([&] (RequestBlock *blockp) mutable {
+				process->emplace_back(blockp);
+				return true;
+			});
+
+			requests->emplace_back(std::move(req));
+			buffers->emplace_back(std::move(bufferp));
+		}
+
+		return vmdkp->BulkWrite(ckpt_id, *requests, *process)
+		.then([requests = std::move(requests), process = std::move(process),
+				buffers = std::move(buffers)] (int rc) {
+			return rc;
+		});
+	}
+
 };
 
 TEST_F(FileCacheTest, FileCacheVerify) {
@@ -141,4 +191,48 @@ TEST_F(FileCacheTest, FileCacheVerify) {
 		return 0;
 	})
 	.wait();
+}
+
+TEST_F(FileCacheTest, FileCacheVerifyBulk) {
+	using namespace std::chrono_literals;
+	EXPECT_TRUE(vmdkp);
+
+	const BlockID kNBlocks = 32;
+	std::vector<BlockID> blocks(kNBlocks);
+	std::iota(blocks.begin(), blocks.end(), 0);
+	auto fut = VmdkBulkWrite(std::move(blocks));
+	fut.wait(1s);
+	EXPECT_TRUE(fut.isReady());
+
+	// issue read for already written blocks
+	std::vector<folly::Future<std::unique_ptr<RequestBuffer>>> read_futures;
+
+	for (BlockID block = 0; block < kNBlocks; ++block) {
+		auto fut = VmdkRead(block, 0, vmdkp->BlockSize());
+		read_futures.emplace_back(std::move(fut));
+
+	}
+
+	// verify data
+	auto f = folly::collectAll(std::move(read_futures))
+	.then([this]
+			(const std::vector<folly::Try<std::unique_ptr<RequestBuffer>>>& tries) {
+		BlockID block = 0;
+
+		auto bufferp = NewAlignedRequestBuffer(vmdkp->BlockSize());
+		auto payload = bufferp->Payload();
+
+		for (const auto& t : tries) {
+			::memset(payload, 'A' + (block %26), vmdkp->BlockSize());
+			const auto& bufp = t.value();
+
+			auto p = bufp->Payload();
+			auto rc = ::memcmp(payload, p, bufp->Size());
+			EXPECT_EQ(rc, 0);
+			++block;
+		}
+		return 0;
+	})
+	.wait(1s);
+	EXPECT_TRUE(f.isReady());
 }

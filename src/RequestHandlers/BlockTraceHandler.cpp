@@ -69,4 +69,11 @@ folly::Future<int> BlockTraceHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
 	return nextp_->Flush(vmdkp, reqp, process, failed);
 }
 
+folly::Future<int> BlockTraceHandler::BulkWrite(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
+}
 }
