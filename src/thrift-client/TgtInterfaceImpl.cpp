@@ -605,10 +605,27 @@ int32_t StordVmdk::OpenVmdk() {
 		return -EBUSY;
 	}
 
-	auto vmdk_handle = connectp_->GetRpcClient()
-		->future_OpenVmdk(vmid_, vmdkid_)
-		.get();
+	folly::Promise<hyc_thrift::VmdkHandle> promise;
+	auto basep = connectp_->GetEventBase();
+	auto clientp = connectp_->GetRpcClient();
+
+	basep->runInEventBaseThread([this, clientp, &promise] () mutable {
+		clientp->future_OpenVmdk(vmid_, vmdkid_)
+		.then([&] (const folly::Try<::hyc_thrift::VmdkHandle>& tri) mutable {
+			if (hyc_unlikely(tri.hasException())) {
+				promise.setValue(kInvalidVmdkHandle);
+				return;
+			}
+			promise.setValue(tri.value());
+			return;
+		});
+	});
+
+	auto future = promise.getFuture();
+	auto vmdk_handle = future.get();
+
 	if (hyc_unlikely(vmdk_handle == kInvalidVmHandle)) {
+		LOG(ERROR) << "Open VMDK Failed" << *this;
 		return -ENODEV;
 	}
 	vmdk_handle_ = vmdk_handle;
@@ -622,13 +639,30 @@ int StordVmdk::CloseVmdk() {
 	}
 
 	if (PendingOperations() != 0) {
+		LOG(ERROR) << "Close VMDK Failed" << *this;
 		return -EBUSY;
 	}
 
-	auto rc = connectp_->GetRpcClient()
-		->future_CloseVmdk(vmdk_handle_)
-		.get();
+	folly::Promise<int> promise;
+	auto basep = connectp_->GetEventBase();
+	auto clientp = connectp_->GetRpcClient();
+
+	basep->runInEventBaseThread([this, clientp, &promise] () mutable {
+		clientp->future_CloseVmdk(this->vmdk_handle_)
+		.then([&] (const folly::Try<int>& tri) mutable {
+			if (hyc_unlikely(tri.hasException())) {
+				promise.setValue(-1);
+				return;
+			}
+			promise.setValue(tri.value());
+			return;
+		});
+	});
+
+	auto future = promise.getFuture();
+	auto rc = future.get();
 	if (hyc_unlikely(rc < 0)) {
+		LOG(ERROR) << "Close VMDK Failed" << *this;
 		return rc;
 	}
 	connectp_->UnregisterVmdk(this);
