@@ -42,7 +42,7 @@ folly::Future<int> CleanHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		}
 	}
 
-	return aero_obj_->AeroReadCmdProcess(vmdkp, reqp, process,
+	return aero_obj_->AeroReadCmdProcess(vmdkp, process,
 			failed, kAsNamespaceCacheClean, aero_conn_)
 	.then([this, vmdkp, reqp, &process, &failed] (int rc)
 			mutable -> folly::Future<int> {
@@ -90,7 +90,7 @@ folly::Future<int> CleanHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		}
 	}
 
-	return aero_obj_->AeroWriteCmdProcess(vmdkp, reqp, 0, process, failed,
+	return aero_obj_->AeroWriteCmdProcess(vmdkp, 0, process, failed,
 		kAsNamespaceCacheClean, aero_conn_)
 	.then([&process, &failed] (int rc) mutable {
 		if (pio_unlikely(rc != 0)) {
@@ -123,7 +123,7 @@ folly::Future<int> CleanHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		}
 	}
 
-	return aero_obj_->AeroWriteCmdProcess(vmdkp, reqp, 0, process, failed,
+	return aero_obj_->AeroWriteCmdProcess(vmdkp, 0, process, failed,
 		kAsNamespaceCacheClean, aero_conn_)
 	.then([&process, &failed] (int rc) mutable {
 		if (pio_unlikely(rc != 0)) {

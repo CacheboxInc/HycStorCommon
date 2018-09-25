@@ -38,7 +38,7 @@ folly::Future<int> DirtyHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		return nextp_->Read(vmdkp, reqp, process, failed);
 	}
 
-	return aero_obj_->AeroReadCmdProcess(vmdkp, reqp, process, failed,
+	return aero_obj_->AeroReadCmdProcess(vmdkp, process, failed,
 		kAsNamespaceCacheDirty, aero_conn_)
 	.then([this, vmdkp, reqp, &process, &failed] (int rc) mutable
 			-> folly::Future<int> {
@@ -84,7 +84,7 @@ folly::Future<int> DirtyHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
 	}
 
-	return aero_obj_->AeroWriteCmdProcess(vmdkp, reqp, ckpt, process, failed,
+	return aero_obj_->AeroWriteCmdProcess(vmdkp, ckpt, process, failed,
 		kAsNamespaceCacheDirty, aero_conn_)
 	.then([this, vmdkp, reqp, &process, &failed, ckpt, connect = this->aero_conn_] (int rc)
 			mutable -> folly::Future<int> {
@@ -100,7 +100,7 @@ folly::Future<int> DirtyHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 			return 0;
 		}
 
-		return aero_obj_->AeroDelCmdProcess(vmdkp, reqp, ckpt, process, failed,
+		return aero_obj_->AeroDelCmdProcess(vmdkp, ckpt, process, failed,
 			kAsNamespaceCacheClean, connect)
 		.then([&process, &failed]  (int rc) mutable {
 			if (pio_unlikely(rc != 0)) {
@@ -153,7 +153,7 @@ folly::Future<int> DirtyHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 	}
 
 	/* Read record from DIRTY Namespace */
-	return aero_obj_->AeroReadCmdProcess(vmdkp, reqp, process, failed,
+	return aero_obj_->AeroReadCmdProcess(vmdkp, process, failed,
 		kAsNamespaceCacheDirty, aero_conn_)
 	.then([this, vmdkp, reqp, &process, &failed, connect = this->aero_conn_] (int rc) mutable
 			-> folly::Future<int> {
@@ -162,7 +162,7 @@ folly::Future<int> DirtyHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 		}
 
 		/* Write record into CLEAN namespace */
-		return aero_obj_->AeroWriteCmdProcess(vmdkp, reqp, reqp->GetFlushCkptID(),
+		return aero_obj_->AeroWriteCmdProcess(vmdkp, reqp->GetFlushCkptID(),
 			process, failed, kAsNamespaceCacheClean, connect)
 		.then([this, vmdkp, reqp, &process, &failed, connect] (int rc) mutable
 			-> folly::Future<int> {
@@ -171,7 +171,7 @@ folly::Future<int> DirtyHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 			}
 
 			/* Delete record from DIRTY namespace */
-			return aero_obj_->AeroDelCmdProcess(vmdkp, reqp, reqp->GetFlushCkptID(),
+			return aero_obj_->AeroDelCmdProcess(vmdkp, reqp->GetFlushCkptID(),
 				process, failed, kAsNamespaceCacheDirty, connect)
 			.then([&process, &failed]  (int rc) mutable {
 				if (pio_unlikely(rc)) {
