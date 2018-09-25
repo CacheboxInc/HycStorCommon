@@ -123,6 +123,44 @@ folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	});
 }
 
+folly::Future<int> NetworkTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	failed.clear();
+	std::shared_ptr<hyc::IO> io = std::make_shared<IO>(WRITEDIR);
+	if (pio_unlikely(not io)) {
+		failed.reserve(process.size());
+		std::copy(process.begin(), process.end(), std::back_inserter(failed));
+		return -ENOMEM;
+	}
+
+	for (auto& blockp : process) {
+		auto srcp = blockp->GetRequestBufferAtBack();
+		io->AddIoVec(blockp->GetAlignedOffset(), srcp->Size(), srcp->Payload());
+	}
+
+	auto promise = std::make_shared<folly::Promise<int>>();
+	io->SetOpaque((void *) promise.get());
+	auto ret = io_session_->ProcessIO(io);
+	if (ret != 0) {
+		failed.reserve(process.size());
+		std::copy(process.begin(), process.end(), std::back_inserter(failed));
+		return -EAGAIN;
+	}
+
+	return promise->getFuture()
+	.then([io, promise, &process, &failed] (int rc) mutable {
+		if (pio_unlikely(rc != 0)) {
+			failed.reserve(process.size());
+			std::copy(process.begin(), process.end(), std::back_inserter(failed));
+			return -EIO;
+		}
+		return 0;
+	});
+}
+
 folly::Future<int> NetworkTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
