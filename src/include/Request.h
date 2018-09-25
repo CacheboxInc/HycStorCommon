@@ -226,4 +226,5 @@ private:
 std::unique_ptr<RequestBuffer> NewRequestBuffer(size_t size);
 std::unique_ptr<RequestBuffer> NewAlignedRequestBuffer(size_t size);
 std::unique_ptr<RequestBuffer> NewRequestBuffer(char* payloadp, size_t size);
+std::unique_ptr<RequestBuffer> CloneRequestBuffer(RequestBuffer* bufferp);
 }

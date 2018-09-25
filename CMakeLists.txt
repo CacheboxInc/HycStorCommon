@@ -79,6 +79,9 @@ set(THRIFT_TEMPLATE "/usr/local/include/thrift/templates")
 # add boost logger macro
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=${CXX_STANDARD} -Wnon-virtual-dtor -Woverloaded-virtual")
 
+#COMPRESSION and ENCRYPTION
+add_subdirectory(thirdparty/hyc-datapack)
+
 # these below apply to C and C++ files
 add_compile_options(
   -Wall

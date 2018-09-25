@@ -389,4 +389,13 @@ std::unique_ptr<RequestBuffer> NewRequestBuffer(char* payloadp, size_t size) {
 	return std::make_unique<RequestBuffer>(payloadp, size);
 }
 
+std::unique_ptr<RequestBuffer> CloneRequestBuffer(RequestBuffer* srcp) {
+	auto destp = NewRequestBuffer(srcp->Size());
+	if (pio_unlikely(not destp)) {
+		return nullptr;
+	}
+	::memcpy(destp->Payload(), srcp->Payload(), srcp->Size());
+	return destp;
+}
+
 }

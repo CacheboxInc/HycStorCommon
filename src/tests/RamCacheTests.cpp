@@ -32,20 +32,19 @@ TEST(RamCacheTest, DataVerify) {
 		auto payload = bufp->Payload();
 		char c = 'A' + (i % 26);
 		::memset(payload, c, bufp->Size());
-		cache.Write(&vmdk, payload, offset);
+		cache.Write(&vmdk, payload, offset, bufp->Size());
 	}
 
 	auto cmp_bufp = NewRequestBuffer(vmdk.BlockSize());
 	auto cmp_payload = cmp_bufp->Payload();
-	auto read_bufp = NewRequestBuffer(vmdk.BlockSize());
-	auto read_payload = read_bufp->Payload();
 
 	for (auto offset = 0, i = 0; i < 100; ++i, offset += vmdk.BlockSize()) {
 		char c = 'A' + (i % 26);
 		::memset(cmp_payload, c, cmp_bufp->Size());
 
-		cache.Read(&vmdk, read_payload, offset);
-
+		auto [read_bufp, found] = cache.Read(&vmdk, offset);
+		EXPECT_TRUE(found);
+		auto read_payload = read_bufp->Payload();
 		auto rc = ::memcmp(read_payload, cmp_payload, cmp_bufp->Size());
 		EXPECT_EQ(rc, 0);
 	}
@@ -62,20 +61,25 @@ TEST(RamCacheTest, ReadMiss) {
 	auto zpp = zero_bufp->Payload();
 	::memset(zpp, 0, zero_bufp->Size());
 
-	auto read_bufp = NewRequestBuffer(vmdk.BlockSize());
-	auto read_payload = read_bufp->Payload();
+	{
+		auto [read_bufp, found] = cache.Read(&vmdk, offset);
+		EXPECT_FALSE(found);
+		EXPECT_FALSE(read_bufp);
+	}
 
-	auto rc = cache.Read(&vmdk, read_payload, offset);
-	EXPECT_FALSE(rc);
-
-	rc = cache.Read(&vmdk, read_payload, offset);
-	EXPECT_FALSE(rc);
+	{
+		auto [read_bufp, found] = cache.Read(&vmdk, offset);
+		EXPECT_FALSE(found);
+		EXPECT_FALSE(read_bufp);
+	}
 
 	::memset(zpp, 'A', zero_bufp->Size());
-	cache.Write(&vmdk, zpp, offset);
+	cache.Write(&vmdk, zpp, offset, zero_bufp->Size());
 
-	cache.Read(&vmdk, read_payload, offset);
-	rc = ::memcmp(read_payload, zpp, read_bufp->Size());
+	auto [read_bufp, found] = cache.Read(&vmdk, offset);
+	EXPECT_TRUE(found);
+	EXPECT_EQ(read_bufp->Size(), zero_bufp->Size());
+	auto rc = ::memcmp(read_bufp->Payload(), zpp, read_bufp->Size());
 	EXPECT_EQ(rc, 0);
 }
 
@@ -88,17 +92,16 @@ TEST(RamCacheTest, OverWrite) {
 	auto write_bufp = NewRequestBuffer(vmdk.BlockSize());
 	auto wdp = write_bufp->Payload();
 
-	auto read_bufp = NewRequestBuffer(vmdk.BlockSize());
-	auto rdp = read_bufp->Payload();
-
-	for (auto offset = 0, i = 0; i < 100; ++i) {
+	for (auto i = 0; i < 26; ++i) {
 		char c = 'A' + (i % 26);
 		::memset(wdp, c, write_bufp->Size());
-		cache.Write(&vmdk, wdp, offset);
+		cache.Write(&vmdk, wdp, 0, write_bufp->Size());
 
-		cache.Read(&vmdk, rdp, offset);
+		auto [read_bufp, found] = cache.Read(&vmdk, 0);
+		EXPECT_TRUE(found);
+		EXPECT_EQ(read_bufp->Size(), write_bufp->Size());
 
-		auto rc = ::memcmp(wdp, rdp, read_bufp->Size());
+		auto rc = ::memcmp(wdp, read_bufp->Payload(), read_bufp->Size());
 		EXPECT_EQ(rc, 0);
 	}
 }

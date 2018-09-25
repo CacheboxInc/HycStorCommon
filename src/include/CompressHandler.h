@@ -3,6 +3,11 @@
 #include "RequestHandler.h"
 
 namespace pio {
+
+namespace hyc {
+struct hyc_compress_ctx_;
+}
+
 class CompressHandler : public RequestHandler {
 public:
 	CompressHandler(const config::VmdkConfig* configp);
@@ -22,8 +27,12 @@ public:
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) override;
 private:
+	std::pair<std::unique_ptr<RequestBuffer>, int32_t>
+	RequestBlockReadComplete(ActiveVmdk* vmdkp, RequestBlock* blockp);
+private:
 	bool enabled_{false};
-	std::string algorithm_;
+	std::string algorithm_{"snappy"};
 	uint16_t level_;
+	hyc::hyc_compress_ctx_* ctxp_{nullptr};
 };
 }

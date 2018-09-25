@@ -2,6 +2,8 @@ include_directories(include)
 include_directories(${CMAKE_BINARY_DIR}/src/thrift/)
 include_directories(${CMAKE_SOURCE_DIR}/thirdparty/ha-lib/third-party/include)
 include_directories(${CMAKE_SOURCE_DIR}/thirdparty/ha-lib/src)
+include_directories(${CMAKE_SOURCE_DIR}/thirdparty/hyc-datapack/src/include)
+link_directories(${CMAKE_BINARY_DIR}/thirdparty/hyc-datapack/build/src/compression/)
 
 #Set this to OFF if don't want to include NEP changes
 OPTION(USE_NEP "Set ON/OFF to use/avoid NEP with storD" ON)
@@ -31,7 +33,8 @@ set(ThriftLibs
 	wangle
 )
 
-set(COMPRESS_LIBS
+set(HYC_COMPRESS_LIBS
+	HycCompress
 	snappy
 	lz4
 	z
@@ -74,6 +77,7 @@ set(LIBRARY_LIST
 	atomic
 	${ThriftLibs}
 	aio
+	${HYC_COMPRESS_LIBS}
 )
 
 if(USE_NEP)

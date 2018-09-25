@@ -9,36 +9,33 @@
 
 namespace pio {
 
-bool RamCache::Read(ActiveVmdk *vmdkp, void *bufferp, Offset offset) {
+std::pair<std::unique_ptr<RequestBuffer>, bool>
+RamCache::Read(ActiveVmdk *vmdkp, Offset offset) {
 	Key key = offset;
 
 	std::lock_guard<std::mutex> guard(mutex_);
 	auto it = cache_.find(key);
 	if (it == cache_.end()) {
-		return false;
+		return std::make_pair(nullptr, false);
 	}
 
 	log_assert(it != cache_.end());
-	auto srcp = it->second->Payload();
-	::memcpy(bufferp, srcp, vmdkp->BlockSize());
-	return true;
+	auto bufferp = CloneRequestBuffer(it->second.get());
+	if (pio_unlikely(not bufferp)) {
+		return std::make_pair(nullptr, true);
+	}
+	return std::make_pair(std::move(bufferp), true);
 }
 
-void RamCache::Write(ActiveVmdk *vmdkp, void *bufferp, Offset offset) {
+void RamCache::Write(ActiveVmdk *vmdkp, void *bufferp, Offset offset, size_t size) {
 	Key key = offset;
 
 	std::lock_guard<std::mutex> guard(mutex_);
-	auto it = cache_.find(key);
-	if (it != cache_.end()) {
-		auto dp = it->second.get();
-		::memcpy(dp->Payload(), bufferp, dp->Size());
-		return;
-	}
-
-	auto destp = NewRequestBuffer(vmdkp->BlockSize());
+	auto destp = NewRequestBuffer(size);
 	auto dp = destp->Payload();
+
 	::memcpy(dp, bufferp, destp->Size());
-	cache_.emplace(key, std::move(destp));
+	cache_.insert_or_assign(key, std::move(destp));
 }
 
 }

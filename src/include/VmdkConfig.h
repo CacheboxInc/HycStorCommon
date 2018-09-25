@@ -26,6 +26,7 @@ public:
 	void ConfigureCompression(const std::string& algo, uint16_t level);
 	bool IsCompressionEnabled() const;
 	std::string GetCompressionType() const;
+	uint32_t GetMinCompressRatio() const;
 	uint16_t GetCompressionLevel() const;
 
 	void DisableEncryption();
@@ -91,6 +92,7 @@ public:
 	static const std::string kCompression;
 	static const std::string kCompressionType;
 	static const std::string kCompressionLevel;
+	static const std::string kMinCompressRatio;
 	static const std::vector<std::string> kCompressAlgos;
 
 	static const std::string kEncryption;

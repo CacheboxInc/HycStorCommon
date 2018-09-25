@@ -8,3 +8,6 @@
 [submodule "thirdparty/vk-proto"]
 	path = thirdparty/vk-proto
 	url = git@github.com:CacheboxInc/vk-proto.git
+[submodule "thirdparty/hyc-datapack"]
+	path = thirdparty/hyc-datapack
+	url = git@github.com:CacheboxInc/hyc-datapack.git

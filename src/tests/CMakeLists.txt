@@ -11,6 +11,7 @@ add_executable(StorageLayerTests
 	SuccessHandlerTests.cpp
 	TgtInterfaceTests.cpp
 	VirtualMachineTests.cpp
+	CompressHandlerTest.cpp
 )
 
 if(USE_NEP)

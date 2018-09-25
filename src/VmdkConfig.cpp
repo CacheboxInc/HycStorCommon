@@ -22,9 +22,10 @@ const std::string VmdkConfig::kEncryptionKey = "EncryptionKey";
 const std::string VmdkConfig::kCompression = "Compression";
 const std::string VmdkConfig::kCompressionType = "Type";
 const std::string VmdkConfig::kCompressionLevel = "Level";
+const std::string VmdkConfig::kMinCompressRatio = "MinRatio";
 const std::vector<std::string> VmdkConfig::kCompressAlgos = {
 	"snappy",
-	"lzw",
+	"lz4",
 };
 
 const std::string VmdkConfig::kRamCache = "RamCache";
@@ -156,6 +157,14 @@ uint16_t VmdkConfig::GetCompressionLevel() const {
 	StringDelimAppend(key, '.', {kCompression, kCompressionLevel});
 	auto rc = JsonConfig::GetKey(key, level);
 	return rc ? level : 0;
+}
+
+uint32_t VmdkConfig::GetMinCompressRatio() const {
+	uint32_t min_ratio;
+	std::string key;
+	StringDelimAppend(key, '.', {kCompression, kMinCompressRatio});
+	auto rc = JsonConfig::GetKey(key, min_ratio);
+	return rc ? min_ratio : 1;
 }
 
 void VmdkConfig::DisableEncryption() {
