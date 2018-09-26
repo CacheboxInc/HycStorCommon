@@ -405,12 +405,10 @@ int RemoveVmUsingVmID(VmID vmid) {
 			return 1;
 		}
 
-		#if 0
 		/* Delete aerospike set first */
 		if (AeroSetDelete(vmid)) {
 			LOG(ERROR) << "Unable to Clean the aerospike set entries";
 		}
-		#endif
 
 		LOG(ERROR) << __func__ << "Calling FreeInstance";
 		return managerp->FreeInstance(handle);
