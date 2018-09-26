@@ -916,7 +916,7 @@ static int NewScanStatusReq(const _ha_request *reqp, _ha_response *resp, void *u
 		std::ostringstream es;
 		LOG(ERROR) << "Scan status request for aero-cluster-id::"  << id << " Failed, errno:" << ret;
 		if (ret == -EINVAL) {
-			es << "Scan not started for aero-cluster-id::"  << id;
+			es << "Scan not running currently for aero-cluster-id::"  << id;
 			SetErrMsg(resp, STORD_ERR_SCAN_NOT_STARTED, es.str());
 		} else {
 			es << "Failed to get scan status for aero-cluster-id::"  << id;
@@ -1030,7 +1030,7 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 		std::ostringstream es;
 		LOG(ERROR) << "Flush status request for VMID::"  << vmid << "Failed errno:" << ret;
 		if (ret == -EINVAL) {
-			es << "Flush not started for VMID::"  << vmid;
+			es << "Flush not running currently for VMID::"  << vmid;
 			SetErrMsg(resp, STORD_ERR_FLUSH_NOT_STARTED, es.str());
 		} else {
 			es << "Failed to get flush status for VMID::"  << vmid;
