@@ -24,6 +24,11 @@ int FlushManager::CreateInstance(struct _ha_instance *ha_instance) {
 	return 0;
 }
 
+void FlushManager::DestroyInstance() {
+	//TBD: Quiescing of IO's
+	DeinitFlushManager();
+}
+
 FlushInstance* FlushManager::GetInstance(const VmID& vmid) {
 	std::lock_guard<SpinLock> lock(mutex_);
 	if (auto it = instances_.find(vmid); pio_likely(it != instances_.end())) {

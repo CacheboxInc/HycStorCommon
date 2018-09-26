@@ -30,6 +30,7 @@
 #include "ScanInstance.h"
 #include "FlushConfig.h"
 #include "AeroOps.h"
+#include "TgtInterfaceImpl.h"
 
 #include "BlockTraceHandler.h"
 #include "LockHandler.h"
@@ -51,17 +52,16 @@ namespace pio {
 using namespace folly;
 
 struct {
-	std::once_flag initialized_;
-} g_init_;
-
-struct {
 	std::mutex mutex_;
 	/* Using handle to just keep track of how many entries are added */
 	std::atomic<AeroClusterHandle> handle_{0};
 	std::unordered_map<AeroClusterID, std::shared_ptr<AeroSpikeConn>> ids_;
 } g_aero_clusters;
 
-int InitStordLib() {
+StorD::StorD() = default;
+StorD::~StorD() = default;
+
+int StorD::InitStordLib(void) {
 	try {
 		std::call_once(g_init_.initialized_, [=] () mutable {
 			SingletonHolder<VmdkManager>::CreateInstance();
@@ -74,12 +74,28 @@ int InitStordLib() {
 #endif
 		});
 	} catch (const std::exception& e) {
+		LOG(ERROR) << "Hit exception" << e.what();
 		return -1;
 	}
 	return 0;
 }
 
-int DeinitStordLib(void) {
+int StorD::DeinitStordLib(void) {
+	try {
+		std::call_once(g_init_.deinitialized_, [=] () mutable {
+			SingletonHolder<VmdkManager>::DestroyInstance();
+			SingletonHolder<VmManager>::DestroyInstance();
+			SingletonHolder<AeroFiberThreads>::DestroyInstance();
+			SingletonHolder<FlushManager>::DestroyInstance();
+#ifdef USE_NEP
+			SingletonHolder<TargetManager>::DestroyInstance();
+#endif
+		});
+	} catch (const std::exception& e) {
+		LOG(ERROR) << "Hit exception" << e.what();
+		return -1;
+	}
+
 	return 0;
 }
 

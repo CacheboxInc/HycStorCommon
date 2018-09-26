@@ -11,6 +11,7 @@
 #include "VmdkConfig.h"
 #include "VmdkFactory.h"
 #include "VmManager.h"
+#include "TgtInterfaceImpl.h"
 
 using namespace pio;
 using namespace pio::config;
@@ -26,15 +27,16 @@ public:
 	VmHandle vm_handle_{StorRpc_constants::kInvalidVmHandle()};
 	VmdkHandle vmdk_handle_{StorRpc_constants::kInvalidVmdkHandle()};
 
+	::StorD stord_instance;
+
 	static void SetUpTestCase() {
-		InitStordLib();
 	}
 
 	static void TearDownTestCase() {
-		DeinitStordLib();
 	}
 
 	virtual void SetUp() {
+		stord_instance.InitStordLib();
 		vm_handle_ = AddVm();
 		EXPECT_NE(vm_handle_, StorRpc_constants::kInvalidVmHandle());
 		vmdk_handle_ = AddVmdk(vm_handle_);
@@ -46,6 +48,7 @@ public:
 		RemoveVm(vm_handle_);
 		vm_handle_ = StorRpc_constants::kInvalidVmHandle();
 		vmdk_handle_ = StorRpc_constants::kInvalidVmdkHandle();
+		stord_instance.DeinitStordLib();
 	}
 
 	VmHandle AddVm() {

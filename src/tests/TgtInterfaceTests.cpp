@@ -11,6 +11,7 @@
 #include "DaemonTgtInterface.h"
 #include "VmConfig.h"
 #include "VmdkConfig.h"
+#include "TgtInterfaceImpl.h"
 
 using namespace pio;
 using namespace pio::config;
@@ -20,18 +21,19 @@ using namespace ::hyc_thrift;
 class TgtInterfaceTest : public ::testing::Test {
 public:
 
+	::StorD stord_instance;
 	static void SetUpTestCase() {
-		InitStordLib();
 	}
 
 	static void TearDownTestCase() {
-		DeinitStordLib();
 	}
 
 	virtual void SetUp() {
+		stord_instance.InitStordLib();
 	}
 
 	virtual void TearDown() {
+		stord_instance.DeinitStordLib();
 	}
 
 	VmHandle AddVm(const std::string& vmid) {

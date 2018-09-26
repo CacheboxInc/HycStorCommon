@@ -25,6 +25,7 @@
 #include "Singleton.h"
 #include "AeroFiberThreads.h"
 #include "FlushManager.h"
+#include "TgtInterfaceImpl.h"
 #include "ScanManager.h"
 #include <boost/format.hpp>
 #include <boost/property_tree/ini_parser.hpp>
@@ -428,6 +429,25 @@ private:
 
 std::shared_ptr<ThriftServer> thirft_server;
 
+static struct {
+	std::unique_ptr<std::thread> ha_thread_;
+	bool stop_{false};
+	struct _ha_instance *ha_instance_;
+	struct {
+		std::condition_variable ha_hb_stop_cv_;
+		std::mutex mutex_; // protects above cond var
+	} ha_guard;
+
+	struct {
+		/* To Protect against concurrent REST accesses */
+		std::mutex lock_;
+		/* To Protect pending cnt */
+		std::mutex p_lock_;
+		/* Pending REST calls */
+		std::atomic<int> p_cnt_{0};
+	} rest_guard;
+} g_thread_;
+
 static void Usr1SignalHandler(int signal) {
 	thirft_server->stopListening();
 	thirft_server->stop();
@@ -446,22 +466,6 @@ DEFINE_string(svc_label, "", "represents service label for the service");
 DEFINE_string(stord_version, "", "protocol version of tgt");
 DEFINE_int32(ha_svc_port, 0, "ha service port number");
 DEFINE_validator(ha_svc_port, &ValidatePort);
-
-static struct {
-	std::once_flag initialized_;
-	std::unique_ptr<std::thread> thread_;
-	std::condition_variable ha_hb_stop_cv_;
-	bool stop_{false};
-	std::mutex mutex_; // protects above cond var
-	struct _ha_instance *ha_instance_;
-
-	/* To Protect against concurrent REST accesses */
-	std::mutex lock_;
-	/* To Protect pending cnt */
-	std::mutex p_lock_;
-	/* Pending REST calls */
-	std::atomic<int> p_cnt_{0};
-} g_thread_;
 
 enum StordSvcErr {
 	STORD_ERR_TARGET_CREATE = 1,
@@ -483,8 +487,8 @@ void HaHeartbeat(void *userp) {
 	struct _ha_instance *ha = (struct _ha_instance *) userp;
 
 	while(1) {
-		std::unique_lock<std::mutex> lck(g_thread_.mutex_);
-		if (g_thread_.ha_hb_stop_cv_.wait_for(lck, std::chrono::seconds(60),
+		std::unique_lock<std::mutex> lck(g_thread_.ha_guard.mutex_);
+		if (g_thread_.ha_guard.ha_hb_stop_cv_.wait_for(lck, std::chrono::seconds(60),
 			 [] { return g_thread_.stop_; })) {
 			LOG(INFO) << " Stop HA heartbeat thread";
 			break;
@@ -501,10 +505,11 @@ int StordHaStartCallback(const _ha_request *reqp, _ha_response *resp,
 	try {
 		log_assert(userp != nullptr);
 
-		std::call_once(g_thread_.initialized_, [=] () mutable {
-			g_thread_.thread_ =
+		std::lock_guard<std::mutex> lk(g_thread_.ha_guard.mutex_);
+		g_thread_.ha_thread_ =
 			std::make_unique<std::thread>(HaHeartbeat, userp);
-			});
+		g_thread_.stop_ = false;
+
 		return HA_CALLBACK_CONTINUE;
 	} catch (const std::exception& e) {
 		return HA_CALLBACK_ERROR;
@@ -514,11 +519,19 @@ int StordHaStartCallback(const _ha_request *reqp, _ha_response *resp,
 int StordHaStopCallback(const _ha_request *reqp, _ha_response *resp,
 		void *userp) {
 	{
-		std::lock_guard<std::mutex> lk(g_thread_.mutex_);
+		std::lock_guard<std::mutex> lk(g_thread_.ha_guard.mutex_);
 		g_thread_.stop_ = true;
-		g_thread_.ha_hb_stop_cv_.notify_one();
+		g_thread_.ha_guard.ha_hb_stop_cv_.notify_one();
 	}
-	g_thread_.thread_->join();
+	g_thread_.ha_thread_->join();
+
+	try {
+		Usr1SignalHandler(SIGINT);
+
+	} catch (const std::exception& e) {
+		return HA_CALLBACK_ERROR;
+	}
+
 	return HA_CALLBACK_CONTINUE;
 }
 
@@ -532,13 +545,13 @@ static void SetErrMsg(_ha_response *resp, StordSvcErr err,
 }
 
 static int GuardHandler() {
-	std::unique_lock<std::mutex> p_lock(g_thread_.p_lock_);
-	if (g_thread_.p_cnt_ >= MAX_PENDING_LIMIT) {
+	std::unique_lock<std::mutex> p_lock(g_thread_.rest_guard.p_lock_);
+	if (g_thread_.rest_guard.p_cnt_ >= MAX_PENDING_LIMIT) {
 		p_lock.unlock();
 		return 1;
 	}
 
-	g_thread_.p_cnt_++;
+	g_thread_.rest_guard.p_cnt_++;
 	p_lock.unlock();
 	return 0;
 }
@@ -571,8 +584,8 @@ static int NewVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	std::lock_guard<std::mutex> lock(g_thread_.lock_);
-	g_thread_.p_cnt_--;
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
 	LOG(INFO) << __func__ << "Start NewVM for vmid" << vmid;
 	auto vm_handle = pio::NewVm(vmid, req_data);
 
@@ -608,8 +621,8 @@ static int RemoveVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	std::lock_guard<std::mutex> lock(g_thread_.lock_);
-	g_thread_.p_cnt_--;
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
 	auto ret = pio::RemoveVmUsingVmID(vmid);
 	if (ret) {
 		std::ostringstream es;
@@ -652,8 +665,8 @@ static int NewAeroCluster(const _ha_request *reqp, _ha_response *resp,
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	std::lock_guard<std::mutex> lock(g_thread_.lock_);
-	g_thread_.p_cnt_--;
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
 	auto aero_handle = pio::NewAeroCluster(aeroid, req_data);
 	if (aero_handle == kInvalidAeroClusterHandle) {
 		std::ostringstream es;
@@ -698,8 +711,8 @@ static int DelAeroCluster(const _ha_request *reqp, _ha_response *resp,
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	std::lock_guard<std::mutex> lock(g_thread_.lock_);
-	g_thread_.p_cnt_--;
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
 	auto aero_handle = pio::DelAeroCluster(aeroid, req_data);
 	if (aero_handle == kInvalidAeroClusterHandle) {
 		std::ostringstream es;
@@ -740,8 +753,8 @@ static int NewVmdk(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	std::lock_guard<std::mutex> lock(g_thread_.lock_);
-	g_thread_.p_cnt_--;
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
 	LOG(INFO) << "Started add of VMDKID::" << vmdkid << "in VmID:: " << vmid;
 	auto vm_handle = pio::GetVmHandle(vmid);
 	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
@@ -807,8 +820,8 @@ static int RemoveVmdk(const _ha_request *reqp, _ha_response *resp, void *userp )
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	std::lock_guard<std::mutex> lock(g_thread_.lock_);
-	g_thread_.p_cnt_--;
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
 	auto vm_handle = pio::GetVmHandle(vmid);
 	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
 		std::ostringstream es;
@@ -864,8 +877,8 @@ static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *userp) 
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	std::lock_guard<std::mutex> lock(g_thread_.lock_);
-	g_thread_.p_cnt_--;
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
 	auto vm_handle = pio::GetVmHandle(vmid);
 	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
 		std::ostringstream es;
@@ -907,8 +920,8 @@ static int NewScanStatusReq(const _ha_request *reqp, _ha_response *resp, void *u
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	std::lock_guard<std::mutex> lock(g_thread_.lock_);
-	g_thread_.p_cnt_--;
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
 
 	ScanStats scan_stat;
 	auto ret = pio::NewScanStatusReq(id, scan_stat);
@@ -969,8 +982,8 @@ static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp)
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	std::lock_guard<std::mutex> lock(g_thread_.lock_);
-	g_thread_.p_cnt_--;
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
 	auto vm_handle = pio::GetVmHandle(vmid);
 	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
 		std::ostringstream es;
@@ -1012,8 +1025,8 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	std::lock_guard<std::mutex> lock(g_thread_.lock_);
-	g_thread_.p_cnt_--;
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
 
 	auto vm_handle = pio::GetVmHandle(vmid);
 	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
@@ -1100,8 +1113,8 @@ static int NewAeroCacheStatReq(const _ha_request *reqp, _ha_response *resp, void
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	std::lock_guard<std::mutex> lock(g_thread_.lock_);
-	g_thread_.p_cnt_--;
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
 
 	auto aero_stats = std::make_shared<AeroStats>();
 	auto aero_stats_p = aero_stats.get();
@@ -1164,8 +1177,8 @@ static int AeroSetCleanup(const _ha_request *reqp, _ha_response *resp,
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	std::lock_guard<std::mutex> lock(g_thread_.lock_);
-	g_thread_.p_cnt_--;
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
 	auto rc = pio::AeroSetCleanup(aeroid, req_data);
 	if (rc) {
 		std::ostringstream es;
@@ -1221,7 +1234,7 @@ int main(int argc, char* argv[])
 	LOG(INFO) << "stord daemon started successfully";
 #else
 	std::signal(SIGUSR1, Usr1SignalHandler);
-
+	std::signal(SIGQUIT, Usr1SignalHandler);
 #endif
 	auto size = sizeof(struct ha_handlers) + 12 * sizeof(struct ha_endpoint_handlers);
 
@@ -1344,23 +1357,24 @@ int main(int argc, char* argv[])
 		return -EINVAL;
 	}
 
-	InitStordLib();
+	auto stord_instance = std::make_unique<::StorD>();
+	stord_instance->InitStordLib();
 
 #ifdef USE_NEP
 	/* Initialize threadpool for AeroSpike accesses */
 	auto tmgr_rest = std::make_shared<TargetManagerRest>(
-			SingletonHolder<TargetManager>::GetInstance().get(),
-			g_thread_.ha_instance_);
+		SingletonHolder<TargetManager>::GetInstance().get(),
+		g_thread_.ha_instance_);
 #endif
 
 	/* Initialize threadpool for AeroSpike accesses */
 	auto rc = SingletonHolder<AeroFiberThreads>::GetInstance()
-					->CreateInstance();
+				->CreateInstance();
 	log_assert(rc == 0);
 
 	/* Initialize threadpool for Flush processing */
 	rc = SingletonHolder<FlushManager>::GetInstance()
-					->CreateInstance(g_thread_.ha_instance_);
+				->CreateInstance(g_thread_.ha_instance_);
 	log_assert(rc == 0);
 
 	auto si = std::make_shared<StorRpcSvImpl>();
@@ -1374,7 +1388,13 @@ int main(int argc, char* argv[])
 
 	thirft_server->serve();
 
-	DeinitStordLib();
+	SingletonHolder<FlushManager>::GetInstance()->DestroyInstance();
+	SingletonHolder<AeroFiberThreads>::GetInstance()->FreeInstance();
 
+	stord_instance->DeinitStordLib();
+
+	ha_deinitialize(g_thread_.ha_instance_);
+
+	LOG(INFO) << "StorD Stopped";
 	return 0;
 }
