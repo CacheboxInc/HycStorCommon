@@ -32,7 +32,6 @@ private:
 private:
 	bool enabled_{false};
 	std::string algorithm_{"snappy"};
-	uint16_t level_;
 	hyc::hyc_compress_ctx_* ctxp_{nullptr};
 };
 }

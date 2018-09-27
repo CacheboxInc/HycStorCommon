@@ -86,7 +86,7 @@ folly::Future<int> DirtyHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 
 	return aero_obj_->AeroWriteCmdProcess(vmdkp, ckpt, process, failed,
 		kAsNamespaceCacheDirty, aero_conn_)
-	.then([this, vmdkp, reqp, &process, &failed, ckpt, connect = this->aero_conn_] (int rc)
+	.then([this, vmdkp, &process, &failed, ckpt, connect = this->aero_conn_] (int rc)
 			mutable -> folly::Future<int> {
 		if (pio_unlikely(rc != 0)) {
 			return rc;

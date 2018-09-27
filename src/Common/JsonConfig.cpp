@@ -9,7 +9,11 @@ JsonConfig::JsonConfig() {
 }
 
 JsonConfig::JsonConfig(const std::string& from) {
-	this->Deserialize(from);
+	if (from.empty()) {
+		tree_.clear();
+	} else {
+		this->Deserialize(from);
+	}
 }
 
 void JsonConfig::Serialize(std::ostringstream& to, bool pretty) const {
