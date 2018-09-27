@@ -123,7 +123,7 @@ folly::Future<int> CompressHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		auto srcp = blockp->GetRequestBufferAtBack();
 
 		auto dest_bufsz = max_bufsz;
-		std::unique_ptr<char> dst_uptr(new char[dest_bufsz]);
+		std::unique_ptr<char[]> dst_uptr(new char[dest_bufsz]);
 		if (pio_unlikely(not dst_uptr)) {
 			error = -ENOMEM;
 			break;
@@ -197,7 +197,7 @@ folly::Future<int> CompressHandler::BulkWrite(ActiveVmdk* vmdkp,
 		auto srcp = blockp->GetRequestBufferAtBack();
 
 		auto dest_bufsz = max_bufsz;
-		std::unique_ptr<char> dst_uptr(new char[dest_bufsz]);
+		std::unique_ptr<char[]> dst_uptr(new char[dest_bufsz]);
 		if (pio_unlikely(not dst_uptr)) {
 			error = -ENOMEM;
 			break;
