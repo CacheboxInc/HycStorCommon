@@ -3,7 +3,12 @@
 namespace pio { namespace config {
 const std::string FlushConfig::kMoveAllowed = "MoveAllowed";
 
-FlushConfig::FlushConfig(const std::string& config) : JsonConfig(config) {}
+FlushConfig::FlushConfig(const std::string& config) {
+	if (config.size()) {
+		JsonConfig(config);
+	}
+}
+
 FlushConfig::FlushConfig() {}
 
 void FlushConfig::SetMoveAllowedStatus(bool status) {
