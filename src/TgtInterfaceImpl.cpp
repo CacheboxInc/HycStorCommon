@@ -306,7 +306,7 @@ int NewFlushStatusReq(VmID vmid, FlushStats &flush_stat) {
 	std::unique_lock<std::mutex> flush_lock(managerp->lock_);
 	auto fi = managerp->GetInstance(vmid);
 	if (fi == nullptr) {
-		LOG(ERROR) << __func__ << " Flush is not unning for given VM";
+		LOG(ERROR) << __func__ << " Flush is not running for given VM";
 		return -EINVAL;
 	}
 

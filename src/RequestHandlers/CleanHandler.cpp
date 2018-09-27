@@ -90,7 +90,7 @@ folly::Future<int> CleanHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		}
 	}
 
-	return aero_obj_->AeroWriteCmdProcess(vmdkp, 0, process, failed,
+	return aero_obj_->AeroWriteCmdProcess(vmdkp, ckpt, process, failed,
 		kAsNamespaceCacheClean, aero_conn_)
 	.then([&process, &failed] (int rc) mutable {
 		if (pio_unlikely(rc != 0)) {
@@ -151,6 +151,36 @@ folly::Future<int> CleanHandler::BulkWrite(ActiveVmdk* vmdkp,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
-	return 0;
+
+	failed.clear();
+	if (pio_unlikely(aero_conn_ == nullptr)) {
+		if (pio_unlikely(not nextp_)) {
+
+			/* If aerospike is not configured then don't treat
+			 * this as error, there may be Lower layer which can
+			 * handle writes
+			 */
+
+			failed.reserve(process.size());
+			std::copy(process.begin(), process.end(), std::back_inserter(failed));
+			return 0;
+		} else {
+			return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
+		}
+	}
+
+	return aero_obj_->AeroWriteCmdProcess(vmdkp, ckpt, process, failed,
+		kAsNamespaceCacheClean, aero_conn_)
+	.then([&process, &failed] (int rc) mutable {
+		if (pio_unlikely(rc != 0)) {
+			LOG(ERROR) << __func__ << "Returning AeroWriteCmdProcess ERROR";
+			return rc;
+		}
+		failed.clear();
+		for (auto blockp : process) {
+			blockp->SetResult(0, RequestStatus::kSuccess);
+		}
+		return 0;
+	});
 }
 }

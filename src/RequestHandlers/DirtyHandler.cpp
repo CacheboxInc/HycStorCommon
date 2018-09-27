@@ -193,8 +193,50 @@ folly::Future<int> DirtyHandler::BulkWrite(ActiveVmdk* vmdkp,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
-	/* TODO: needs to be implemented */
-	return 0;
-}
 
+	/* TODO: needs to be implemented */
+	failed.clear();
+	if (pio_unlikely(not nextp_)) {
+		failed.reserve(process.size());
+		std::copy(process.begin(), process.end(),
+				std::back_inserter(failed));
+		return -ENODEV;
+	}
+
+	if (pio_unlikely(aero_conn_ == nullptr)) {
+		return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
+	}
+
+	return aero_obj_->AeroWriteCmdProcess(vmdkp, ckpt, process, failed,
+		kAsNamespaceCacheDirty, aero_conn_)
+	.then([this, vmdkp, &process, &failed, ckpt, connect = this->aero_conn_] (int rc)
+			mutable -> folly::Future<int> {
+		if (pio_unlikely(rc != 0)) {
+			return rc;
+		}
+
+		if (pio_unlikely(!vmdkp->CleanupOnWrite())) {
+			failed.clear();
+			for (auto blockp : process) {
+				blockp->SetResult(0, RequestStatus::kSuccess);
+			}
+			return 0;
+		}
+
+		return aero_obj_->AeroDelCmdProcess(vmdkp, ckpt, process, failed,
+			kAsNamespaceCacheClean, connect)
+		.then([&process, &failed]  (int rc) mutable {
+			if (pio_unlikely(rc != 0)) {
+				return rc;
+			}
+
+			failed.clear();
+			for (auto blockp : process) {
+				blockp->SetResult(0, RequestStatus::kSuccess);
+			}
+
+			return 0;
+		});
+	});
+}
 }
