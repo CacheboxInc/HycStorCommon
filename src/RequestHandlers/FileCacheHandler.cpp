@@ -29,7 +29,7 @@ FileCacheHandler::FileCacheHandler(const config::VmdkConfig* configp) :
 		file_path_ = configp->GetFileCachePath();
 
 		std::ofstream {file_path_};
-		fd_ = ::open(file_path_.c_str(), O_RDWR | O_CREAT);
+		fd_ = ::open(file_path_.c_str(), O_RDWR | O_CREAT, 0777);
 		if (pio_unlikely(fd_ == -1)) {
 			LOG(ERROR) << file_path_ << errno;
 			throw std::runtime_error("File open failed");

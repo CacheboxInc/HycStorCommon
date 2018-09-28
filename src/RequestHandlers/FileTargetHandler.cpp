@@ -141,7 +141,7 @@ FileTargetHandler::FileTargetHandler(const config::VmdkConfig* configp) :
 		}
 
 		LOG(ERROR) << __func__ << "Final Path is:" << file_path_.c_str();
-		fd_ = ::open(file_path_.c_str(), O_RDWR | O_SYNC | O_DIRECT| O_CREAT);
+		fd_ = ::open(file_path_.c_str(), O_RDWR | O_SYNC | O_DIRECT| O_CREAT, 0777);
 		if (pio_unlikely(fd_ == -1)) {
 			throw std::runtime_error("File open failed");
 		} else {
@@ -199,7 +199,8 @@ FileTargetHandler::~FileTargetHandler() {
 	thread_running_ = false;
 	if (afd_ != -1) {
 		uint64_t value = 1;
-		write(afd_, &value, sizeof(value));
+		auto rc = write(afd_, &value, sizeof(value));
+		(void) rc;
 		LOG(ERROR) << __func__ << "Waiting for event gather thread to exit";
 		thread_.join();
 	}

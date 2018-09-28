@@ -53,12 +53,6 @@ folly::Future<int> CacheTargetHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *
 	return headp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
-folly::Future<int> CacheTargetHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
-		const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock *>& failed) {
-	log_assert(0);
-}
-
 folly::Future<int> CacheTargetHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
