@@ -29,6 +29,9 @@ public:
 private:
 	std::pair<std::unique_ptr<RequestBuffer>, int32_t>
 	RequestBlockReadComplete(ActiveVmdk* vmdkp, RequestBlock* blockp);
+	int ProcessWrite(ActiveVmdk *vmdkp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed);
 private:
 	bool enabled_{false};
 	std::string algorithm_{"snappy"};

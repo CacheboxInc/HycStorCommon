@@ -3,7 +3,8 @@ include_directories(${CMAKE_BINARY_DIR}/src/thrift/)
 include_directories(${CMAKE_SOURCE_DIR}/thirdparty/ha-lib/third-party/include)
 include_directories(${CMAKE_SOURCE_DIR}/thirdparty/ha-lib/src)
 include_directories(${CMAKE_SOURCE_DIR}/thirdparty/hyc-datapack/src/include)
-link_directories(${CMAKE_BINARY_DIR}/thirdparty/hyc-datapack/build/src/compression/)
+link_directories(${CMAKE_BINARY_DIR}/thirdparty/hyc-datapack/src/compression/)
+link_directories(${CMAKE_BINARY_DIR}/thirdparty/hyc-datapack/src/encryption/)
 
 #Set this to OFF if don't want to include NEP changes
 OPTION(USE_NEP "Set ON/OFF to use/avoid NEP with storD" ON)
@@ -42,6 +43,10 @@ set(HYC_COMPRESS_LIBS
 	zstd
 )
 
+set(HYC_ENCRYPT_LIBS
+	HycEncryption
+)
+
 set(AEROSPIKE_LIBS
 	aerospike
 	uv
@@ -78,6 +83,7 @@ set(LIBRARY_LIST
 	${ThriftLibs}
 	aio
 	${HYC_COMPRESS_LIBS}
+	${HYC_ENCRYPT_LIBS}
 )
 
 if(USE_NEP)

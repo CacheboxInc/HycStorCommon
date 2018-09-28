@@ -5,9 +5,12 @@
 
 #include "gen-cpp2/MetaData_types.h"
 #include "VmdkConfig.h"
+#include "Request.h"
 #include "EncryptHandler.h"
+#include "hyc_encrypt.h"
 
 using namespace ::ondisk;
+using namespace pio::hyc;
 
 namespace pio {
 EncryptHandler::EncryptHandler(const config::VmdkConfig* configp) :
@@ -17,34 +20,112 @@ EncryptHandler::EncryptHandler(const config::VmdkConfig* configp) :
 		return;
 	}
 
-	key_ = configp->GetEncryptionKey();
-	if (key_.empty()) {
-		enabled_ = false;
-	} else {
-		enabled_ = configp->IsEncryptionEnabled();
-	}
+	algorithm_ = configp->GetEncryptionType();
+	//TODO: Must be replaced with vmid and vmdkid 
+	uint32_t srcid = 0, destid = 0;
+	hyc_disk_uuid_t uuid = {srcid, destid};
+
+	auto encrypt_type = get_encrypt_type(algorithm_.c_str());
+	log_assert(encrypt_type != HYC_ENCRYPT_UNKNOWN);
+
+	ctxp_ = hyc_encrypt_ctx_init(uuid, encrypt_type);
+	log_assert(ctxp_ != nullptr);
 }
 
 EncryptHandler::~EncryptHandler() {
-
+	if (not enabled_) {
+		return;
+	}
+	log_assert(ctxp_ != nullptr);
+	hyc_encrypt_ctx_dinit(ctxp_);
 }
 
 folly::Future<int> EncryptHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
-	failed.clear();
+		failed.clear();
 	if (pio_unlikely(not nextp_)) {
 		failed.reserve(process.size());
 		std::copy(process.begin(), process.end(), std::back_inserter(failed));
 		return -ENODEV;
 	}
 
-	if (not enabled_) {
+	if (pio_unlikely(not enabled_)) {
 		return nextp_->Read(vmdkp, reqp, process, failed);
 	}
 
-	/* TODO: encrypt data here and forward request down */
-	return nextp_->Read(vmdkp, reqp, process, failed);
+	return nextp_->Read(vmdkp, reqp, process, failed)
+	.then([this, vmdkp, reqp, &process, &failed] (int rc) mutable {
+		if (pio_unlikely(rc != 0)) {
+			return rc;
+		} else if (pio_unlikely(not failed.empty())) {
+			return reqp->GetResult();
+		}
+
+		int32_t error = 0;
+		for (auto blockp : process) {
+			auto srcp = blockp->GetRequestBufferAtBack();
+
+			auto dest_bufsz = hyc_encrypt_plain_bufsz(ctxp_,
+				srcp->Payload(), srcp->Size());
+			auto destp = pio::NewRequestBuffer(dest_bufsz);
+			if (pio_unlikely(not destp)) {
+				failed.emplace_back(blockp);
+				error = -ENOMEM;
+				continue;
+			}
+
+			auto rc = hyc_decrypt(ctxp_, srcp->Payload(), srcp->Size(),
+				destp->Payload(), &dest_bufsz);
+			if (pio_unlikely(rc != HYC_ENCRYPT_SUCCESS)) {
+				failed.emplace_back(blockp);
+				error = -ENOMEM ;
+				continue;
+			}
+
+			blockp->PushRequestBuffer(std::move(destp));
+		}
+
+		return error;
+	});
+}
+
+int EncryptHandler::ProcessWrite(ActiveVmdk *vmdkp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed) {
+	int error = 0;
+	for (auto blockp : process) {
+		auto srcp = blockp->GetRequestBufferAtBack();
+
+		auto dest_bufsz = hyc_encrypt_get_maxlen(ctxp_, srcp->Size());
+		std::unique_ptr<char[]> dst_uptr(new char[dest_bufsz]);
+		if (pio_unlikely(not dst_uptr)) {
+			error = -ENOMEM;
+			break;
+		}
+		auto dest_bufp = dst_uptr.get();
+
+		auto rc = hyc_encrypt(ctxp_, srcp->Payload(), srcp->Size(),
+			dest_bufp, &dest_bufsz);
+		if (pio_unlikely(rc != HYC_ENCRYPT_SUCCESS)) {
+			error = -ENOMEM;
+			break;
+		}
+
+		//TODO: avoid extra mem alloc and copy
+		//1. allocate NewRequestBuffer() with maxsize
+		//2. Compress
+		//3. Call SetPayloadSize(cmpsd_sz);
+		auto dstp = pio::NewRequestBuffer(dest_bufsz);
+		if (pio_unlikely(not dstp)) {
+			error = -ENOMEM;
+			break;
+		}
+		std::memcpy(dstp->Payload(), dest_bufp, dest_bufsz);
+		blockp->PushRequestBuffer(std::move(dstp));
+	}
+
+	return error;
 }
 
 folly::Future<int> EncryptHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
@@ -57,11 +138,20 @@ folly::Future<int> EncryptHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		return -ENODEV;
 	}
 
-	if (not enabled_) {
+	if (pio_unlikely(not enabled_)) {
 		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
 	}
 
-	/* TODO: encrypt data here and forward request down */
+	int error = ProcessWrite(vmdkp, process, failed);
+	if (pio_unlikely(error)) {
+		failed.clear();
+		for (auto blockp : process) {
+			blockp->SetResult(error, RequestStatus::kFailed);
+			failed.emplace_back(blockp);
+		}
+		return error;
+	}
+
 	return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
 }
 
@@ -75,11 +165,6 @@ folly::Future<int> EncryptHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp
 		return -ENODEV;
 	}
 
-	if (not enabled_) {
-		return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
-	}
-
-	/* TODO: encrypt data here and forward request down */
 	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
@@ -88,8 +173,26 @@ folly::Future<int> EncryptHandler::BulkWrite(ActiveVmdk* vmdkp,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
-	return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
-}
+	failed.clear();
+	if (pio_unlikely(not nextp_)) {
+		failed.reserve(process.size());
+		std::copy(process.begin(), process.end(), std::back_inserter(failed));
+		return -ENODEV;
+	}
 
+	if (pio_unlikely(not enabled_)) {
+		return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
+	}
 
+	int rc = ProcessWrite(vmdkp, process, failed);
+	if (pio_unlikely(rc)) {
+		failed.clear();
+		for (auto blockp : process) {
+			blockp->SetResult(rc, RequestStatus::kFailed);
+			failed.emplace_back(blockp);
+		}
+		return rc;
+	}
+
+	return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);}
 }

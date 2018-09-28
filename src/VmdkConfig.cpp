@@ -16,8 +16,14 @@ const std::string VmdkConfig::kEnabled = "Enabled";
 const std::string VmdkConfig::kVmID = "VmID";
 const std::string VmdkConfig::kVmdkID = "VmdkID";
 const std::string VmdkConfig::kBlockSize = "BlockSize";
+
 const std::string VmdkConfig::kEncryption = "Encryption";
+const std::string VmdkConfig::kEncryptionType = "Type";
 const std::string VmdkConfig::kEncryptionKey = "EncryptionKey";
+const std::vector<std::string> VmdkConfig::kEncryptionAlgos = {
+	"aes128-gcm",
+	"aes256-gcm",
+};
 
 const std::string VmdkConfig::kCompression = "Compression";
 const std::string VmdkConfig::kCompressionType = "Type";
@@ -142,10 +148,17 @@ bool VmdkConfig::IsCompressionEnabled() const {
 std::string VmdkConfig::GetCompressionType() const {
 	std::string type;
 	std::string key;
+
 	StringDelimAppend(key, '.', {kCompression, kCompressionType});
 	auto rc = JsonConfig::GetKey(key, type);
 	if (not rc) {
-		type.clear();
+		type = kCompressAlgos[0];
+	}
+
+	auto it = std::find(kCompressAlgos.begin(), kCompressAlgos.end(), type);
+	if (it == kCompressAlgos.end()) {
+		LOG(ERROR) << "Invalid Compression Type Argument: " << type;
+		throw std::invalid_argument("Invalid Compression Type Argument");
 	}
 
 	return type;
@@ -174,7 +187,8 @@ void VmdkConfig::DisableEncryption() {
 	JsonConfig::SetKey(key, false);
 }
 
-void VmdkConfig::ConfigureEncrytption(const std::string& ekey) {
+void VmdkConfig::ConfigureEncryption(const std::string& algo,
+		const std::string& ekey) {
 	std::string key;
 
 	StringDelimAppend(key, '.', {kEncryption, kEnabled});
@@ -182,6 +196,13 @@ void VmdkConfig::ConfigureEncrytption(const std::string& ekey) {
 
 	StringDelimAppend(key, '.', {kEncryption, kEncryptionKey});
 	JsonConfig::SetKey(key, ekey);
+
+	StringDelimAppend(key, '.', {kEncryption, kEncryptionType});
+	auto it = std::find(kEncryptionAlgos.begin(), kEncryptionAlgos.end(), algo);
+	if (it == kEncryptionAlgos.end()) {
+		throw std::invalid_argument("Invalid Encryption Argument");
+	}
+	JsonConfig::SetKey(key, algo);
 }
 
 bool VmdkConfig::IsEncryptionEnabled() const {
@@ -191,6 +212,23 @@ bool VmdkConfig::IsEncryptionEnabled() const {
 	bool enabled;
 	auto rc = JsonConfig::GetKey(key, enabled);
 	return rc and enabled;
+}
+
+std::string VmdkConfig::GetEncryptionType() const {
+	std::string type;
+	std::string key;
+	StringDelimAppend(key, '.', {kEncryption, kEncryptionType});
+	auto rc = JsonConfig::GetKey(key, type);
+	if (not rc) {
+		type = kEncryptionAlgos[0];
+	}
+
+	auto it = std::find(kEncryptionAlgos.begin(), kEncryptionAlgos.end(), type);
+	if (it == kEncryptionAlgos.end()) {
+		LOG(ERROR) << "Invalid Encryption Type Argument: " << type;
+		throw std::invalid_argument("Invalid Encryption Type Argument");
+	}
+	return type;
 }
 
 std::string VmdkConfig::GetEncryptionKey() const {

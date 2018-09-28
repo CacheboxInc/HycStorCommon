@@ -17,53 +17,37 @@
 
 #include "LockHandler.h"
 #include "UnalignedHandler.h"
-#include "CompressHandler.h"
 #include "EncryptHandler.h"
-
 #include "MultiTargetHandler.h"
 
 using namespace pio;
-using ::testing::TestWithParam;
-using ::testing::Values;
-using ::testing::Combine;
 using namespace ::ondisk;
-
 using namespace ::hyc_thrift;
 
-class CompressHandlerTest : public TestWithParam<
-		::testing::tuple<int, bool, bool>> {
+const size_t kVmdkBlockSize = 8192;
+
+class EncryptHandlerTest : public ::testing::Test {
 protected:
 	const CheckPointID ckpt_id{1};
 	std::unique_ptr<ActiveVmdk> vmdkp;
 	std::atomic<RequestID> req_id_;
 
 public:
-	void DefaultVmdkConfig(config::VmdkConfig& config, uint64_t block_size,
-			bool is_compression_enabled, bool is_encryption_enabled) {
+	void DefaultVmdkConfig(config::VmdkConfig& config, uint64_t block_size) {
 		config.SetVmId("vmdkid");
 		config.SetVmdkId("vmdkid");
 		config.SetBlockSize(block_size);
-		if (is_compression_enabled)
-			config.ConfigureCompression("snappy", 1);
-		if (is_encryption_enabled)
-			config.ConfigureEncryption("aes256-gcm", "abc");
-		if (not is_compression_enabled)
-			config.DisableCompression();
-		if (not is_compression_enabled)
-			config.DisableEncryption();
+		config.ConfigureEncryption("aes128-gcm", "abcd");
+		config.DisableCompression();
 		config.ConfigureRamCache(1024);
 		config.DisableNetworkTarget();
 	}
 
 	virtual void SetUp() {
 		config::VmdkConfig config;
-		auto [block_size, is_compression_enabled,
-			is_encryption_enabled] = GetParam();
-		DefaultVmdkConfig(config, block_size,
-			is_compression_enabled, is_encryption_enabled);
+		DefaultVmdkConfig(config, kVmdkBlockSize);
 
-		vmdkp = std::make_unique<ActiveVmdk>(1, "1", nullptr,
-			config.Serialize());
+		vmdkp = std::make_unique<ActiveVmdk>(1, "1", nullptr, config.Serialize());
 		EXPECT_NE(vmdkp, nullptr);
 
 		auto lock = std::make_unique<LockHandler>();
@@ -73,25 +57,15 @@ public:
 		EXPECT_NE(unalign, nullptr);
 
 		auto configp = vmdkp->GetJsonConfig();
-		auto multi_target = std::make_unique<MultiTargetHandler>(
-			vmdkp.get(), configp);
+		auto encrypt = std::make_unique<EncryptHandler>(configp);
+		EXPECT_NE(encrypt, nullptr);
+
+		auto multi_target = std::make_unique<MultiTargetHandler>(vmdkp.get(), configp);
 		EXPECT_NE(multi_target, nullptr);
 
 		vmdkp->RegisterRequestHandler(std::move(lock));
 		vmdkp->RegisterRequestHandler(std::move(unalign));
-
-		if (is_compression_enabled) {
-			auto compress = std::make_unique<CompressHandler>(configp);
-			EXPECT_NE(compress, nullptr);
-			vmdkp->RegisterRequestHandler(std::move(compress));
-		}
-
-		if (is_encryption_enabled) {
-			auto encrypt = std::make_unique<EncryptHandler>(configp);
-			EXPECT_NE(encrypt, nullptr);
-			vmdkp->RegisterRequestHandler(std::move(encrypt));
-		}
-
+		vmdkp->RegisterRequestHandler(std::move(encrypt));
 		vmdkp->RegisterRequestHandler(std::move(multi_target));
 
 		req_id_.store(StorRpc_constants::kInvalidRequestID());
@@ -166,11 +140,9 @@ static void FillRandomBuffer(char* bufferp, size_t size) {
 	}
 }
 
-TEST_P(CompressHandlerTest, UncompressableAlignedOverWrite) {
-	/* write compressable data */
+TEST_F(EncryptHandlerTest, AlignedOverWrite) {
 	auto write_a = NewRequestBuffer(vmdkp->BlockSize());
 	::memset(write_a->Payload(), 'A', write_a->Size());
-
 	{
 		auto write_reqp = std::make_unique<Request>(NextRequestID(), vmdkp.get(),
 			Request::Type::kWrite, write_a->Payload(), write_a->Size(),
@@ -179,18 +151,6 @@ TEST_P(CompressHandlerTest, UncompressableAlignedOverWrite) {
 		write_fut.wait();
 		EXPECT_EQ(write_fut.value(), 0);
 		EXPECT_EQ(write_reqp->NumberOfRequestBlocks(), 1);
-
-		/*
-		write_reqp->ForEachRequestBlock([this] (RequestBlock *blockp) mutable {
-			auto comp_buf = blockp->GetRequestBufferAtBack();
-			auto comp_headerp = reinterpret_cast<CompressHeader*>(comp_buf->Payload());
-			EXPECT_EQ(comp_headerp->original_size_, vmdkp->BlockSize());
-			EXPECT_LT(comp_headerp->compress_size_, vmdkp->BlockSize());
-			EXPECT_EQ(comp_headerp->type_, CompressType::kZstd);
-			EXPECT_TRUE(comp_headerp->is_compressed_);
-			return true;
-		});
-		*/
 
 		auto read_fut = VmdkRead(0, 0, vmdkp->BlockSize());
 		read_fut.wait();
@@ -199,9 +159,7 @@ TEST_P(CompressHandlerTest, UncompressableAlignedOverWrite) {
 		EXPECT_EQ(rc, 0);
 	}
 
-	/* overwrite with uncompressable data */
 	FillRandomBuffer(write_a->Payload(), write_a->Size());
-
 	{
 		auto write_reqp = std::make_unique<Request>(NextRequestID(), vmdkp.get(),
 			Request::Type::kWrite, write_a->Payload(), write_a->Size(),
@@ -210,17 +168,6 @@ TEST_P(CompressHandlerTest, UncompressableAlignedOverWrite) {
 		write_fut.wait();
 		EXPECT_EQ(write_fut.value(), 0);
 		EXPECT_EQ(write_reqp->NumberOfRequestBlocks(), 1);
-
-		/*
-		write_reqp->ForEachRequestBlock([this] (RequestBlock *blockp) mutable {
-			auto comp_buf = blockp->GetRequestBufferAtBack();
-			auto comp_headerp = reinterpret_cast<CompressHeader*>(comp_buf->Payload());
-			LOG(ERROR) << *comp_headerp;
-			EXPECT_EQ(comp_headerp->original_size_, vmdkp->BlockSize());
-			EXPECT_FALSE(comp_headerp->is_compressed_);
-			return true;
-		});
-		*/
 
 		auto read_fut = VmdkRead(0, 0, vmdkp->BlockSize());
 		read_fut.wait();
@@ -230,9 +177,7 @@ TEST_P(CompressHandlerTest, UncompressableAlignedOverWrite) {
 		EXPECT_EQ(rc, 0);
 	}
 
-	/* overwrite with compressable data */
 	::memset(write_a->Payload(), 'B', write_a->Size());
-
 	{
 		auto write_reqp = std::make_unique<Request>(NextRequestID(), vmdkp.get(),
 			Request::Type::kWrite, write_a->Payload(), write_a->Size(),
@@ -242,18 +187,6 @@ TEST_P(CompressHandlerTest, UncompressableAlignedOverWrite) {
 		EXPECT_EQ(write_fut.value(), 0);
 		EXPECT_EQ(write_reqp->NumberOfRequestBlocks(), 1);
 
-		/*
-		write_reqp->ForEachRequestBlock([this] (RequestBlock *blockp) mutable {
-			auto comp_buf = blockp->GetRequestBufferAtBack();
-			auto comp_headerp = reinterpret_cast<CompressHeader*>(comp_buf->Payload());
-			EXPECT_EQ(comp_headerp->original_size_, vmdkp->BlockSize());
-			EXPECT_LT(comp_headerp->compress_size_, vmdkp->BlockSize());
-			EXPECT_EQ(comp_headerp->type_, CompressType::kZstd);
-			EXPECT_TRUE(comp_headerp->is_compressed_);
-			return true;
-		});
-		*/
-
 		auto read_fut = VmdkRead(0, 0, vmdkp->BlockSize());
 		read_fut.wait();
 		auto read_bufp = std::move(read_fut.value());
@@ -262,8 +195,7 @@ TEST_P(CompressHandlerTest, UncompressableAlignedOverWrite) {
 	}
 }
 
-TEST_P(CompressHandlerTest, CompressableUnAlignedOverWrite) {
-	/* write uncompressable data */
+TEST_F(EncryptHandlerTest, UnAlignedOverWrite) {
 	auto write_a = NewRequestBuffer(vmdkp->BlockSize());
 	FillRandomBuffer(write_a->Payload(), write_a->Size());
 	::memset(write_a->Payload(), 'A', write_a->Size());
@@ -276,16 +208,6 @@ TEST_P(CompressHandlerTest, CompressableUnAlignedOverWrite) {
 		EXPECT_EQ(write_fut.value(), 0);
 		EXPECT_EQ(write_reqp->NumberOfRequestBlocks(), 1);
 
-		/*
-		write_reqp->ForEachRequestBlock([this] (RequestBlock *blockp) mutable {
-			auto comp_buf = blockp->GetRequestBufferAtBack();
-			auto comp_headerp = reinterpret_cast<CompressHeader*>(comp_buf->Payload());
-			EXPECT_EQ(comp_headerp->original_size_, vmdkp->BlockSize());
-			EXPECT_FALSE(comp_headerp->is_compressed_);
-			return true;
-		});
-		*/
-
 		auto read_fut = VmdkRead(0, 0, vmdkp->BlockSize());
 		read_fut.wait();
 		auto read_bufp = std::move(read_fut.value());
@@ -294,11 +216,9 @@ TEST_P(CompressHandlerTest, CompressableUnAlignedOverWrite) {
 		EXPECT_EQ(rc, 0);
 	}
 
-	/* unaligned write of compressable data */
 	const auto kSkip = 512;
 	const auto kWriteSize = vmdkp->BlockSize()-kSkip;
 	::memset(write_a->Payload()+kSkip, 'B', kWriteSize);
-
 	{
 		auto write_reqp = std::make_unique<Request>(NextRequestID(), vmdkp.get(),
 			Request::Type::kWrite, write_a->Payload()+kSkip, kWriteSize,
@@ -307,19 +227,6 @@ TEST_P(CompressHandlerTest, CompressableUnAlignedOverWrite) {
 		write_fut.wait();
 		EXPECT_EQ(write_fut.value(), 0);
 		EXPECT_EQ(write_reqp->NumberOfRequestBlocks(), 1);
-
-		/*
-		write_reqp->ForEachRequestBlock([this] (RequestBlock *blockp) mutable {
-			auto comp_buf = blockp->GetRequestBufferAtBack();
-			auto comp_headerp = reinterpret_cast<CompressHeader*>(comp_buf->Payload());
-			LOG(ERROR) << *comp_headerp;
-			EXPECT_EQ(comp_headerp->original_size_, vmdkp->BlockSize());
-			EXPECT_LT(comp_headerp->compress_size_, vmdkp->BlockSize());
-			EXPECT_EQ(comp_headerp->type_, CompressType::kZstd);
-			EXPECT_TRUE(comp_headerp->is_compressed_);
-			return true;
-		});
-		*/
 
 		{
 			auto read_fut = VmdkRead(0, 0, vmdkp->BlockSize());
@@ -340,86 +247,7 @@ TEST_P(CompressHandlerTest, CompressableUnAlignedOverWrite) {
 	}
 }
 
-TEST_P(CompressHandlerTest, UncompressableUnAlignedOverWrite) {
-	/* write compressable data */
-	auto write_a = NewRequestBuffer(vmdkp->BlockSize());
-	::memset(write_a->Payload(), 'A', write_a->Size());
-
-	{
-		auto write_reqp = std::make_unique<Request>(NextRequestID(), vmdkp.get(),
-			Request::Type::kWrite, write_a->Payload(), write_a->Size(),
-			write_a->Size(), 0);
-		auto write_fut = vmdkp->Write(write_reqp.get(), 1);
-		write_fut.wait();
-		EXPECT_EQ(write_fut.value(), 0);
-		EXPECT_EQ(write_reqp->NumberOfRequestBlocks(), 1);
-
-		/*
-		write_reqp->ForEachRequestBlock([this] (RequestBlock *blockp) mutable {
-			auto comp_buf = blockp->GetRequestBufferAtBack();
-			auto comp_headerp = reinterpret_cast<CompressHeader*>(comp_buf->Payload());
-			EXPECT_EQ(comp_headerp->original_size_, vmdkp->BlockSize());
-			EXPECT_LT(comp_headerp->compress_size_, vmdkp->BlockSize());
-			EXPECT_EQ(comp_headerp->type_, CompressType::kZstd);
-			EXPECT_TRUE(comp_headerp->is_compressed_);
-			return true;
-		});
-		*/
-
-		auto read_fut = VmdkRead(0, 0, vmdkp->BlockSize());
-		read_fut.wait();
-		auto read_bufp = std::move(read_fut.value());
-		auto rc = ::memcmp(read_bufp->Payload(), write_a->Payload(), read_bufp->Size());
-		EXPECT_EQ(rc, 0);
-	}
-
-	/* unaligned write of uncompressable data */
-	const auto kSkip = 512;
-	const auto kWriteSize = 1024;
-	FillRandomBuffer(write_a->Payload()+kSkip, kWriteSize);
-
-	{
-		auto write_reqp = std::make_unique<Request>(NextRequestID(), vmdkp.get(),
-			Request::Type::kWrite, write_a->Payload()+kSkip, kWriteSize,
-			kWriteSize, kSkip);
-		auto write_fut = vmdkp->Write(write_reqp.get(), 1);
-		write_fut.wait();
-		EXPECT_EQ(write_fut.value(), 0);
-		EXPECT_EQ(write_reqp->NumberOfRequestBlocks(), 1);
-
-		/*
-		write_reqp->ForEachRequestBlock([this] (RequestBlock *blockp) mutable {
-			auto comp_buf = blockp->GetRequestBufferAtBack();
-			auto comp_headerp = reinterpret_cast<CompressHeader*>(comp_buf->Payload());
-			LOG(ERROR) << *comp_headerp;
-			EXPECT_EQ(comp_headerp->original_size_, vmdkp->BlockSize());
-			EXPECT_LT(comp_headerp->compress_size_, vmdkp->BlockSize());
-			EXPECT_EQ(comp_headerp->type_, CompressType::kZstd);
-			EXPECT_TRUE(comp_headerp->is_compressed_);
-			return true;
-		});
-		*/
-
-		{
-			auto read_fut = VmdkRead(0, 0, vmdkp->BlockSize());
-			read_fut.wait();
-			auto read_bufp = std::move(read_fut.value());
-			auto rc = ::memcmp(read_bufp->Payload(), write_a->Payload(), read_bufp->Size());
-			EXPECT_EQ(rc, 0);
-		}
-
-		{
-			auto read_fut = VmdkRead(0, kSkip, kWriteSize);
-			read_fut.wait();
-			auto read_bufp = std::move(read_fut.value());
-			auto rc = ::memcmp(read_bufp->Payload(), write_a->Payload()+kSkip, kWriteSize);
-			EXPECT_EQ(rc, 0);
-		}
-	}
-}
-
-
-TEST_P(CompressHandlerTest, BulkCompressableAlignedWrite) {
+TEST_F(EncryptHandlerTest, BulkAlignedWrite) {
 	const BlockID kNBlocks = 32;
 	std::vector<BlockID> blocks(kNBlocks);
 	std::iota(blocks.begin(), blocks.end(), 0);
@@ -452,10 +280,3 @@ TEST_P(CompressHandlerTest, BulkCompressableAlignedWrite) {
 	bulk_write_fut.wait();
 	EXPECT_EQ(bulk_write_fut.value(), 0);
 }
-
-
-INSTANTIATE_TEST_CASE_P(BlkSzCompressEncryptCombination, CompressHandlerTest,
-	Combine(
-		Values(4096, 8192),
-		Values(false, true),
-		Values(false, true)));

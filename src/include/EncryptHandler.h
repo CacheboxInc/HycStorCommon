@@ -3,6 +3,10 @@
 #include "RequestHandler.h"
 
 namespace pio {
+namespace hyc {
+	struct hyc_encrypt_ctx_;
+}
+
 class EncryptHandler : public RequestHandler {
 public:
 	EncryptHandler(const config::VmdkConfig* configp);
@@ -22,7 +26,13 @@ public:
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 private:
+	int ProcessWrite(ActiveVmdk *vmdkp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed);
+private:
 	bool enabled_{false};
+	std::string algorithm_{"aes256-gcm"};
 	std::string key_;
+	hyc::hyc_encrypt_ctx_* ctxp_{nullptr};
 };
 }

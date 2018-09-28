@@ -63,7 +63,7 @@ protected:
 		config.SetVmId(kVmid);
 		config.SetBlockSize(kVmdkBlockSize);
 		config.ConfigureCompression("snappy", 1);
-		config.ConfigureEncrytption("abcd");
+		config.ConfigureEncryption("aes128-gcm", "abcd");
 		config.DisableCompression();
 		config.DisableEncryption();
 		config.DisableFileCache();

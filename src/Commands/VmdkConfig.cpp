@@ -37,7 +37,7 @@ static void ConfigureCompression(VmdkConfig& config) {
 	config.ConfigureCompression(VmdkConfig::kCompressAlgos[compression], level);
 }
 
-static void ConfigureEncrytption(VmdkConfig& config) {
+static void ConfigureEncryption(VmdkConfig& config) {
 	std::string enable;
 	std::cout << "Is encryption enabled [y/n]? ";
 	std::cin >> enable;
@@ -46,10 +46,23 @@ static void ConfigureEncrytption(VmdkConfig& config) {
 		return;
 	}
 
+	std::cout << "Select encryption algorithm";
+	auto i = 0;
+	for (const auto& a : VmdkConfig::kEncryptionAlgos) {
+		std::cout << std::endl << i+1 << " " << a;
+		++i;
+	}
+
+	auto encryption = 0u;
+	std::cout << std::endl << "Select: ";
+	std::cin >> encryption;
+	--encryption;
+
 	std::string key;
 	std::cout << "Enter encryption key: ";
 	std::cin >> key;
-	config.ConfigureEncrytption(key);
+
+	config.ConfigureEncryption(VmdkConfig::kEncryptionAlgos[encryption], key);
 }
 
 static void ConfigureRamCache(VmdkConfig& config) {
@@ -155,7 +168,7 @@ int main(int argc, char* argv[]) {
 	config.SetDevPath(path);
 
 	ConfigureCompression(config);
-	ConfigureEncrytption(config);
+	ConfigureEncryption(config);
 	ConfigureRamCache(config);
 	ConfigureFileCache(config);
 	ConfigureSuccessHandler(config);

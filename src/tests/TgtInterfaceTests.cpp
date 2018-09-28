@@ -95,7 +95,7 @@ TEST_F(TgtInterfaceTest, ReadWriteSuccess) {
 	config.SetVmId(kVmid);
 	config.SetBlockSize(4096);
 	config.ConfigureCompression("snappy", 1);
-	config.ConfigureEncrytption("abcd");
+	config.ConfigureEncryption("aes128-gcm", "abcd");
 	config.DisableEncryption();
 	config.DisableFileCache();
 	config.DisableNetworkTarget();
