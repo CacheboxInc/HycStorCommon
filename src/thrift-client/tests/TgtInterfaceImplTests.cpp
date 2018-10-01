@@ -200,7 +200,7 @@ TEST(TgtInterfaceImplTest, Ping) {
 	auto rc = HycStorRpcServerConnectTest(1);
 	EXPECT_EQ(rc, 0);
 	::sleep(kSleep);
-	EXPECT_GT(si->nping_, kSleep);
+	EXPECT_GE(si->nping_, kSleep);
 
 	rc = HycStorRpcServerDisconnect();
 	EXPECT_EQ(rc, 0);
