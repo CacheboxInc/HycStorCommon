@@ -171,7 +171,7 @@ std::vector<std::string> Split(const std::string &str, char delim) {
 	return tokens;
 }
 
-static bool IsPowerOfTwo(uint32_t number) {
+bool IsPowerOfTwo(uint32_t number) {
 	return not (number & (number - 1));
 }
 
