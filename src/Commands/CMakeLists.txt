@@ -35,3 +35,13 @@ target_link_libraries(AeroConfig
 	${LIBRARY_LIST}
 	-Wl,--end-group
 )
+
+add_executable(SimpleDataVerification
+	SimpleDataVerification.cpp
+)
+
+target_link_libraries(SimpleDataVerification
+	-Wl,--start-group
+	${LIBRARY_LIST}
+	-Wl,--end-group
+)
