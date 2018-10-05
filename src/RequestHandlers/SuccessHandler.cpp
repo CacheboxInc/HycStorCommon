@@ -27,6 +27,7 @@ struct SuccessWork {
 		kRead,
 		kWrite,
 		kBulkWrite,
+		kBulkRead,
 	};
 
 	SuccessHandler* selfp_;
@@ -68,6 +69,9 @@ struct SuccessWork {
 		case kBulkWrite:
 			rc = selfp_->BulkWriteNow(vmdkp_, ckpt_, *requestsp_, process_,
 				failed_);
+			break;
+		case kBulkRead:
+			rc = selfp_->BulkReadNow(vmdkp_, *requestsp_, process_, failed_);
 			break;
 		}
 
@@ -249,4 +253,60 @@ folly::Future<int> SuccessHandler::BulkWrite(ActiveVmdk* vmdkp,
 	return BulkWriteNow(vmdkp, ckpt, requests, process, failed);
 }
 
+folly::Future<int> SuccessHandler::BulkReadDelayed(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	auto usec = distr_(gen_);
+	assert(usec > 0);
+	auto read = std::make_shared<SuccessWork>(this, vmdkp, 0, &requests,
+		process, failed, SuccessWork::kBulkRead);
+	auto work = std::make_shared<Work>(read, Work::Clock::now() + (1us * usec));
+	work_.scheduler_->WorkAdd(work);
+
+	std::lock_guard<std::mutex> lock(work_.mutex_);
+	work_.scheduled_.emplace_back(work);
+	return read->promise_.getFuture();
+}
+
+int SuccessHandler::BulkReadNow(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	failed.clear();
+	for (auto blockp : process) {
+		blockp->SetResult(0, RequestStatus::kSuccess);
+	}
+	return 0;
+}
+
+folly::Future<int> SuccessHandler::BulkRead(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	if (pio_likely(not enabled_)) {
+		return nextp_->BulkRead(vmdkp, requests, process, failed);
+	}
+
+	if (delay_) {
+		return BulkReadDelayed(vmdkp, requests, process, failed);
+	}
+
+	return BulkReadNow(vmdkp, requests, process, failed);
+}
+
+folly::Future<int> SuccessHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	if (pio_likely(not enabled_)) {
+		return nextp_->BulkReadPopulate(vmdkp, requests, process, failed);
+	}
+
+	if (delay_) {
+		return BulkWriteDelayed(vmdkp, 0, requests, process, failed);
+	}
+
+	return BulkWriteNow(vmdkp, 0, requests, process, failed);
+}
 }

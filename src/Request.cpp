@@ -24,6 +24,10 @@ uint32_t Request::NumberOfRequestBlocks() const {
 	return block_.nblocks_;
 }
 
+size_t Request::GetTransferSize() const noexcept {
+	return in_.transfer_size_;
+}
+
 bool Request::HasUnalignedIO() const noexcept {
 	return request_blocks_.front()->IsPartial() ||
 		request_blocks_.back()->IsPartial();

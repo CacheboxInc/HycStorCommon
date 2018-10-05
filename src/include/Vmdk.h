@@ -140,6 +140,9 @@ public:
 	folly::Future<int> BulkWrite(::ondisk::CheckPointID ckpt_id,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process);
+	folly::Future<int> BulkRead(const CheckPoints& min_max,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process);
 public:
 	size_t BlockSize() const;
 	size_t BlockShift() const;

@@ -6,7 +6,8 @@ const std::string FlushConfig::kMoveAllowed = "MoveAllowed";
 FlushConfig::FlushConfig(const std::string& config) : JsonConfig(config) {
 }
 
-FlushConfig::FlushConfig() {}
+FlushConfig::FlushConfig() {
+}
 
 void FlushConfig::SetMoveAllowedStatus(bool status) {
 	JsonConfig::SetKey(kMoveAllowed, status);

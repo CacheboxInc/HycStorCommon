@@ -23,6 +23,14 @@ public:
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) override;
+	virtual folly::Future<int> BulkRead(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) override;
+	virtual folly::Future<int> BulkReadPopulate(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) override;
 	virtual folly::Future<int> ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
@@ -35,6 +43,10 @@ public:
 private:
 	void InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 		const config::VmdkConfig* configp);
+	folly::Future<int> BulkReadComplete(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed);
 private:
 	std::vector<std::unique_ptr<RequestHandler>> targets_;
 };

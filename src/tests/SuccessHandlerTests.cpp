@@ -121,6 +121,36 @@ protected:
 		});
 	}
 
+	folly::Future<int> VmdkBulkRead(std::vector<BlockID> blocks) {
+		auto requests = std::make_unique<std::vector<std::unique_ptr<Request>>>();
+		auto process = std::make_unique<std::vector<RequestBlock*>>();
+
+		for (auto block : blocks) {
+			auto offset = block << vmdkp->BlockShift();
+			auto req_id = NextRequestID();
+			auto bufferp = NewRequestBuffer(vmdkp->BlockSize());
+			auto p = bufferp->Payload();
+
+			auto req = std::make_unique<Request>(req_id, vmdkp.get(),
+				Request::Type::kRead, p, bufferp->Size(), bufferp->Size(),
+				offset);
+
+			req->ForEachRequestBlock([&] (RequestBlock *blockp) mutable {
+				process->emplace_back(blockp);
+				return true;
+			});
+
+			requests->emplace_back(std::move(req));
+		}
+
+		auto ckpts = std::make_pair(1, 1);
+		return vmdkp->BulkRead(ckpts, *requests, *process)
+		.then([requests = std::move(requests), process = std::move(process)]
+				(int rc) {
+			return rc;
+		});
+	}
+
 	folly::Future<int> VmdkRead(BlockID block, size_t skip, size_t size) {
 		EXPECT_LE(size + skip, vmdkp->BlockSize());
 
@@ -200,4 +230,8 @@ TEST_F(SuccessHandlerTests, BulkRequestSuccess) {
 	});
 	f.wait(1s);
 	EXPECT_TRUE(f.isReady());
+
+	auto rf = VmdkBulkRead(blocks);
+	rf.wait(1s);
+	EXPECT_TRUE(rf.isReady());
 }

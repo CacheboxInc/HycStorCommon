@@ -184,6 +184,30 @@ public:
 		});
 	}
 
+	folly::Future<std::unique_ptr<std::vector<::hyc_thrift::ReadResult>>>
+	future_BulkRead(::hyc_thrift::VmdkHandle vmdk,
+			std::unique_ptr<std::vector<::hyc_thrift::ReadRequest>> rpc_reqs)
+			override {
+		struct {
+			bool operator() (const ReadRequest& rd1, const ReadRequest& rd2) {
+				return rd1.get_offset() < rd2.get_offset();
+			}
+		} CompareOffset;
+		if (not std::is_sorted(rpc_reqs->begin(), rpc_reqs->end(), CompareOffset)) {
+			std::sort(rpc_reqs->begin(), rpc_reqs->end(), CompareOffset);
+		}
+
+		auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdk);
+		assert(pio_likely(p));
+		auto vmdkp = dynamic_cast<ActiveVmdk*>(p);
+		assert(pio_likely(vmdkp));
+
+		auto vmp = vmdkp->GetVM();
+		assert(vmp != nullptr);
+
+		return vmp->BulkRead(vmdkp, std::move(rpc_reqs));
+	}
+
 	void async_tm_Write(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
 			VmdkHandle vmdk, RequestID reqid, std::unique_ptr<IOBufPtr> data,

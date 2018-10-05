@@ -151,4 +151,44 @@ folly::Future<int> FileCacheHandler::BulkWrite(ActiveVmdk* vmdkp,
 	return 0;
 }
 
+folly::Future<int> FileCacheHandler::BulkRead(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	for (const auto& blockp : process) {
+		auto destp = NewAlignedRequestBuffer(vmdkp->BlockSize());
+		if (pio_unlikely(not destp)) {
+			return -ENOMEM;
+		}
+
+		ssize_t nread = 0;
+		while ((nread = ::pread(fd_, destp->Payload(), destp->Size(),
+				blockp->GetAlignedOffset())) < 0) {
+			if (nread == -1) {
+				if (errno == EINTR) {
+					continue;
+				}
+				return -errno;
+			}
+		}
+
+		blockp->PushRequestBuffer(std::move(destp));
+	}
+	return 0;
+}
+
+folly::Future<int> FileCacheHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	failed.clear();
+	if (pio_unlikely(not nextp_)) {
+		failed.reserve(process.size());
+		std::copy(process.begin(), process.end(), std::back_inserter(failed));
+		return -ENODEV;
+	}
+
+	return nextp_->BulkReadPopulate(vmdkp, requests, process, failed);
+}
+
 }

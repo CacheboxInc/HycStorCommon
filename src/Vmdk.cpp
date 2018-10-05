@@ -247,6 +247,50 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp, const CheckPoints& min_max) {
 	});
 }
 
+folly::Future<int> ActiveVmdk::BulkRead(const CheckPoints& min_max,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process) {
+	SetReadCheckPointId(process, min_max);
+	++stats_.reads_in_progress_;
+
+	auto failed = std::make_unique<std::vector<RequestBlock*>>();
+	return headp_->BulkRead(this, requests, process, *failed)
+	.then([this, failed = std::move(failed), &requests]
+			(folly::Try<int>& result) mutable {
+		auto failedp = failed.get();
+		auto Fail = [&requests, &failedp] (int rc = -ENXIO, bool all = true) {
+			if (all) {
+				for (auto& request : requests) {
+					request->SetResult(rc, RequestStatus::kFailed);
+				}
+			} else {
+				for (auto& bp : *failedp) {
+					auto reqp = bp->GetRequest();
+					reqp->SetResult(bp->GetResult(), RequestStatus::kFailed);
+				}
+			}
+		};
+		if (pio_unlikely(result.hasException())) {
+			Fail();
+		} else {
+			auto rc = result.value();
+			if (pio_unlikely(rc < 0 || not failedp->empty())) {
+				Fail(rc, not failedp->empty());
+			}
+		}
+
+		int32_t res = 0;
+		--stats_.reads_in_progress_;
+		for (auto& reqp : requests) {
+			auto rc = reqp->Complete();
+			if (pio_unlikely(rc < 0)) {
+				res = rc;
+			}
+		}
+		return res;
+	});
+}
+
 folly::Future<int> ActiveVmdk::Flush(Request* reqp, const CheckPoints& min_max) {
 	assert(reqp);
 

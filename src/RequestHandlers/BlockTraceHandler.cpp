@@ -76,4 +76,18 @@ folly::Future<int> BlockTraceHandler::BulkWrite(ActiveVmdk* vmdkp,
 		std::vector<RequestBlock*>& failed) {
 	return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
 }
+
+folly::Future<int> BlockTraceHandler::BulkRead(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	return nextp_->BulkRead(vmdkp, requests, process, failed);
+}
+
+folly::Future<int> BlockTraceHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	return nextp_->BulkReadPopulate(vmdkp, requests, process, failed);		
+}
 }

@@ -178,4 +178,77 @@ folly::Future<int> RamCacheHandler::BulkWrite(ActiveVmdk* vmdkp,
 
 	return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
 }
+
+folly::Future<int> RamCacheHandler::BulkRead(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	failed.clear();
+	if (pio_likely(not enabled_)) {
+		if (pio_unlikely(not nextp_)) {
+			failed.reserve(process.size());
+			std::copy(process.begin(), process.end(), std::back_inserter(failed));
+			return -ENODEV;
+		}
+
+		return nextp_->BulkRead(vmdkp, requests, process, failed);
+	}
+
+	auto missed = std::make_unique<std::vector<RequestBlock*>>();
+	for (auto blockp : process) {
+		auto [destp, found] = cache_->Read(vmdkp, blockp->GetAlignedOffset());
+		if (not found || not destp) {
+			missed->emplace_back(blockp);
+			continue;
+		}
+
+		blockp->PushRequestBuffer(std::move(destp));
+	}
+
+	if (missed->empty()) {
+		return 0;
+	}
+
+	if (pio_unlikely(not nextp_)) {
+		failed.reserve(missed->size());
+		std::copy(missed->begin(), missed->end(), std::back_inserter(failed));
+		return -ENODEV;
+	}
+
+	return nextp_->BulkRead(vmdkp, requests, *missed, failed)
+	.then([missed = std::move(missed)] (int rc) mutable {
+		return rc;
+	});
+}
+
+folly::Future<int> RamCacheHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	if (pio_unlikely(not failed.empty() || process.empty())) {
+		return -EINVAL;
+	}
+
+	failed.clear();
+	if (pio_likely(not enabled_)) {
+		if (pio_unlikely(not nextp_)) {
+			std::copy(process.begin(), process.end(), std::back_inserter(failed));
+			return -ENODEV;
+		}
+		return nextp_->BulkReadPopulate(vmdkp, requests, process, failed);
+	}
+
+	for (auto blockp : process) {
+		auto srcp = blockp->GetRequestBufferAtBack();
+		log_assert(srcp->Size() == vmdkp->BlockSize());
+
+		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(), srcp->Size());
+	}
+
+	if (pio_unlikely(not nextp_)) {
+		return 0;
+	}
+
+	return nextp_->BulkReadPopulate(vmdkp, requests, process, failed);
+}
 }

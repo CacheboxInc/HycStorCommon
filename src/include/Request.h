@@ -42,6 +42,7 @@ public:
 public:
 	std::pair<::ondisk::BlockID, ::ondisk::BlockID> Blocks() const;
 	uint32_t NumberOfRequestBlocks() const;
+	size_t GetTransferSize() const noexcept;
 	bool HasUnalignedIO() const noexcept;
 
 	::hyc_thrift::RequestID GetID() const noexcept;

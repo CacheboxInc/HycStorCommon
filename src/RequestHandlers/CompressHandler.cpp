@@ -87,19 +87,48 @@ folly::Future<int> CompressHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 			return reqp->GetResult();
 		}
 
-		int error = 0;
-		for (auto blockp : process) {
-			auto [destp, rc] = RequestBlockReadComplete(vmdkp, blockp);
-			if (pio_unlikely(rc < 0)) {
-				failed.emplace_back(blockp);
-				error = rc;
-				continue;
-			}
-			log_assert(destp);
-			blockp->PushRequestBuffer(std::move(destp));
-		}
+		return ReadComplete(vmdkp, process, failed);
+	});
+}
 
-		return error;
+int CompressHandler::ReadComplete(ActiveVmdk* vmdkp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	int error = 0;
+	for (auto blockp : process) {
+		auto [destp, rc] = RequestBlockReadComplete(vmdkp, blockp);
+		if (pio_unlikely(rc < 0)) {
+			failed.emplace_back(blockp);
+			error = 0;
+			continue;
+		}
+		log_assert(destp);
+		blockp->PushRequestBuffer(std::move(destp));
+	}
+	return error;
+}
+
+folly::Future<int> CompressHandler::BulkRead(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	failed.clear();
+	if (pio_unlikely(not nextp_)) {
+		failed.reserve(process.size());
+		std::copy(process.begin(), process.end(), std::back_inserter(failed));
+		return -ENODEV;
+	}
+
+	if (pio_unlikely(not enabled_)) {
+		return nextp_->BulkRead(vmdkp, requests, process, failed);
+	}
+
+	return nextp_->BulkRead(vmdkp, requests, process, failed)
+	.then([&] (int rc) mutable {
+		if (pio_unlikely(rc < 0 || not failed.empty())) {
+			return rc;
+		}
+		return ReadComplete(vmdkp, process, failed);
 	});
 }
 
@@ -209,4 +238,19 @@ folly::Future<int> CompressHandler::BulkWrite(ActiveVmdk* vmdkp,
 
 	return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
 }
+
+folly::Future<int> CompressHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	return nextp_->BulkReadPopulate(vmdkp, requests, process, failed)
+	.then([this, vmdkp, &process, &failed] (int rc) mutable {
+		if (pio_unlikely(rc or not failed.empty())) {
+			return rc < 0 ? rc : -rc;
+		}
+
+		return ReadComplete(vmdkp, process, failed);
+	});
+}
+
 }

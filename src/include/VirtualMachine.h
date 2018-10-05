@@ -24,6 +24,11 @@ namespace config {
 	class VmConfig;
 }
 
+using ReqBlockVec = std::vector<RequestBlock*>;
+using ReqVec = std::vector<std::unique_ptr<Request>>;
+using IOBufPtrVec = std::vector<IOBufPtr>;
+using ReadResultVec = std::vector<ReadResult>;
+
 struct Stun {
 	Stun();
 	folly::Future<int> GetFuture();
@@ -58,6 +63,10 @@ public:
 	folly::Future<int> BulkWrite(ActiveVmdk* vmdkp,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process);
+
+	folly::Future<std::unique_ptr<ReadResultVec>>
+	BulkRead(ActiveVmdk* vmdkp,
+		std::unique_ptr<std::vector<::hyc_thrift::ReadRequest>> in_reqs);
 public:
 	const ::ondisk::VmID& GetID() const noexcept;
 	VmdkHandle GetHandle() const noexcept;
@@ -69,6 +78,9 @@ private:
 	void WriteComplete(::ondisk::CheckPointID ckpt_id);
 	void CheckPointComplete(::ondisk::CheckPointID ckpt_id);
 	void FlushComplete(::ondisk::CheckPointID ckpt_id);
+	folly::Future<ReadResultVec> BulkRead(ActiveVmdk* vmdkp,
+		std::unique_ptr<ReqVec> requests, std::unique_ptr<ReqBlockVec> process,
+		std::unique_ptr<IOBufPtrVec> iobufs, size_t read_size);
 
 private:
 	VmdkHandle handle_;

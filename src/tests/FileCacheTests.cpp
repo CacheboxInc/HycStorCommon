@@ -111,39 +111,6 @@ protected:
 			return std::move(bufferp);
 		});
 	}
-
-	folly::Future<int> VmdkBulkWrite(std::vector<BlockID> blocks) {
-		auto requests = std::make_unique<std::vector<std::unique_ptr<Request>>>();
-		auto process = std::make_unique<std::vector<RequestBlock*>>();
-		auto buffers = std::make_unique<std::vector<std::unique_ptr<RequestBuffer>>>();
-
-		for (auto block : blocks) {
-			auto offset = block << vmdkp->BlockShift();
-			auto req_id = NextRequestID();
-			auto bufferp = NewRequestBuffer(vmdkp->BlockSize());
-			auto p = bufferp->Payload();
-			::memset(p, 'A' + (block % 26), bufferp->Size());
-
-			auto req = std::make_unique<Request>(req_id, vmdkp.get(),
-				Request::Type::kWrite, p, bufferp->Size(), bufferp->Size(),
-				offset);
-
-			req->ForEachRequestBlock([&] (RequestBlock *blockp) mutable {
-				process->emplace_back(blockp);
-				return true;
-			});
-
-			requests->emplace_back(std::move(req));
-			buffers->emplace_back(std::move(bufferp));
-		}
-
-		return vmdkp->BulkWrite(ckpt_id, *requests, *process)
-		.then([requests = std::move(requests), process = std::move(process),
-				buffers = std::move(buffers)] (int rc) {
-			return rc;
-		});
-	}
-
 };
 
 TEST_F(FileCacheTest, FileCacheVerify) {
@@ -197,42 +164,79 @@ TEST_F(FileCacheTest, FileCacheVerifyBulk) {
 	using namespace std::chrono_literals;
 	EXPECT_TRUE(vmdkp);
 
-	const BlockID kNBlocks = 32;
+	const BlockID kNBlocks = 1;
 	std::vector<BlockID> blocks(kNBlocks);
 	std::iota(blocks.begin(), blocks.end(), 0);
-	auto fut = VmdkBulkWrite(std::move(blocks));
-	fut.wait(1s);
-	EXPECT_TRUE(fut.isReady());
 
-	// issue read for already written blocks
-	std::vector<folly::Future<std::unique_ptr<RequestBuffer>>> read_futures;
+	auto requests = std::make_unique<std::vector<std::unique_ptr<Request>>>();
+	auto process = std::make_unique<std::vector<RequestBlock*>>();
+	auto buffers = std::make_unique<std::vector<std::unique_ptr<RequestBuffer>>>();
+	for (auto block : blocks) {
+		auto offset = block << vmdkp->BlockShift();
+		auto req_id = NextRequestID();
+		auto bufferp = NewRequestBuffer(vmdkp->BlockSize());
+		auto p = bufferp->Payload();
+		::memset(p, 'A' + (block % 26), bufferp->Size());
 
-	for (BlockID block = 0; block < kNBlocks; ++block) {
-		auto fut = VmdkRead(block, 0, vmdkp->BlockSize());
-		read_futures.emplace_back(std::move(fut));
+		auto req = std::make_unique<Request>(req_id, vmdkp.get(),
+			Request::Type::kWrite, p, bufferp->Size(), bufferp->Size(),
+			offset);
 
+		req->ForEachRequestBlock([&] (RequestBlock *blockp) mutable {
+			process->emplace_back(blockp);
+			return true;
+		});
+
+		requests->emplace_back(std::move(req));
+		buffers->emplace_back(std::move(bufferp));
 	}
 
-	// verify data
-	auto f = folly::collectAll(std::move(read_futures))
-	.then([this]
-			(const std::vector<folly::Try<std::unique_ptr<RequestBuffer>>>& tries) {
-		BlockID block = 0;
+	auto wf = vmdkp->BulkWrite(ckpt_id, *requests, *process);
+	wf.wait(1s);
+	EXPECT_TRUE(wf.isReady());
+	EXPECT_EQ(wf.value(), 0);
 
-		auto bufferp = NewAlignedRequestBuffer(vmdkp->BlockSize());
-		auto payload = bufferp->Payload();
+	requests->clear();
+	process->clear();
+	for (auto block : blocks) {
+		auto offset = block << vmdkp->BlockShift();
+		auto req_id = NextRequestID();
+		auto bufferp = NewRequestBuffer(vmdkp->BlockSize());
+		auto p = bufferp->Payload();
 
-		for (const auto& t : tries) {
-			::memset(payload, 'A' + (block %26), vmdkp->BlockSize());
-			const auto& bufp = t.value();
+		auto req = std::make_unique<Request>(req_id, vmdkp.get(),
+			Request::Type::kRead, p, bufferp->Size(), bufferp->Size(),
+			offset);
 
-			auto p = bufp->Payload();
-			auto rc = ::memcmp(payload, p, bufp->Size());
-			EXPECT_EQ(rc, 0);
-			++block;
-		}
-		return 0;
-	})
-	.wait(1s);
-	EXPECT_TRUE(f.isReady());
+		req->ForEachRequestBlock([&] (RequestBlock *blockp) mutable {
+			process->emplace_back(blockp);
+			return true;
+		});
+
+		requests->emplace_back(std::move(req));
+		buffers->emplace_back(std::move(bufferp));
+	}
+
+	auto ckpts = std::make_pair(1, 1);
+	auto rf = vmdkp->BulkRead(ckpts, *requests, *process);
+	rf.wait(1s);
+	EXPECT_TRUE(rf.isReady());
+	EXPECT_EQ(rf.value(), 0);
+
+	auto wit = buffers->begin();
+	auto weit = std::next(wit, blocks.size());
+	EXPECT_NE(weit, buffers->end());
+	auto rit = weit;
+	auto reit = std::next(rit, blocks.size());
+	EXPECT_EQ(reit, buffers->end());
+
+	for (; rit != reit; ++rit, ++wit) {
+		EXPECT_NE(wit, weit);
+		auto rp = (*rit)->Payload();
+		auto wp = (*wit)->Payload();
+
+		EXPECT_EQ((*rit)->Size(), (*wit)->Size());
+		auto rc = ::memcmp(rp, wp, (*rit)->Size());
+		EXPECT_EQ(rc, 0);
+	}
 }

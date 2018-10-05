@@ -26,9 +26,20 @@ public:
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) override;
+	virtual folly::Future<int> BulkRead(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) override;
+	virtual folly::Future<int> BulkReadPopulate(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) override;
 private:
 	std::pair<std::unique_ptr<RequestBuffer>, int32_t>
 	RequestBlockReadComplete(ActiveVmdk* vmdkp, RequestBlock* blockp);
+	int ReadComplete(ActiveVmdk* vmdkp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed);
 	int ProcessWrite(ActiveVmdk *vmdkp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed);

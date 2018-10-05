@@ -157,4 +157,60 @@ folly::Future<int> ErrorHandler::BulkWrite(ActiveVmdk* vmdkp,
 	return error_no_;
 }
 
+folly::Future<int> ErrorHandler::BulkRead(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	if (pio_likely(not enabled_)) {
+		return nextp_->BulkRead(vmdkp, requests, process, failed);
+	}
+
+	failed.clear();
+	if (not FailOperation()) {
+		for (auto blockp : process) {
+			blockp->SetResult(0, RequestStatus::kSuccess);
+		}
+		return 0;
+	}
+
+	if (throw_) {
+		throw std::bad_alloc();
+	}
+
+	failed.clear();
+	for (auto blockp : process) {
+		blockp->SetResult(error_no_, RequestStatus::kFailed);
+		failed.emplace_back(blockp);
+	}
+	return error_no_;
+}
+
+folly::Future<int> ErrorHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	if (pio_likely(not enabled_)) {
+		return nextp_->BulkReadPopulate(vmdkp, requests, process, failed);
+	}
+
+	failed.clear();
+	if (not FailOperation()) {
+		for (auto blockp : process) {
+			blockp->SetResult(0, RequestStatus::kSuccess);
+		}
+		return 0;
+	}
+
+	if (throw_) {
+		throw std::bad_alloc();
+	}
+
+	failed.clear();
+	for (auto blockp : process) {
+		blockp->SetResult(error_no_, RequestStatus::kFailed);
+		failed.emplace_back(blockp);
+	}
+	return error_no_;
+}
+
 }

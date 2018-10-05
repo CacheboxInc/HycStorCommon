@@ -4,6 +4,7 @@
 #include <numeric>
 #include <random>
 #include <limits>
+#include <chrono>
 
 #include <gtest/gtest.h>
 #include <glog/logging.h>
@@ -27,6 +28,8 @@ using ::testing::TestWithParam;
 using ::testing::Values;
 using ::testing::Combine;
 using namespace ::ondisk;
+using namespace ::hyc_thrift;
+using namespace std::chrono_literals;
 
 using namespace ::hyc_thrift;
 
@@ -449,8 +452,55 @@ TEST_P(CompressHandlerTest, BulkCompressableAlignedWrite) {
 	}
 
 	auto bulk_write_fut = vmdkp->BulkWrite(ckpt_id, *requests, *process);
-	bulk_write_fut.wait();
+	bulk_write_fut.wait(1s);
+	EXPECT_TRUE(bulk_write_fut.isReady());
 	EXPECT_EQ(bulk_write_fut.value(), 0);
+
+
+	requests->clear();
+	process->clear();
+
+	for (auto block : blocks) {
+		auto offset = block << vmdkp->BlockShift();
+		auto req_id = NextRequestID();
+		auto bufferp = NewRequestBuffer(vmdkp->BlockSize());
+		auto p = bufferp->Payload();
+
+		auto req = std::make_unique<Request>(req_id, vmdkp.get(),
+			Request::Type::kRead, p, bufferp->Size(), bufferp->Size(),
+			offset);
+
+		req->ForEachRequestBlock([&] (RequestBlock *blockp) mutable {
+			process->emplace_back(blockp);
+			return true;
+		});
+
+		requests->emplace_back(std::move(req));
+		buffers->emplace_back(std::move(bufferp));
+	}
+
+	auto ckpts = std::make_pair(1, 1);
+	auto read_fut = vmdkp->BulkRead(ckpts, *requests, *process);
+	read_fut.wait(1s);
+	EXPECT_TRUE(read_fut.isReady());
+	EXPECT_EQ(read_fut.value(), 0);
+
+	auto wit = buffers->begin();
+	auto weit = std::next(wit, blocks.size());
+	EXPECT_NE(weit, buffers->end());
+
+	auto rit = weit;
+	auto reit = std::next(rit, blocks.size());
+	EXPECT_EQ(reit, buffers->end());
+
+	for (; rit != reit; ++rit, ++wit) {
+		auto rp = (*rit)->Payload();
+		auto wp = (*wit)->Payload();
+
+		EXPECT_EQ((*rit)->Size(), (*wit)->Size());
+		auto rc = ::memcmp(rp, wp, (*rit)->Size());
+		EXPECT_FALSE(rc);
+	}
 }
 
 

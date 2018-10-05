@@ -168,4 +168,28 @@ folly::Future<int> UnalignedHandler::BulkWrite(ActiveVmdk* vmdkp,
 	return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
 }
 
+folly::Future<int> UnalignedHandler::BulkRead(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+#ifndef NDEBUG
+	for (const auto blockp : process) {
+		log_assert(not blockp->IsPartial());
+	}
+#endif
+	return nextp_->BulkRead(vmdkp, requests, process, failed);
+}
+
+folly::Future<int> UnalignedHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+#ifndef NDEBUG
+	for (const auto blockp : process) {
+		log_assert(not blockp->IsPartial());
+	}
+#endif
+	return nextp_->BulkReadPopulate(vmdkp, requests, process, failed);
+}
+
 }

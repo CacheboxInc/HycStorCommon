@@ -40,6 +40,33 @@ EncryptHandler::~EncryptHandler() {
 	hyc_encrypt_ctx_dinit(ctxp_);
 }
 
+int EncryptHandler::ReadComplete(const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	int32_t error = 0;
+	for (auto blockp : process) {
+		auto srcp = blockp->GetRequestBufferAtBack();
+
+		auto dest_bufsz = hyc_encrypt_plain_bufsz(ctxp_, srcp->Payload(), srcp->Size());
+		auto destp = pio::NewRequestBuffer(dest_bufsz);
+		if (pio_unlikely(not destp)) {
+			failed.emplace_back(blockp);
+			error = -ENOMEM;
+			continue;
+		}
+
+		auto rc = hyc_decrypt(ctxp_, srcp->Payload(), srcp->Size(),
+			destp->Payload(), &dest_bufsz);
+		if (pio_unlikely(rc != HYC_ENCRYPT_SUCCESS)) {
+			failed.emplace_back(blockp);
+			error = -ENOMEM ;
+			continue;
+		}
+
+		blockp->PushRequestBuffer(std::move(destp));
+	}
+	return error;
+}
+
 folly::Future<int> EncryptHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
@@ -55,38 +82,14 @@ folly::Future<int> EncryptHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	}
 
 	return nextp_->Read(vmdkp, reqp, process, failed)
-	.then([this, vmdkp, reqp, &process, &failed] (int rc) mutable {
+	.then([this, reqp, &process, &failed] (int rc) mutable {
 		if (pio_unlikely(rc != 0)) {
 			return rc;
 		} else if (pio_unlikely(not failed.empty())) {
 			return reqp->GetResult();
 		}
 
-		int32_t error = 0;
-		for (auto blockp : process) {
-			auto srcp = blockp->GetRequestBufferAtBack();
-
-			auto dest_bufsz = hyc_encrypt_plain_bufsz(ctxp_,
-				srcp->Payload(), srcp->Size());
-			auto destp = pio::NewRequestBuffer(dest_bufsz);
-			if (pio_unlikely(not destp)) {
-				failed.emplace_back(blockp);
-				error = -ENOMEM;
-				continue;
-			}
-
-			auto rc = hyc_decrypt(ctxp_, srcp->Payload(), srcp->Size(),
-				destp->Payload(), &dest_bufsz);
-			if (pio_unlikely(rc != HYC_ENCRYPT_SUCCESS)) {
-				failed.emplace_back(blockp);
-				error = -ENOMEM ;
-				continue;
-			}
-
-			blockp->PushRequestBuffer(std::move(destp));
-		}
-
-		return error;
+		return ReadComplete(process, failed);
 	});
 }
 
@@ -165,7 +168,13 @@ folly::Future<int> EncryptHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp
 		return -ENODEV;
 	}
 
-	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
+	return nextp_->ReadPopulate(vmdkp, reqp, process, failed)
+	.then([this, &process, &failed] (int rc) mutable {
+		if (pio_unlikely(rc or not failed.empty())) {
+			return rc < 0 ? rc : -rc;
+		}
+		return ReadComplete(process, failed);
+	});
 }
 
 folly::Future<int> EncryptHandler::BulkWrite(ActiveVmdk* vmdkp,
@@ -194,5 +203,45 @@ folly::Future<int> EncryptHandler::BulkWrite(ActiveVmdk* vmdkp,
 		return rc;
 	}
 
-	return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);}
+	return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
+}
+
+folly::Future<int> EncryptHandler::BulkRead(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	failed.clear();
+	if (pio_unlikely(not nextp_)) {
+		failed.reserve(process.size());
+		std::copy(process.begin(), process.end(), std::back_inserter(failed));
+		return -ENODEV;
+	}
+
+	if (pio_unlikely(not enabled_)) {
+		return nextp_->BulkRead(vmdkp, requests, process, failed);
+	}
+
+	return nextp_->BulkRead(vmdkp, requests, process, failed)
+	.then([this, &process, &failed] (int rc) mutable {
+		if (pio_unlikely(rc or not failed.empty())) {
+			return rc < 0 ? rc : -rc;
+		}
+
+		return ReadComplete(process, failed);
+	});
+}
+
+folly::Future<int> EncryptHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	return nextp_->BulkReadPopulate(vmdkp, requests, process, failed)
+	.then([this, &process, &failed] (int rc) mutable {
+		if (pio_unlikely(rc or not failed.empty())) {
+			return rc < 0 ? rc : -rc;
+		}
+
+		return ReadComplete(process, failed);
+	});
+}
 }

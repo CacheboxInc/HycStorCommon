@@ -161,6 +161,70 @@ folly::Future<int> NetworkTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
 	});
 }
 
+folly::Future<int> NetworkTargetHandler::BulkRead(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	failed.clear();
+	std::shared_ptr<hyc::IO> io = std::make_shared<IO>(READDIR);
+	if (pio_unlikely(not io)) {
+		failed.reserve(process.size());
+		std::copy(process.begin(), process.end(), std::back_inserter(failed));
+		return -ENOMEM;
+	}
+
+	auto buffers = std::make_unique<std::vector<std::unique_ptr<RequestBuffer>>>();
+	for (auto blockp : process) {
+		auto destp = NewRequestBuffer(vmdkp->BlockSize());
+		if (pio_unlikely(not destp)) {
+			blockp->SetResult(-ENOMEM, RequestStatus::kFailed);
+			failed.emplace_back(blockp);
+			return -ENOMEM;
+		}
+
+		io->AddIoVec(blockp->GetAlignedOffset(), destp->Size(), destp->Payload());
+		buffers->push_back(std::move(destp));
+	}
+
+	auto promise = std::make_unique<folly::Promise<int>>();
+	io->SetOpaque(reinterpret_cast<void*>(promise.get()));
+	auto rc = io_session_->ProcessIO(io);
+	if (pio_unlikely(rc != 0)) {
+		failed.reserve(process.size());
+		std::copy(process.begin(), process.end(), std::back_inserter(failed));
+		return rc < 0 ? rc : -rc;
+	}
+
+	return promise->getFuture()
+	.then([&process, &failed, io, buffers = std::move(buffers),
+			promise = std::move(promise)]  (int rc) mutable {
+		if (pio_unlikely(rc != 0)) {
+			failed.reserve(process.size());
+			std::copy(process.begin(), process.end(), std::back_inserter(failed));
+			return rc < 0 ? rc : -rc;
+		}
+
+		auto it = buffers->begin();
+		auto eit = buffers->end();
+		for (auto blockp : process) {
+			log_assert(it != eit);
+			blockp->PushRequestBuffer(std::move(*it));
+			blockp->SetResult(0, RequestStatus::kSuccess);
+			++it;
+		}
+		return 0;
+	});
+
+}
+
+folly::Future<int> NetworkTargetHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	log_assert(0);
+	return -ENODEV;
+}
+
 folly::Future<int> NetworkTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {

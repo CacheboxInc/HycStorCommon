@@ -192,4 +192,64 @@ folly::Future<int> MultiTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
 		std::vector<RequestBlock*>& failed) {
 	return targets_[0]->BulkWrite(vmdkp, ckpt, requests, process, failed);
 }
+
+folly::Future<int> MultiTargetHandler::BulkReadComplete(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process, std::vector<RequestBlock*>& failed) {
+	if (failed.empty()) {
+		return 0;
+	}
+
+	if (pio_unlikely(targets_.size() <= 1)) {
+		return -ENODEV;
+	}
+
+	auto missed = std::make_unique<std::remove_reference_t<decltype(failed)>>();
+	if (pio_unlikely(not missed)) {
+		LOG(ERROR) << "Failed to allocate memory for missed vector";
+		return -ENOMEM;
+	}
+	missed->swap(failed);
+
+	return targets_[1]->BulkRead(vmdkp, requests, *missed, failed)
+	.then([this, vmdkp, &requests, &failed, missed = std::move(missed)]
+			(int rc) mutable -> folly::Future<int> {
+		if (pio_unlikely(rc)) {
+			return rc < 0 ? rc : -rc;
+		}
+		if (pio_unlikely(not failed.empty())) {
+			LOG(ERROR) << "Few requests failed on second target";
+			return -ENODEV;
+		}
+
+		return targets_[0]->BulkReadPopulate(vmdkp, requests, *missed, failed)
+		.then([missed = std::move(missed)] (int rc) mutable -> folly::Future<int> {
+			return rc;
+		});
+	});
+}
+
+
+folly::Future<int> MultiTargetHandler::BulkRead(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	return targets_[0]->BulkRead(vmdkp, requests, process, failed)
+	.then([this, vmdkp, &requests, &process, &failed] (int rc) mutable
+			-> folly::Future<int> {
+		if (pio_unlikely(rc)) {
+			return rc < 0 ? rc : -rc;
+		}
+
+		return BulkReadComplete(vmdkp, requests, process, failed);
+	});
+}
+
+folly::Future<int> MultiTargetHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	return targets_[0]->BulkReadPopulate(vmdkp, requests, process, failed);		
+}
+
 }

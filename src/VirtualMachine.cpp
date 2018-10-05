@@ -17,6 +17,7 @@ using namespace ::hyc_thrift;
 using namespace ::ondisk;
 
 namespace pio {
+constexpr size_t kBulkReadMaxSize = 256 * 1024;
 
 VirtualMachine::VirtualMachine(VmHandle handle, VmID vm_id,
 		const std::string& config) : handle_(handle), vm_id_(std::move(vm_id)),
@@ -366,6 +367,213 @@ folly::Future<int> VirtualMachine::Read(ActiveVmdk* vmdkp, Request* reqp) {
 		--stats_.reads_in_progress_;
 		return rc;
 	});
+}
+
+folly::Future<ReadResultVec> VirtualMachine::BulkRead(ActiveVmdk* vmdkp,
+		std::unique_ptr<ReqVec> requests, std::unique_ptr<ReqBlockVec> process,
+		std::unique_ptr<IOBufPtrVec> iobufs, size_t read_size) {
+	if (pio_unlikely(not FindVmdk(vmdkp->GetHandle()))) {
+		return folly::makeFuture<ReadResultVec>
+			(std::invalid_argument("VMDK not attached to VM"));
+	}
+
+	auto ckpts = std::make_pair(MetaData_constants::kInvalidCheckPointID() + 1,
+		checkpoint_.checkpoint_id_.load());
+	++stats_.reads_in_progress_;
+
+	return vmdkp->BulkRead(ckpts, *requests, *process)
+	.then([this, requests = std::move(requests), process = std::move(process),
+			iobufs = std::move(iobufs), read_size] (int rc) {
+		--stats_.reads_in_progress_;
+
+		size_t copied = 0;
+		ReadResultVec res;
+		res.reserve(requests->size());
+
+		auto it = iobufs->begin();
+		auto eit = iobufs->end();
+		for (const auto& req : *requests) {
+			log_assert(it != eit);
+			size_t sz = (*it)->computeChainDataLength();
+			log_assert(sz == req->GetTransferSize());
+			copied += sz;
+
+			res.emplace_back(apache::thrift::FragileConstructor(), req->GetID(),
+				rc ? rc : req->GetResult(), std::move(*it));
+			++it;
+		}
+
+		/* make sure CMAKE_BUILD_TYPE=Release does not report unused variables */
+		(void) read_size;
+		(void) copied;
+		log_assert(copied == read_size);
+		return res;
+	});
+}
+
+folly::Future<std::unique_ptr<ReadResultVec>>
+VirtualMachine::BulkRead(ActiveVmdk* vmdkp,
+			std::unique_ptr<std::vector<ReadRequest>> in_reqs) {
+		static_assert(kBulkReadMaxSize >= 32*1024, "kBulkReadMaxSize too small");
+		using ReturnType = std::unique_ptr<ReadResultVec>;
+
+		auto AllocDS = [] (size_t nr) {
+			auto process = std::make_unique<ReqBlockVec>();
+			auto reqs = std::make_unique<ReqVec>();
+			auto iobufs = std::make_unique<IOBufPtrVec>();
+			reqs->reserve(nr);
+			iobufs->reserve(nr);
+			return std::make_tuple(std::move(reqs), std::move(process), std::move(iobufs));
+		};
+
+		auto FutureException = [] (auto&& exception) {
+			return folly::makeFuture<ReturnType>
+				(std::forward<decltype(exception)>(exception));
+		};
+
+		auto FutureExceptionBadAlloc = [&FutureException]
+				(auto file, auto line, const std::string_view& msg) {
+			std::ostringstream os;
+			os << "HeapError file = " << file << " line = " << line;
+			if (not msg.empty()) {
+				os << " " << msg;
+			}
+			LOG(ERROR) << os.str();
+			return FutureException(std::bad_alloc());
+		};
+
+		auto ExtractParams = [] (const ReadRequest& rd) {
+			return std::make_tuple(rd.get_reqid(), rd.get_size(), rd.get_offset());
+		};
+
+		auto NewRequest = [] (RequestID reqid, ActiveVmdk* vmdkp,
+				folly::IOBuf* bufp, size_t size, int64_t offset) {
+			auto req = std::make_unique<Request>(reqid, vmdkp, Request::Type::kRead,
+				bufp->writableData(), size, size, offset);
+			bufp->append(size);
+			return req;
+		};
+
+		auto NewResult = [] (RequestID id, int32_t rc, IOBufPtr iobuf) {
+			return ReadResult(apache::thrift::FragileConstructor(), id, rc,
+				std::move(iobuf));
+		};
+
+		auto UnalignedRead = [&NewResult] (VirtualMachine* vmp, ActiveVmdk* vmdkp,
+				size_t size, std::unique_ptr<Request> req, IOBufPtr iobuf) {
+			return vmp->Read(vmdkp, req.get())
+			.then([&NewResult, req = std::move(req), iobuf = std::move(iobuf), size]
+					(const folly::Try<int>& tri) mutable {
+				if (pio_unlikely(tri.hasException())) {
+					return folly::makeFuture<ReadResultVec>(tri.exception());
+				}
+				log_assert(size == iobuf->computeChainDataLength() and
+					size == req->GetTransferSize());
+
+				auto rc = tri.value();
+				ReadResultVec res;
+				res.emplace_back(NewResult(req->GetID(),
+					rc ? rc : req->GetResult(), std::move(iobuf)));
+				return folly::makeFuture(std::move(res));
+			});
+		};
+
+		std::vector<folly::Future<std::vector<ReadResult>>> futures;
+		::ondisk::BlockID prev_start = 0;
+		::ondisk::BlockID prev_end = 0;
+		std::unique_ptr<ReqBlockVec> process;
+		std::unique_ptr<ReqVec> requests;
+		std::unique_ptr<IOBufPtrVec> iobufs;
+
+		auto pending = in_reqs->size();
+		std::tie(requests, process, iobufs) = AllocDS(pending);
+		if (pio_unlikely(not requests or not process or not iobufs)) {
+			return FutureExceptionBadAlloc(__FILE__, __LINE__, nullptr);
+		}
+
+		size_t read_size = 0;
+		for (const auto& in_req : *in_reqs) {
+			auto [reqid, size, offset] = ExtractParams(in_req);
+			auto iobuf = folly::IOBuf::create(size);
+			if (pio_unlikely(not iobuf)) {
+				const char* msgp = "Allocating IOBuf for read failed";
+				return FutureExceptionBadAlloc(__FILE__, __LINE__, msgp);
+			}
+			iobuf->unshare();
+			iobuf->coalesce();
+			log_assert(not iobuf->isChained());
+
+			auto req = NewRequest(reqid, vmdkp, iobuf.get(), size, offset);
+			if (pio_unlikely(not req)) {
+				const char* msgp = "Allocating Request for read failed";
+				return FutureExceptionBadAlloc(__FILE__, __LINE__, msgp);
+			}
+			log_assert(iobuf->computeChainDataLength() == static_cast<size_t>(size));
+
+			auto reqp = req.get();
+			--pending;
+
+			if (reqp->HasUnalignedIO()) {
+				futures.emplace_back(UnalignedRead(this, vmdkp, size,
+					std::move(req), std::move(iobuf)));
+				continue;
+			}
+
+			auto [cur_start, cur_end] = reqp->Blocks();
+			log_assert(prev_start <= cur_start);
+
+			if (read_size >= kBulkReadMaxSize && prev_end >= cur_start) {
+				futures.emplace_back(BulkRead(vmdkp, std::move(requests),
+					std::move(process), std::move(iobufs), read_size));
+				log_assert(not process and not requests);
+				std::tie(requests, process, iobufs) = AllocDS(pending+1);
+				read_size = 0;
+				if (pio_unlikely(not requests or not process or not iobufs)) {
+					return FutureExceptionBadAlloc(__FILE__, __LINE__, nullptr);
+				}
+			}
+
+			process->reserve(process->size() + reqp->NumberOfRequestBlocks());
+			reqp->ForEachRequestBlock([&] (RequestBlock* blockp) mutable {
+				process->emplace_back(blockp);
+				return true;
+			});
+			requests->emplace_back(std::move(req));
+			iobufs->emplace_back(std::move(iobuf));
+
+			read_size += size;
+			prev_start = cur_start;
+			prev_end = cur_end;
+		}
+
+		if (pio_likely(not requests->empty())) {
+			futures.emplace_back(BulkRead(vmdkp, std::move(requests),
+				std::move(process), std::move(iobufs), read_size));
+		}
+
+		return folly::collectAll(std::move(futures))
+		.then([&, in_reqs = std::move(in_reqs)]
+				(folly::Try<
+					std::vector<
+						folly::Try<
+							ReadResultVec>>>& tries) mutable {
+			if (pio_unlikely(tries.hasException())) {
+				return FutureException(tries.exception());
+			}
+
+			auto results = std::make_unique<ReadResultVec>();
+			auto v1 = std::move(tries.value());
+			for (auto& tri : v1) {
+				if (pio_unlikely(tri.hasException())) {
+					return FutureException(tri.exception());
+				}
+
+				auto v2 = std::move(tri.value());
+				results->reserve(results->size() + v2.size());
+				std::move(v2.begin(), v2.end(), std::back_inserter(*results));
+			}
+			return folly::makeFuture(std::move(results));
+		});
 }
 
 folly::Future<int> VirtualMachine::Flush(ActiveVmdk* vmdkp, Request* reqp, const CheckPoints& min_max) {

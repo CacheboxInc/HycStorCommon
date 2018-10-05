@@ -69,6 +69,67 @@ folly::Future<int> DirtyHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	});
 }
 
+folly::Future<int> DirtyHandler::BulkRead(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	failed.clear();
+	if (pio_unlikely(not nextp_)) {
+		failed.reserve(process.size());
+		std::copy(process.begin(), process.end(), std::back_inserter(failed));
+		return -ENODEV;
+	}
+
+	if (pio_unlikely(aero_conn_ == nullptr)) {
+		return nextp_->BulkRead(vmdkp, requests, process, failed);
+	}
+
+	return aero_obj_->AeroReadCmdProcess(vmdkp, process, failed,
+		kAsNamespaceCacheDirty, aero_conn_)
+	.then([this, vmdkp, &requests, &process, &failed] (int rc) mutable
+			-> folly::Future<int> {
+		if (pio_unlikely(rc != 0 or not failed.empty())) {
+			return rc;
+		}
+
+		log_assert(not requests.empty());
+		auto flush = (*requests.begin())->IsFlushReq();
+#ifndef NDEBUG
+		for (const auto& req : requests) {
+			log_assert(flush == req->IsFlushReq());
+		}
+#endif
+
+		if (not flush) {
+			return nextp_->BulkRead(vmdkp, requests, process, failed);
+		}
+
+		/*
+		 * For Flush IO, reads don't need to go to CLEAN layer,
+		 * return from here.
+		 */
+		const int error = -ENOMEM;
+		rc = 0;
+		for (auto blockp : process) {
+			if (pio_unlikely(blockp->IsReadHit())) {
+				blockp->SetResult(0, RequestStatus::kSuccess);
+			} else {
+				blockp->SetResult(error, RequestStatus::kFailed);
+				failed.emplace_back(blockp);
+				rc = error;
+			}
+		}
+		return rc;
+	});
+}
+
+folly::Future<int> DirtyHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	return nextp_->BulkReadPopulate(vmdkp, requests, process, failed);		
+}
+
 folly::Future<int> DirtyHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
@@ -239,4 +300,5 @@ folly::Future<int> DirtyHandler::BulkWrite(ActiveVmdk* vmdkp,
 		});
 	});
 }
+
 }

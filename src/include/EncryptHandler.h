@@ -22,6 +22,14 @@ public:
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) override;
+	virtual folly::Future<int> BulkRead(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) override;
+	virtual folly::Future<int> BulkReadPopulate(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) override;
 	virtual folly::Future<int> ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
@@ -29,6 +37,8 @@ private:
 	int ProcessWrite(ActiveVmdk *vmdkp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed);
+	int ReadComplete(const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed);
 private:
 	bool enabled_{false};
 	std::string algorithm_{"aes256-gcm"};
