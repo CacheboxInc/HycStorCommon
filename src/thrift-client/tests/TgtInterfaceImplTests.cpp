@@ -102,6 +102,34 @@ public:
 		++nwrite_same_;
 	}
 
+	folly::Future<std::unique_ptr<std::vector<ReadResult>>> future_BulkRead(
+			::hyc_thrift::VmdkHandle vmdk,
+			std::unique_ptr<std::vector<ReadRequest>> requests) override {
+		auto results = std::make_unique<std::vector<ReadResult>>();
+		for (const auto& req : *requests) {
+			auto size = req.get_size();
+			auto iobuf = folly::IOBuf::create(size);
+			::memset(iobuf->writableTail(), 'A', size);
+			iobuf->append(size);
+			results->emplace_back(apache::thrift::FragileConstructor(),
+				req.reqid, 0, std::move(iobuf));
+			++nread_;
+		}
+		return std::move(results);
+	}
+
+	folly::Future<std::unique_ptr<std::vector<WriteResult>>> future_BulkWrite(
+			::hyc_thrift::VmdkHandle vmdk,
+			std::unique_ptr<std::vector<WriteRequest>> requests) override {
+		auto results = std::make_unique<std::vector<WriteResult>>();
+		for (const auto& req : *requests) {
+			results->emplace_back(apache::thrift::FragileConstructor(),
+				req.reqid, 0);
+			++nwrite_;
+		}
+		return std::move(results);
+	}
+
 public:
 	std::atomic<uint32_t> nping_{0};
 	std::atomic<uint32_t> nopen_vm_{0};
@@ -172,7 +200,7 @@ TEST(TgtInterfaceImplTest, Ping) {
 	auto rc = HycStorRpcServerConnectTest(1);
 	EXPECT_EQ(rc, 0);
 	::sleep(kSleep);
-	EXPECT_GT(si->nping_, kSleep);
+	EXPECT_GE(si->nping_, kSleep);
 
 	rc = HycStorRpcServerDisconnect();
 	EXPECT_EQ(rc, 0);

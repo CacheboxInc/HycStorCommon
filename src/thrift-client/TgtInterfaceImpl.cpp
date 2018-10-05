@@ -211,10 +211,11 @@ int32_t StordConnection::Disconnect() {
 		return -EBUSY;
 	}
 
-	ping_.timeout_ = nullptr;
-	sched_pending_.~SchedulePending();
-
 	if (base_) {
+		base_->runInEventBaseThread([this] () {
+			ping_.timeout_ = nullptr;
+			sched_pending_.~SchedulePending();
+		});
 		base_->terminateLoopSoon();
 	}
 
@@ -526,12 +527,17 @@ private:
 	void ScheduleBulkWrite(folly::EventBase* basep,
 		StorRpcAsyncClient* clientp,
 		std::unique_ptr<std::vector<::hyc_thrift::WriteRequest>> reqs);
+	void ScheduleBulkRead(folly::EventBase* basep,
+		StorRpcAsyncClient* clientp, std::vector<Request*> requests,
+		std::unique_ptr<std::vector<::hyc_thrift::ReadRequest>> thrift_requests);
 private:
 	void RequestComplete(RequestID id, int32_t result);
 	template <typename T = Request>
 	void RequestComplete(T* reqp);
 	template <typename T, typename... ErrNo>
 	void RequestComplete(const std::vector<T>& requests, ErrNo&&... no);
+	void BulkReadComplete(const std::vector<Request*>& requests,
+		const std::vector<::hyc_thrift::ReadResult>& results);
 
 private:
 	std::string vmid_;
@@ -931,6 +937,47 @@ void StordVmdk::ScheduleRead(folly::EventBase* basep,
 	});
 }
 
+void StordVmdk::BulkReadComplete(const std::vector<Request*>& requests,
+		const std::vector<::hyc_thrift::ReadResult>& results) {
+	auto RequestFind = [&requests] (RequestID id) -> Request* {
+		for (auto reqp : requests) {
+			if (reqp->id == id) {
+				return reqp;
+			}
+		}
+		return nullptr;
+	};
+
+	for (const auto& result : results) {
+		auto reqp = RequestFind(result.reqid);
+		if (hyc_likely(result.result == 0)) {
+			log_assert(reqp != nullptr);
+			ReadDataCopy(reqp, result);
+		}
+		RequestComplete(reqp);
+	}
+}
+
+void StordVmdk::ScheduleBulkRead(folly::EventBase* basep,
+		StorRpcAsyncClient* clientp, std::vector<Request*> requests,
+		std::unique_ptr<std::vector<::hyc_thrift::ReadRequest>> thrift_requests) {
+	log_assert(basep->isInEventBaseThread());
+
+	clientp->future_BulkRead(vmdk_handle_, *thrift_requests)
+	.then([this, thrift_requests = std::move(thrift_requests),
+			requests = std::move(requests)]
+			(const folly::Try<std::vector<::hyc_thrift::ReadResult>>& trie)
+			mutable {
+		if (hyc_unlikely(trie.hasException())) {
+			LOG(ERROR) << __func__ << " STORD sent exception";
+			RequestComplete(*thrift_requests, -ENOMEM);
+		}
+
+		const auto& result = trie.value();
+		BulkReadComplete(requests, result);
+	});
+}
+
 void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp) {
 	auto GetPending = [this] (std::vector<Request*>& pending) mutable {
 		pending.clear();
@@ -949,12 +996,20 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp
 	basep->runInEventBaseThread([this, clientp, basep,
 			pending = std::move(pending)] () {
 		std::unique_ptr<std::vector<::hyc_thrift::WriteRequest>> write;
+		std::unique_ptr<std::vector<::hyc_thrift::ReadRequest>> read;
+		std::vector<Request*> read_requests;
 		uint32_t nwrites = 0;
+		uint32_t nreads = 0;
 
 		for (auto reqp : pending) {
 			switch (reqp->type) {
 			case Request::Type::kRead:
-				ScheduleRead(basep, clientp, reqp);
+				if (nreads++ == 0) {
+					read = std::make_unique<std::vector<::hyc_thrift::ReadRequest>>();
+				}
+				read->emplace_back(apache::thrift::FragileConstructor(),
+					reqp->id, reqp->buf_sz, reqp->offset);
+				read_requests.emplace_back(reqp);
 				break;
 			case Request::Type::kWrite: {
 				if (nwrites++ == 0) {
@@ -974,6 +1029,9 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp
 
 		if (write and not write->empty()) {
 			ScheduleBulkWrite(basep, clientp, std::move(write));
+		}
+		if (read and not read->empty()) {
+			ScheduleBulkRead(basep, clientp, std::move(read_requests), std::move(read));
 		}
 	});
 }
