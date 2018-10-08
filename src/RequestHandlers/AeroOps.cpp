@@ -724,6 +724,7 @@ folly::Future<int> AeroSpike::AeroRead(ActiveVmdk *vmdkp,
 						break;
 
 					case AEROSPIKE_ERR_RECORD_NOT_FOUND:
+						blockp->SetResult(0, RequestStatus::kMiss);
 						break;
 				}
 

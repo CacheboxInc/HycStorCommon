@@ -275,6 +275,20 @@ int SuccessHandler::BulkReadNow(ActiveVmdk* vmdkp,
 		std::vector<RequestBlock*>& failed) {
 	failed.clear();
 	for (auto blockp : process) {
+		if (pio_unlikely(blockp->IsReadHit())) {
+			blockp->SetResult(0, RequestStatus::kSuccess);
+			continue;
+		}
+
+		auto destp = NewRequestBuffer(vmdkp->BlockSize());
+		if (pio_unlikely(not destp)) {
+			blockp->SetResult(-ENOMEM, RequestStatus::kFailed);
+			failed.emplace_back(blockp);
+			return -ENOMEM;
+		}
+
+		::memset(destp->Payload(), 0, destp->Size());
+		blockp->PushRequestBuffer(std::move(destp));
 		blockp->SetResult(0, RequestStatus::kSuccess);
 	}
 	return 0;

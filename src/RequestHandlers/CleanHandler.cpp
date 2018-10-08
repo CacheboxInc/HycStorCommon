@@ -87,9 +87,9 @@ folly::Future<int> CleanHandler::BulkRead(ActiveVmdk* vmdkp,
 
 	return aero_obj_->AeroReadCmdProcess(vmdkp, process, failed,
 		kAsNamespaceCacheDirty, aero_conn_)
-	.then([this, vmdkp, &requests, &process, &failed] (int rc) mutable
+	.then([&process, &failed] (int rc) mutable
 			-> folly::Future<int> {
-		if (pio_unlikely(rc != 0 || not failed.empty())) {
+		if (pio_unlikely(rc != 0)) {
 			return rc < 0 ? rc : -rc;
 		}
 
@@ -98,24 +98,13 @@ folly::Future<int> CleanHandler::BulkRead(ActiveVmdk* vmdkp,
 			if (blockp->IsReadHit()) {
 				blockp->SetResult(0, RequestStatus::kSuccess);
 			} else {
+				if (not blockp->IsReadMissed()) {
+					rc = blockp->GetResult();
+				}
 				failed.emplace_back(blockp);
 			}
 		}
-
-		if (pio_likely(failed.empty())) {
-			return 0;
-		}
-
-		if (nextp_ == nullptr) {
-			return -ENOMEM;
-		}
-
-		auto missed = std::make_unique<std::remove_reference_t<decltype(failed)>>();
-		missed->swap(failed);
-		return nextp_->BulkRead(vmdkp, requests, *missed, failed)
-		.then([missed = std::move(missed)] (int rc) mutable {
-			return 0;
-		});
+		return rc;
 	});
 }
 

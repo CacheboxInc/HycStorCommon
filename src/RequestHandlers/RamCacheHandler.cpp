@@ -57,6 +57,7 @@ folly::Future<int> RamCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	for (auto blockp : process) {
 		auto [destp, found] = cache_->Read(vmdkp, blockp->GetAlignedOffset());
 		if (not found || not destp) {
+			blockp->SetResult(0, RequestStatus::kMiss);
 			missed->emplace_back(blockp);
 			continue;
 		}
@@ -198,6 +199,7 @@ folly::Future<int> RamCacheHandler::BulkRead(ActiveVmdk* vmdkp,
 	for (auto blockp : process) {
 		auto [destp, found] = cache_->Read(vmdkp, blockp->GetAlignedOffset());
 		if (not found || not destp) {
+			blockp->SetResult(0, RequestStatus::kMiss);
 			missed->emplace_back(blockp);
 			continue;
 		}

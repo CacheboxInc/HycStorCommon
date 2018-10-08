@@ -237,7 +237,13 @@ folly::Future<int> MultiTargetHandler::BulkRead(ActiveVmdk* vmdkp,
 	return targets_[0]->BulkRead(vmdkp, requests, process, failed)
 	.then([this, vmdkp, &requests, &process, &failed] (int rc) mutable
 			-> folly::Future<int> {
-		if (pio_unlikely(rc)) {
+		bool f = false;
+		for (const auto blockp : failed) {
+			if (not blockp->IsReadMissed()) {
+				f = true;
+			}
+		}
+		if (pio_unlikely(rc and f)) {
 			return rc < 0 ? rc : -rc;
 		}
 
