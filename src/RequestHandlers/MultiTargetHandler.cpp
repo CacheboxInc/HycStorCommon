@@ -70,12 +70,15 @@ folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	log_assert(not targets_.empty());
 	return targets_[0]->Read(vmdkp, reqp, process, failed)
 	.then([this, vmdkp, reqp, &process, &failed] (int rc) mutable -> folly::Future<int> {
-
-		/* Read from CacheLayer complete */
-		if (pio_unlikely(rc != 0)) {
-			/* Failed Return error, miss is not a failed case*/
-			LOG(ERROR) << __func__ << "Error in reading from Cache Layer";
-			return rc;
+		bool f = false;
+		for (const auto blockp : failed) {
+			if (not blockp->IsReadMissed()) {
+				f = true;
+			}
+		}
+		if (pio_unlikely(rc and f)) {
+			LOG(ERROR) << "Read error " << rc;
+			return rc < 0 ? rc : -rc;
 		}
 
 		/* No read miss to process, return from here */
@@ -244,6 +247,7 @@ folly::Future<int> MultiTargetHandler::BulkRead(ActiveVmdk* vmdkp,
 			}
 		}
 		if (pio_unlikely(rc and f)) {
+			LOG(ERROR) << "Read error " << rc;
 			return rc < 0 ? rc : -rc;
 		}
 
