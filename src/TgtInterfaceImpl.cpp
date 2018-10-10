@@ -65,7 +65,7 @@ int StorD::InitStordLib(void) {
 	try {
 		std::call_once(g_init_.initialized_, [=] () mutable {
 			SingletonHolder<VmdkManager>::CreateInstance();
-			SingletonHolder<VmManager>::CreateInstance();
+			SingletonHolder<pio::VmManager>::CreateInstance();
 			SingletonHolder<AeroFiberThreads>::CreateInstance();
 			SingletonHolder<FlushManager>::CreateInstance();
 			SingletonHolder<ScanManager>::CreateInstance();
@@ -84,7 +84,7 @@ int StorD::DeinitStordLib(void) {
 	try {
 		std::call_once(g_init_.deinitialized_, [=] () mutable {
 			SingletonHolder<VmdkManager>::DestroyInstance();
-			SingletonHolder<VmManager>::DestroyInstance();
+			SingletonHolder<pio::VmManager>::DestroyInstance();
 			SingletonHolder<AeroFiberThreads>::DestroyInstance();
 			SingletonHolder<FlushManager>::DestroyInstance();
 #ifdef USE_NEP
@@ -236,7 +236,7 @@ int NewFlushReq(VmID vmid, const std::string& config) {
 int NewScanReq(VmID vmid, const std::string& config) {
 
 	auto managerp = SingletonHolder<ScanManager>::GetInstance();
-	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vmid);
+	auto vmp = SingletonHolder<pio::VmManager>::GetInstance()->GetInstance(vmid);
 	if(pio_unlikely(vmp == nullptr)) {
 		LOG(ERROR) << __func__ << " Given vmid is not valid";
 		return 1;
@@ -332,7 +332,7 @@ int NewScanStatusReq(AeroClusterID id, ScanStats &scan_stat) {
 
 std::shared_ptr<AeroSpikeConn> GetAeroConnUsingVmID(VmID vmid) {
 
-	auto managerp = SingletonHolder<VmManager>::GetInstance();
+	auto managerp = SingletonHolder<pio::VmManager>::GetInstance();
 	auto vmp = managerp->GetInstance(vmid);
 	if (pio_unlikely(not vmp)) {
 		LOG(ERROR) << __func__ << " Given VmID is not present";
@@ -357,7 +357,7 @@ std::shared_ptr<AeroSpikeConn> GetAeroConnUsingVmID(VmID vmid) {
 int NewAeroCacheStatReq(VmID vmid, AeroStats *aero_statsp) {
 
 	LOG(ERROR) << __func__ << "START";
-	auto managerp = SingletonHolder<VmManager>::GetInstance();
+	auto managerp = SingletonHolder<pio::VmManager>::GetInstance();
 	auto vmp = managerp->GetInstance(vmid);
 	if (pio_unlikely(not vmp)) {
 		LOG(ERROR) << " Given VmID is not present";
@@ -386,7 +386,7 @@ int NewAeroCacheStatReq(VmID vmid, AeroStats *aero_statsp) {
 }
 
 VmHandle NewVm(VmID vmid, const std::string& config) {
-	auto managerp = SingletonHolder<VmManager>::GetInstance();
+	auto managerp = SingletonHolder<pio::VmManager>::GetInstance();
 	if (auto vmp = managerp->GetInstance(vmid); pio_unlikely(vmp)) {
 		LOG(ERROR) << "VirtualMachine already present";
 		return StorRpc_constants::kInvalidVmHandle();
@@ -401,7 +401,7 @@ VmHandle NewVm(VmID vmid, const std::string& config) {
 
 int RemoveVmUsingVmID(VmID vmid) {
 	LOG(ERROR) << __func__ << "START";
-	auto managerp = SingletonHolder<VmManager>::GetInstance();
+	auto managerp = SingletonHolder<pio::VmManager>::GetInstance();
 	auto vmp = managerp->GetInstance(vmid);
 	if (pio_unlikely(not vmp)) {
 		LOG(ERROR) << "Given VmID is not present";
@@ -465,7 +465,7 @@ VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 		return StorRpc_constants::kInvalidVmdkHandle();
 	}
 
-	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
+	auto vmp = SingletonHolder<pio::VmManager>::GetInstance()->GetInstance(vm_handle);
 	if (pio_unlikely(not vmp)) {
 		return StorRpc_constants::kInvalidVmdkHandle();
 	}
@@ -516,7 +516,7 @@ int RemoveActiveVmdk(VmHandle vm_handle, VmdkID vmdkid) {
 		return StorRpc_constants::kInvalidVmdkHandle();
 	}
 
-	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
+	auto vmp = SingletonHolder<pio::VmManager>::GetInstance()->GetInstance(vm_handle);
 	if (pio_unlikely(not vmp)) {
 		return StorRpc_constants::kInvalidVmdkHandle();
 	}
@@ -539,7 +539,7 @@ int RemoveActiveVmdk(VmHandle vm_handle, VmdkID vmdkid) {
 
 VmHandle GetVmHandle(const std::string& vmid) {
 	try {
-		auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vmid);
+		auto vmp = SingletonHolder<pio::VmManager>::GetInstance()->GetInstance(vmid);
 		if (pio_unlikely(not vmp)) {
 			return StorRpc_constants::kInvalidVmHandle();
 		}
@@ -551,7 +551,7 @@ VmHandle GetVmHandle(const std::string& vmid) {
 
 void RemoveVm(VmHandle handle) {
 	try {
-		SingletonHolder<VmManager>::GetInstance()->FreeInstance(handle);
+		SingletonHolder<pio::VmManager>::GetInstance()->FreeInstance(handle);
 	} catch (...) {
 
 	}
@@ -619,7 +619,7 @@ int AeroSetTruncate(AeroClusterID cluster_id, const std::string& setp) {
 
 int AeroSetDelete(VmID vmid) {
 	try {
-		auto managerp = SingletonHolder<VmManager>::GetInstance();
+		auto managerp = SingletonHolder<pio::VmManager>::GetInstance();
 		auto vmp = managerp->GetInstance(vmid);
 		if (pio_unlikely(not vmp)) {
 			LOG(ERROR) << "Given VmID is not present";

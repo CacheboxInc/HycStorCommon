@@ -3,11 +3,11 @@
 #include <vector>
 #include "Singleton.h"
 #include "VmdkConfig.h"
+#include "Request.h"
+#include "Vmdk.h"
 
 #include <TargetManager.hpp>
 #include "NetworkTargetHandler.h"
-#include "Request.h"
-#include "Vmdk.h"
 
 #if 0
 #include "cksum.h"
