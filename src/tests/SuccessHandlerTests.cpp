@@ -124,6 +124,7 @@ protected:
 	folly::Future<int> VmdkBulkRead(std::vector<BlockID> blocks) {
 		auto requests = std::make_unique<std::vector<std::unique_ptr<Request>>>();
 		auto process = std::make_unique<std::vector<RequestBlock*>>();
+		std::vector<std::unique_ptr<RequestBuffer>> buffers;
 
 		for (auto block : blocks) {
 			auto offset = block << vmdkp->BlockShift();
@@ -141,12 +142,13 @@ protected:
 			});
 
 			requests->emplace_back(std::move(req));
+			buffers.emplace_back(std::move(bufferp));
 		}
 
 		auto ckpts = std::make_pair(1, 1);
 		return vmdkp->BulkRead(ckpts, *requests, *process)
-		.then([requests = std::move(requests), process = std::move(process)]
-				(int rc) {
+		.then([requests = std::move(requests), process = std::move(process),
+				buffers = std::move(buffers)] (int rc) {
 			return rc;
 		});
 	}
