@@ -393,7 +393,7 @@ public:
 			auto [cur_start, cur_end] = reqp->Blocks();
 			log_assert(prev_start <= cur_start);
 
-			if (write_size >= kBulkWriteMaxSize &&  prev_end >= cur_start) {
+			if (write_size >= kBulkWriteMaxSize ||  prev_end >= cur_start) {
 				/* prev req and current req coincide - submit BulkWrite */
 				futures.emplace_back(BulkWrite(vmp, vmdkp,
 					std::move(write_requests), std::move(process)));

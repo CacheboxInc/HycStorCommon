@@ -522,7 +522,7 @@ VirtualMachine::BulkRead(ActiveVmdk* vmdkp,
 			auto [cur_start, cur_end] = reqp->Blocks();
 			log_assert(prev_start <= cur_start);
 
-			if (read_size >= kBulkReadMaxSize && prev_end >= cur_start) {
+			if (read_size >= kBulkReadMaxSize || prev_end >= cur_start) {
 				futures.emplace_back(BulkRead(vmdkp, std::move(requests),
 					std::move(process), std::move(iobufs), read_size));
 				log_assert(not process and not requests);
