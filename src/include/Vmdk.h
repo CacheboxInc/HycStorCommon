@@ -169,6 +169,23 @@ public:
 	std::atomic<uint64_t> r_aero_io_blks_count_{0};
 	std::mutex r_aero_stat_lock_, w_aero_stat_lock_;
 
+	struct {
+		std::atomic<uint64_t> parent_blks_{0};
+		std::atomic<uint64_t> read_populates_{0};
+		std::atomic<uint64_t> cache_writes_{0};
+
+		std::atomic<uint64_t> read_hits_{0};
+		std::atomic<uint64_t> write_hits_{0};
+
+		std::atomic<uint64_t> read_miss_{0};
+		std::atomic<uint64_t> write_miss_{0};
+
+		std::atomic<uint64_t> read_failed_{0};
+		std::atomic<uint64_t> write_failed_{0};
+	} cache_stats_;
+
+	void GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept;
+
 private:
 	folly::Future<int> WriteCommon(Request* reqp, ::ondisk::CheckPointID ckpt_id);
 	int WriteRequestComplete(Request* reqp, ::ondisk::CheckPointID ckpt_id);

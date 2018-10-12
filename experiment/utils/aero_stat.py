@@ -32,3 +32,8 @@ print ("Send GET stord_svc aero_stat 1")
 r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/aero_stat/?vm-id=1" % h)
 print(r.text)
 assert (r.status_code == 200)
+
+print ("Send GET stord_svc vmdk_stats 2")
+r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/vmdk_stats/?vmdk-id=1" % h)
+print(r.json())
+assert (r.status_code == 200)

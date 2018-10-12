@@ -77,12 +77,14 @@ folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 			}
 		}
 		if (pio_unlikely(rc and f)) {
+			vmdkp->cache_stats_.read_failed_ += failed.size();
 			LOG(ERROR) << "Read error " << rc;
 			return rc < 0 ? rc : -rc;
 		}
 
 		/* No read miss to process, return from here */
 		if (failed.size() == 0) {
+			vmdkp->cache_stats_.read_hits_ += process.size();
 			return 0;
 		}
 
@@ -102,7 +104,9 @@ folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		return targets_[1]->Read(vmdkp, reqp, *read_missed, failed)
 		.then([this, vmdkp, reqp, read_missed = std::move(read_missed), &failed] (int rc)
 				mutable -> folly::Future<int> {
+			vmdkp->cache_stats_.read_miss_ += (*read_missed).size();
 			if (pio_unlikely(rc != 0)) {
+				vmdkp->cache_stats_.read_failed_ += failed.size();
 				LOG(ERROR) << __func__ << "Reading from TargetHandler layer for read populate failed";
 				return rc;
 			}
@@ -111,8 +115,9 @@ folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 
 			/* now read populate */
 			return targets_[0]->ReadPopulate(vmdkp, reqp, *read_missed, failed)
-			.then([read_missed = std::move(read_missed)]
+			.then([read_missed = std::move(read_missed), vmdkp]
 					(int rc) -> folly::Future<int> {
+				vmdkp->cache_stats_.read_populates_ += (*read_missed).size();
 				if (rc) {
 					LOG(ERROR) << __func__ << "Cache (Read) populate failed";
 				}

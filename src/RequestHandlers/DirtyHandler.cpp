@@ -141,6 +141,8 @@ folly::Future<int> DirtyHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		return -ENODEV;
 	}
 
+	vmdkp->cache_stats_.cache_writes_ += process.size();
+
 	if (pio_unlikely(aero_conn_ == nullptr)) {
 		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
 	}

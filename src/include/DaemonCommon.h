@@ -37,6 +37,19 @@ struct ScanStats {
 	uint64_t records_scanned;
 };
 
+struct VmdkCacheStats {
+	uint64_t parent_blks_{0};
+	uint64_t read_populates_{0};
+	uint64_t cache_writes_{0};
+	uint64_t read_hits_{0};
+	uint64_t write_hits_{0};
+	uint64_t read_miss_{0};
+	uint64_t write_miss_{0};
+	uint64_t read_failed_{0};
+	uint64_t write_failed_{0};
+
+};
+
 static constexpr auto kBlockIDMax = std::numeric_limits<::ondisk::BlockID>::max();
 static constexpr auto kBlockIDMin = std::numeric_limits<::ondisk::BlockID>::min();
 

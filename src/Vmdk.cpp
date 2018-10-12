@@ -118,6 +118,17 @@ int ActiveVmdk::Cleanup() {
 	return headp_->Cleanup(this);
 }
 
+void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
+	vmdk_stats->read_populates_ =  cache_stats_.read_populates_;
+	vmdk_stats->cache_writes_   =  cache_stats_.cache_writes_;
+	vmdk_stats->read_hits_      = cache_stats_.read_hits_;
+	vmdk_stats->write_hits_     = cache_stats_.write_hits_;
+	vmdk_stats->read_miss_      = cache_stats_.read_miss_;
+	vmdk_stats->write_miss_     = cache_stats_.write_miss_;
+	vmdk_stats->read_failed_    = cache_stats_.read_failed_;
+	vmdk_stats->write_failed_   = cache_stats_.write_failed_;
+}
+
 CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
 		const CheckPoints& min_max) const {
 	auto [min, max] = min_max;

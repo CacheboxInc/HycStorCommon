@@ -268,7 +268,49 @@ int VirtualMachine::AeroCacheStats(AeroStats *aero_statsp, AeroSpikeConn *aerop)
 	return rc;
 }
 
+int VirtualMachine::GetVmdkParentStats(AeroSpikeConn *aerop, ActiveVmdk* vmdkp,
+		VmdkCacheStats *vmdk_stats) {
+
+	auto aeroconf = aerop->GetJsonConfig();
+	std::string node_ips = aeroconf->GetAeroIPs();
+
+	std::vector<std::string> results;
+	boost::split(results, node_ips, boost::is_any_of(","));
+	uint32_t port;
+	aeroconf->GetAeroPort(port);
+
+	auto rc = 0;
+	vmdk_stats->parent_blks_ = 0;
+
+	for (auto node_ip : results) {
+		auto parent_disk = vmdkp->GetJsonConfig()->GetParentDisk();
+		if (pio_unlikely(!parent_disk.size())) {
+			continue;
+		}
+
+		std::ostringstream os_parent;
+		os_parent.str("");
+		os_parent.clear();
+		os_parent << "sets/CLEAN/" << parent_disk;
+
+		as_error err;
+		char* res = NULL;
+		rc = aerospike_info_host(&aerop->as_, &err, NULL, node_ip.c_str(),
+				port, os_parent.str().c_str(), &res);
+		if (rc != AEROSPIKE_OK) {
+			LOG(ERROR) << " aerospike_info_host failed";
+			rc = -ENOMEM;
+			break;
+		} else if (res) {
+			vmdk_stats->parent_blks_ += GetObjectCount(res);
+			free(res);
+		}
+	}
+	return rc;
+}
+
 int VirtualMachine::FlushStart(CheckPointID ckpt_id, bool perform_move) {
+
 	if (flush_in_progress_.test_and_set()) {
 		return -EAGAIN;
 	}
@@ -492,6 +534,7 @@ VirtualMachine::BulkRead(ActiveVmdk* vmdkp,
 		}
 
 		size_t read_size = 0;
+		uint64_t total_read_size = 0;
 		for (const auto& in_req : *in_reqs) {
 			auto [reqid, size, offset] = ExtractParams(in_req);
 			auto iobuf = folly::IOBuf::create(size);
@@ -544,7 +587,11 @@ VirtualMachine::BulkRead(ActiveVmdk* vmdkp,
 			read_size += size;
 			prev_start = cur_start;
 			prev_end = cur_end;
+			total_read_size += size;
 		}
+
+		stats_.bulk_read_sz_ += total_read_size;
+		stats_.bulk_reads_   += (*in_reqs).size();
 
 		if (pio_likely(not requests->empty())) {
 			futures.emplace_back(BulkRead(vmdkp, std::move(requests),

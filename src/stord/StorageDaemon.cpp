@@ -74,6 +74,7 @@ static const std::string kRemoveVmdk = "vmdk_delete";
 static const std::string kRemoveVm = "vm_delete";
 static const std::string kAeroCacheStat = "aero_stat";
 static const uint32_t kBulkWriteMaxSize = 256 * 1024;
+static const std::string kVmdkStats = "vmdk_stats";
 
 class StorRpcSvImpl : public virtual StorRpcSvIf {
 public:
@@ -1220,6 +1221,62 @@ static int AeroSetCleanup(const _ha_request *reqp, _ha_response *resp,
 	return HA_CALLBACK_CONTINUE;
 }
 
+static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+
+	auto param_valuep = ha_parameter_get(reqp, "vmdk-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+				"vmdk-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::string vmdkid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+				"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+
+	auto vmdk_stats   = std::make_shared<VmdkCacheStats>();
+	auto vmdk_stats_p = vmdk_stats.get();
+
+	auto rc = pio::NewVmdkStatsReq(vmdkid, vmdk_stats_p);
+	if (rc == -EINVAL) {
+		std::ostringstream es;
+		LOG(ERROR) << "Vmdk Stats request for VmdkID " << vmdkid
+		<< "failed. VmdkID invalid";
+		es << "Invalid VmdkID: " << vmdkid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	json_t *stat_params = json_object();
+	json_object_set(stat_params, "parent_blks", json_integer(vmdk_stats_p->parent_blks_));
+	json_object_set(stat_params, "read_populates", json_integer(vmdk_stats_p->read_populates_));
+	json_object_set(stat_params, "cache_writes", json_integer(vmdk_stats_p->cache_writes_));
+	json_object_set(stat_params, "read_hits", json_integer(vmdk_stats_p->read_hits_));
+	json_object_set(stat_params, "write_hits", json_integer(vmdk_stats_p->write_hits_));
+	json_object_set(stat_params, "read_miss", json_integer(vmdk_stats_p->read_miss_));
+	json_object_set(stat_params, "write_miss", json_integer(vmdk_stats_p->write_miss_));
+	json_object_set(stat_params, "read_failed", json_integer(vmdk_stats_p->read_failed_));
+	json_object_set(stat_params, "write_failed", json_integer(vmdk_stats_p->write_failed_));
+	std::string stat_params_str = json_dumps(stat_params, JSON_ENCODE_ANY);
+
+	json_object_clear(stat_params);
+	json_decref(stat_params);
+
+	ha_set_response_body(resp, HTTP_STATUS_OK, stat_params_str.c_str(),
+			strlen(stat_params_str.c_str()));
+
+	return HA_CALLBACK_CONTINUE;
+}
+
+
+
 int main(int argc, char* argv[])
 {
 	FLAGS_v = 2;
@@ -1260,7 +1317,7 @@ int main(int argc, char* argv[])
 	std::signal(SIGUSR1, Usr1SignalHandler);
 	std::signal(SIGQUIT, Usr1SignalHandler);
 #endif
-	auto size = sizeof(struct ha_handlers) + 12 * sizeof(struct ha_endpoint_handlers);
+	auto size = sizeof(struct ha_handlers) + 13 * sizeof(struct ha_endpoint_handlers);
 
 	auto handlers =
 		std::unique_ptr<struct ha_handlers,
@@ -1342,6 +1399,14 @@ int main(int argc, char* argv[])
 	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kAeroCacheStat.c_str(),
 			kAeroCacheStat.size() + 1);
 	handlers->ha_endpoints[handlers->ha_count].callback_function = NewAeroCacheStatReq;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
+	/* Vmdk Stats Request */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = GET;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kVmdkStats.c_str(),
+			kVmdkStats.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = NewVmdkStatsReq;
 	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
 	handlers->ha_count += 1;
 

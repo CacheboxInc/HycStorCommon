@@ -434,6 +434,31 @@ int RemoveVmUsingVmID(VmID vmid) {
 	}
 }
 
+int NewVmdkStatsReq(const std::string& vmdkid, VmdkCacheStats* vmdk_stats) {
+	auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdkid);
+	if (pio_unlikely(not p)) {
+		LOG(ERROR) << "Given VmdkId is not present";
+		return -EINVAL;
+	}
+	auto vmdkp = dynamic_cast<ActiveVmdk*>(p);
+	auto aero_conn = GetAeroConn(vmdkp);
+	if (pio_unlikely(not aero_conn)) {
+		LOG(ERROR) << "Given VM is not configured with AeroSpike cache";
+		return -EINVAL;
+	}
+
+	auto vmp = vmdkp->GetVM();
+	auto rc = vmp->GetVmdkParentStats(aero_conn.get(), vmdkp, vmdk_stats);
+	if (pio_unlikely(rc)) {
+		LOG(ERROR) << "Failed to get stats from Aerospike";
+		return -EINVAL;
+	}
+
+	vmdkp->GetCacheStats(vmdk_stats);
+
+	return 0;
+}
+
 std::shared_ptr<AeroSpikeConn> GetAeroConn(const ActiveVmdk *vmdkp) {
 	auto vmp = vmdkp->GetVM();
 	if (pio_unlikely(vmp == nullptr)) {
