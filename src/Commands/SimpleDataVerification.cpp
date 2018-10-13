@@ -149,6 +149,7 @@ int VerifyData(int fd, const std::vector<WriteDetails> wrote) {
 				return -1;
 		}
 	}
+	free(readp);
 	return 0;
 
 }
