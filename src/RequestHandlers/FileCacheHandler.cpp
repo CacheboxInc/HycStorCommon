@@ -23,8 +23,11 @@ namespace pio {
 
 FileCacheHandler::FileCacheHandler(const config::VmdkConfig* configp) :
 		RequestHandler(nullptr) {
-	enabled_ = configp->IsFileCacheEnabled();
+	/* FileCacheHandler with encryption and compression not supported */
+	log_assert(not configp->IsCompressionEnabled());
+	log_assert(not configp->IsEncryptionEnabled());
 
+	enabled_ = configp->IsFileCacheEnabled();
 	if (enabled_) {
 		file_path_ = configp->GetFileCachePath();
 

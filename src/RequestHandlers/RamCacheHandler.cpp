@@ -107,7 +107,8 @@ folly::Future<int> RamCacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 	failed.clear();
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
-		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(), srcp->Size());
+		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(),
+			srcp->PayloadSize());
 	}
 
 	if (pio_likely(not nextp_)) {
@@ -138,9 +139,10 @@ folly::Future<int> RamCacheHandler::ReadPopulate(ActiveVmdk *vmdkp,
 	failed.clear();
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
-		log_assert(srcp->Size() == vmdkp->BlockSize());
+		//log_assert(srcp->Size() == vmdkp->BlockSize());
 
-		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(), srcp->Size());
+		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(),
+			srcp->PayloadSize());
 	}
 
 	if (pio_unlikely(not nextp_)) {
@@ -170,7 +172,8 @@ folly::Future<int> RamCacheHandler::BulkWrite(ActiveVmdk* vmdkp,
 	for (const auto blockp : process) {
 		const auto srcp = blockp->GetRequestBufferAtBack();
 		//log_assert(srcp->Size() == vmdkp->BlockSize());
-		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(), srcp->Size());
+		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(),
+			srcp->PayloadSize());
 	}
 
 	if (pio_unlikely(not nextp_)) {
@@ -242,9 +245,10 @@ folly::Future<int> RamCacheHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
 
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
-		log_assert(srcp->Size() == vmdkp->BlockSize());
+		//log_assert(srcp->Size() == vmdkp->BlockSize());
 
-		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(), srcp->Size());
+		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(),
+			srcp->PayloadSize());
 	}
 
 	if (pio_unlikely(not nextp_)) {

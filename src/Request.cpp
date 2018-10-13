@@ -329,12 +329,14 @@ int RequestBlock::Complete() {
 	return ReadResultPrepare();
 }
 
-RequestBuffer::RequestBuffer(Type type, size_t size) : type_(type), size_(size) {
+RequestBuffer::RequestBuffer(Type type, size_t size) :
+		type_(type), size_(size), payload_size_(size) {
 	InitBuffer();
 }
 
 RequestBuffer::RequestBuffer(char* payloadp, size_t size) :
-		type_(Type::kWrapped), size_(size), payloadp_(payloadp) {
+		type_(Type::kWrapped), size_(size), payload_size_(size),
+		payloadp_(payloadp) {
 }
 
 void RequestBuffer::InitBuffer() {
@@ -376,6 +378,15 @@ size_t RequestBuffer::Size() const {
 	return size_;
 }
 
+size_t RequestBuffer::PayloadSize() const {
+	return payload_size_;
+}
+
+void RequestBuffer::SetPayloadSize(size_t payload_size) {
+	log_assert(payload_size <= size_);
+	payload_size_ = payload_size;
+}
+
 char* RequestBuffer::Payload() {
 	return payloadp_;
 }
@@ -398,7 +409,10 @@ std::unique_ptr<RequestBuffer> CloneRequestBuffer(RequestBuffer* srcp) {
 	if (pio_unlikely(not destp)) {
 		return nullptr;
 	}
-	::memcpy(destp->Payload(), srcp->Payload(), srcp->Size());
+
+	log_assert(srcp->PayloadSize() <= srcp->Size());
+	::memcpy(destp->Payload(), srcp->Payload(), srcp->PayloadSize());
+	destp->SetPayloadSize(srcp->PayloadSize());
 	return destp;
 }
 

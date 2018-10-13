@@ -46,7 +46,8 @@ int EncryptHandler::ReadComplete(const std::vector<RequestBlock*>& process,
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
 
-		auto dest_bufsz = hyc_encrypt_plain_bufsz(ctxp_, srcp->Payload(), srcp->Size());
+		auto dest_bufsz = hyc_encrypt_plain_bufsz(ctxp_, srcp->Payload(),
+			srcp->PayloadSize());
 		auto destp = pio::NewRequestBuffer(dest_bufsz);
 		if (pio_unlikely(not destp)) {
 			failed.emplace_back(blockp);
@@ -54,7 +55,7 @@ int EncryptHandler::ReadComplete(const std::vector<RequestBlock*>& process,
 			continue;
 		}
 
-		auto rc = hyc_decrypt(ctxp_, srcp->Payload(), srcp->Size(),
+		auto rc = hyc_decrypt(ctxp_, srcp->Payload(), srcp->PayloadSize(),
 			destp->Payload(), &dest_bufsz);
 		if (pio_unlikely(rc != HYC_ENCRYPT_SUCCESS)) {
 			failed.emplace_back(blockp);
@@ -100,7 +101,7 @@ int EncryptHandler::ProcessWrite(ActiveVmdk *vmdkp,
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
 
-		auto dest_bufsz = hyc_encrypt_get_maxlen(ctxp_, srcp->Size());
+		auto dest_bufsz = hyc_encrypt_get_maxlen(ctxp_, srcp->PayloadSize());
 		std::unique_ptr<char[]> dst_uptr(new char[dest_bufsz]);
 		if (pio_unlikely(not dst_uptr)) {
 			error = -ENOMEM;
@@ -108,7 +109,7 @@ int EncryptHandler::ProcessWrite(ActiveVmdk *vmdkp,
 		}
 		auto dest_bufp = dst_uptr.get();
 
-		auto rc = hyc_encrypt(ctxp_, srcp->Payload(), srcp->Size(),
+		auto rc = hyc_encrypt(ctxp_, srcp->Payload(), srcp->PayloadSize(),
 			dest_bufp, &dest_bufsz);
 		if (pio_unlikely(rc != HYC_ENCRYPT_SUCCESS)) {
 			error = -ENOMEM;

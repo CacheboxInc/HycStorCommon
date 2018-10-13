@@ -215,12 +215,15 @@ public:
 	~RequestBuffer();
 
 	size_t Size() const;
+	size_t PayloadSize() const;
+	void SetPayloadSize(size_t payload_size);
 	char* Payload();
 private:
 	void InitBuffer();
 private:
 	Type type_{Type::kWrapped};
 	size_t size_{0};
+	size_t payload_size_{0};
 	char* payloadp_{nullptr};
 };
 

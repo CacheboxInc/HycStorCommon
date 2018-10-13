@@ -44,14 +44,17 @@ void UnalignedHandler::ReadModify(ActiveVmdk *vmdkp, Request *reqp,
 
 		size_t gap = blockp->GetOffset() - blockp->GetAlignedOffset();
 		auto destp = blockp->GetRequestBufferAtBack();
-		log_assert(destp->Size() == vmdkp->BlockSize());
+		log_assert(destp->Size() == destp->PayloadSize());
+		log_assert(destp->PayloadSize() == vmdkp->BlockSize());
+
 		//auto srcp  = blockp->GetRequestBufferAt(count - 2);
 		auto srcp  = blockp->GetRequestBufferAt(0);
-		log_assert(gap + srcp->Size() <= destp->Size());
+		log_assert(srcp->Size() == srcp->PayloadSize());
+		log_assert(gap + srcp->Size() <= destp->PayloadSize());
 		log_assert(srcp->Size() < vmdkp->BlockSize());
 
 		auto dp = destp->Payload() + gap;
-		::memcpy(dp, srcp->Payload(), srcp->Size());
+		::memcpy(dp, srcp->Payload(), srcp->PayloadSize());
 	}
 }
 

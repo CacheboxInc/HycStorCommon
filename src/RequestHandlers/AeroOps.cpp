@@ -58,10 +58,8 @@ int AeroSpike::CacheIoWriteKeySet(ActiveVmdk *vmdkp, WriteRecord* wrecp,
 	as_record_init(rp, 1);
 
 	auto srcp = wrecp->rq_block_->GetRequestBufferAtBack();
-	log_assert(srcp->Size() == vmdkp->BlockSize());
-
 	auto s = as_record_set_raw(rp, kAsCacheBin.c_str(),
-			(const uint8_t *)srcp->Payload(), srcp->Size());
+			(const uint8_t *)srcp->Payload(), srcp->PayloadSize());
 	if (pio_unlikely(s == false)) {
 		LOG(ERROR) << __func__<< "Error in setting record property";
 		return -EINVAL;
@@ -696,14 +694,6 @@ folly::Future<int> AeroSpike::AeroRead(ActiveVmdk *vmdkp,
 						break;
 					case AEROSPIKE_OK:
 						{
-						auto destp = NewRequestBuffer(vmdkp->BlockSize());
-						if (pio_unlikely(not destp)) {
-							blockp->SetResult(-ENOMEM, RequestStatus::kFailed);
-							failed.emplace_back(blockp);
-							rc = -ENOMEM;
-							break;
-						}
-
 						as_bytes *bp = as_record_get_bytes(&recp->record, kAsCacheBin.c_str());
 						if (pio_unlikely(bp == NULL)) {
 							LOG(ERROR) << __func__ << "Access error, unable to get data from given rec";
@@ -713,11 +703,17 @@ folly::Future<int> AeroSpike::AeroRead(ActiveVmdk *vmdkp,
 							break;
 						}
 
-						log_assert(as_bytes_size(bp) == vmdkp->BlockSize());
-						log_assert(as_bytes_copy(bp, 0,
-							(uint8_t *) destp->Payload(), (uint32_t) vmdkp->BlockSize())
-								== vmdkp->BlockSize());
+						auto destp = NewRequestBuffer(as_bytes_size(bp));
+						if (pio_unlikely(not destp)) {
+							blockp->SetResult(-ENOMEM, RequestStatus::kFailed);
+							failed.emplace_back(blockp);
+							rc = -ENOMEM;
+							break;
+						}
 
+						auto ret = as_bytes_copy(bp, 0, (uint8_t *) destp->Payload(),
+							(uint32_t) destp->PayloadSize());
+						log_assert(ret == destp->PayloadSize());
 						blockp->PushRequestBuffer(std::move(destp));
 						blockp->SetResult(0, RequestStatus::kHit);
 						}

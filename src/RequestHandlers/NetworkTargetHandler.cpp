@@ -69,20 +69,17 @@ folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		return -ENOMEM;
 	}
 
-	std::shared_ptr<std::vector<req_buf_type>> req_blocks = std::make_shared<std::vector<req_buf_type>>();
+	auto req_blocks = std::make_shared<std::vector<req_buf_type>>();
 	for (auto blockp : process) {
-		auto destp = NewRequestBuffer(vmdkp->BlockSize());
-		if (pio_unlikely(not destp)) {
-			blockp->SetResult(-ENOMEM, RequestStatus::kFailed);
-			failed.emplace_back(blockp);
-			return -ENOMEM;
-		}
-
-		#if 0
-		LOG(ERROR) << "Request Offset :" << blockp->GetAlignedOffset() << "Size::" << destp->Size();
-		#endif
-		io->AddIoVec(blockp->GetAlignedOffset(), destp->Size(), destp->Payload());
-		req_blocks->push_back(std::move(destp));
+		io->AddIoVec(blockp->GetAlignedOffset(), vmdkp->BlockSize(),
+			[req_blocks](int buflen) -> void* {
+				auto destp = NewRequestBuffer(buflen);
+				if (pio_unlikely(not destp))
+					return nullptr;
+				auto bufp = destp->Payload();
+				req_blocks->push_back(std::move(destp));
+				return bufp;
+			});
 	}
 
 	auto promise = std::make_shared<folly::Promise<int>>();
@@ -112,7 +109,6 @@ folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
                                 ":" << bufferp->Size() <<
                                 ":" << crc_t10dif((unsigned char *) bufferp->Payload(), bufferp->Size());
 			#endif
-
 			blockp->PushRequestBuffer(std::move(*it));
 			blockp->SetResult(0, RequestStatus::kSuccess);
 			req_blocks->erase(it);
@@ -138,7 +134,7 @@ folly::Future<int> NetworkTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
 
 	for (auto& blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
-		io->AddIoVec(blockp->GetAlignedOffset(), srcp->Size(), srcp->Payload());
+		io->AddIoVec(blockp->GetAlignedOffset(), srcp->PayloadSize(), srcp->Payload());
 	}
 
 	auto promise = std::make_shared<folly::Promise<int>>();
@@ -173,17 +169,17 @@ folly::Future<int> NetworkTargetHandler::BulkRead(ActiveVmdk* vmdkp,
 		return -ENOMEM;
 	}
 
-	auto buffers = std::make_unique<std::vector<std::unique_ptr<RequestBuffer>>>();
+	auto buffers = std::make_shared<std::vector<std::unique_ptr<RequestBuffer>>>();
 	for (auto blockp : process) {
-		auto destp = NewRequestBuffer(vmdkp->BlockSize());
-		if (pio_unlikely(not destp)) {
-			blockp->SetResult(-ENOMEM, RequestStatus::kFailed);
-			failed.emplace_back(blockp);
-			return -ENOMEM;
-		}
-
-		io->AddIoVec(blockp->GetAlignedOffset(), destp->Size(), destp->Payload());
-		buffers->push_back(std::move(destp));
+		io->AddIoVec(blockp->GetAlignedOffset(), vmdkp->BlockSize(),
+			[buffers](int buflen) -> void* {
+				auto destp = NewRequestBuffer(buflen);
+				if (pio_unlikely(not destp))
+					return nullptr;
+				auto bufp = destp->Payload();
+				buffers->push_back(std::move(destp));
+				return bufp;
+			});
 	}
 
 	auto promise = std::make_unique<folly::Promise<int>>();
@@ -196,7 +192,7 @@ folly::Future<int> NetworkTargetHandler::BulkRead(ActiveVmdk* vmdkp,
 	}
 
 	return promise->getFuture()
-	.then([&process, &failed, io, buffers = std::move(buffers),
+	.then([&process, &failed, io, buffers,
 			promise = std::move(promise)]  (int rc) mutable {
 		if (pio_unlikely(rc != 0)) {
 			failed.reserve(process.size());
@@ -243,7 +239,8 @@ folly::Future<int> NetworkTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		LOG(ERROR) << __func__ << "Offset::-" << blockp->GetAlignedOffset()
 			<< "Start::-" << payload[0] << "End::-" << payload[4095];
 		#endif
-		io->AddIoVec(blockp->GetAlignedOffset(), srcp->Size(), srcp->Payload());
+		io->AddIoVec(blockp->GetAlignedOffset(), srcp->PayloadSize(),
+			srcp->Payload());
 	}
 
 	auto promise = std::make_shared<folly::Promise<int>>();

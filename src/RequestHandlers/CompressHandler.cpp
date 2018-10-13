@@ -55,7 +55,7 @@ CompressHandler::RequestBlockReadComplete(ActiveVmdk* vmdkp,
 
 	int32_t error = 0;
 	auto srcp = blockp->GetRequestBufferAtBack();
-	auto rc = hyc_uncompress(ctxp_, srcp->Payload(), srcp->Size(),
+	auto rc = hyc_uncompress(ctxp_, srcp->Payload(), srcp->PayloadSize(),
 		destp->Payload(), &dest_bufsz);
 	if (pio_unlikely(rc != HYC_COMPRESS_SUCCESS)) {
 		LOG(ERROR) << "Uncompress failed";
@@ -136,11 +136,10 @@ int CompressHandler::ProcessWrite(ActiveVmdk *vmdkp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	int error = 0;
-	auto max_bufsz = hyc_compress_get_maxlen(ctxp_, vmdkp->BlockSize());
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
 
-		auto dest_bufsz = max_bufsz;
+		auto dest_bufsz = hyc_compress_get_maxlen(ctxp_, srcp->PayloadSize());;
 		std::unique_ptr<char[]> dst_uptr(new char[dest_bufsz]);
 		if (pio_unlikely(not dst_uptr)) {
 			error = -ENOMEM;
@@ -148,7 +147,7 @@ int CompressHandler::ProcessWrite(ActiveVmdk *vmdkp,
 		}
 		auto dest_bufp = dst_uptr.get();
 
-		auto rc = hyc_compress(ctxp_, srcp->Payload(), srcp->Size(),
+		auto rc = hyc_compress(ctxp_, srcp->Payload(), srcp->PayloadSize(),
 			dest_bufp, &dest_bufsz);
 		if (pio_unlikely(rc != HYC_COMPRESS_SUCCESS)) {
 			error = -ENOMEM;

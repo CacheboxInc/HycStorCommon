@@ -121,6 +121,10 @@ retry_getevts:
 
 FileTargetHandler::FileTargetHandler(const config::VmdkConfig* configp) :
 		RequestHandler(nullptr) {
+	/* FileTargetHandler with encryption and compression not supported */
+	log_assert(not configp->IsCompressionEnabled());
+	log_assert(not configp->IsEncryptionEnabled());
+
 	enabled_ = configp->IsFileTargetEnabled();
 	create_file_ = configp->GetFileTargetCreate();
 

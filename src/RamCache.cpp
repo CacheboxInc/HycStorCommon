@@ -34,7 +34,8 @@ void RamCache::Write(ActiveVmdk *vmdkp, void *bufferp, Offset offset, size_t siz
 	auto destp = NewRequestBuffer(size);
 	auto dp = destp->Payload();
 
-	::memcpy(dp, bufferp, destp->Size());
+	log_assert(destp->PayloadSize() == destp->Size());
+	::memcpy(dp, bufferp, destp->PayloadSize());
 	cache_.insert_or_assign(key, std::move(destp));
 }
 
