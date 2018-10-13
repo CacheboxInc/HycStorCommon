@@ -164,7 +164,7 @@ folly::Future<int> VirtualMachine::CommitCheckPoint(CheckPointID ckpt_id) {
 	}
 
 	return folly::collectAll(std::move(futures))
-	.then([this, ckpt_id] (const std::vector<folly::Try<int>>& results)
+	.then([] (const std::vector<folly::Try<int>>& results)
 			-> folly::Future<int> {
 		for (auto& t : results) {
 			if (pio_likely(t.hasValue() and t.value() == 0)) {

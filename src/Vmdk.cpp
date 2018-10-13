@@ -971,7 +971,7 @@ folly::Future<int> ActiveVmdk::CommitCheckPoint(CheckPointID ckpt_id) {
 	auto json = checkpoint->Serialize();
 	auto key = checkpoint->SerializationKey();
 	return metad_kv_->Write(std::move(key), std::move(json))
-	.then([this, ckpt_id, checkpoint = std::move(checkpoint)] (int rc) mutable {
+	.then([checkpoint = std::move(checkpoint)] (int rc) mutable {
 		if (pio_unlikely(rc < 0)) {
 			/* ignore serialized write status */
 		} else {
