@@ -438,7 +438,7 @@ int RemoveVmUsingVmID(VmID vmid) {
 }
 
 int CommitCkpt(VmID vmid, std::string& ckpt_id) {
-	auto managerp = SingletonHolder<VmManager>::GetInstance();
+	auto managerp = SingletonHolder<pio::VmManager>::GetInstance();
 	auto vmp = managerp->GetInstance(vmid);
 	if (pio_unlikely(not vmp)) {
 		LOG(ERROR) << "Given VmID:" << vmid << " is not present";
@@ -586,7 +586,7 @@ int PrepareCkpt(VmHandle vm_handle) {
 	LOG(ERROR) << __func__ << "Start";
 	auto managerp = SingletonHolder<VmdkManager>::GetInstance();
 
-	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
+	auto vmp = SingletonHolder<pio::VmManager>::GetInstance()->GetInstance(vm_handle);
 	if (pio_unlikely(not vmp)) {
 		LOG(ERROR) << __func__ << " Invalid vm_handle:-" << vm_handle;
 		return StorRpc_constants::kInvalidVmdkHandle();
@@ -657,7 +657,7 @@ int SetCkptBitmap(VmHandle vm_handle, VmdkID vmdkid, const std::string& config) 
 
 	auto managerp = SingletonHolder<VmdkManager>::GetInstance();
 
-	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
+	auto vmp = SingletonHolder<pio::VmManager>::GetInstance()->GetInstance(vm_handle);
 	if (pio_unlikely(not vmp)) {
 		LOG(ERROR) << __func__ << " Invalid vm_handle:-" << vm_handle;
 		return StorRpc_constants::kInvalidVmdkHandle();

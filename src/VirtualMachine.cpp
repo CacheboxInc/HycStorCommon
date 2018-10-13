@@ -311,7 +311,7 @@ int VirtualMachine::GetVmdkParentStats(AeroSpikeConn *aerop, ActiveVmdk* vmdkp,
 	vmdk_stats->parent_blks_ = 0;
 
 	for (auto node_ip : results) {
-		auto parent_disk = vmdkp->GetJsonConfig()->GetParentDisk();
+		auto parent_disk = vmdkp->GetParentDiskSet( );
 		if (pio_unlikely(!parent_disk.size())) {
 			continue;
 		}
