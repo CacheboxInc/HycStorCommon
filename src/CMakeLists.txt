@@ -110,6 +110,7 @@ set(StorageLayerFiles
 	ScanInstance.cpp
 	FlushConfig.cpp
 	AeroFiberThreads.cpp
+	SetCkptBmapConfig.cpp
 
 	RangeLock.cpp
 	Request.cpp

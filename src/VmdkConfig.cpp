@@ -65,6 +65,7 @@ const std::string VmdkConfig::kRamMetaDataKV = "RamMetaDataKV";
 const std::string VmdkConfig::kAeroMetaDataKV = "AeroMetaDataKV";
 const std::string VmdkConfig::kMetaDataKV = "MetaDataKV";
 const std::string VmdkConfig::kParentDiskName = "ParentDiskName";
+const std::string VmdkConfig::kParentDiskVmdkID = "ParentDiskVmdkID";
 const std::string VmdkConfig::kCleanupOnWrite = "CleanupOnWrite";
 
 VmdkConfig::VmdkConfig(const std::string& config) : JsonConfig(config) {
@@ -78,13 +79,12 @@ void VmdkConfig::SetParentDisk(const std::string& parent_name) {
 	return JsonConfig::SetKey(kParentDiskName, parent_name);
 }
 
-std::string VmdkConfig::GetParentDisk() const {
-	std::string name;
-	auto rc = JsonConfig::GetKey(kParentDiskName, name);
+bool VmdkConfig::GetParentDisk(std::string& parent_name) {
+	auto rc = JsonConfig::GetKey(kParentDiskName, parent_name);
 	if (not rc) {
-		name.clear();
+		parent_name.clear();
 	}
-	return name;
+	return rc;
 }
 
 void VmdkConfig::SetVmdkId(const VmdkID& id) {
@@ -97,6 +97,14 @@ bool VmdkConfig::GetVmdkId(VmdkID& id) const {
 
 void VmdkConfig::SetVmId(const VmID& id) {
 	JsonConfig::SetKey(kVmID, id);
+}
+
+bool VmdkConfig::GetParentDiskVmdkId(VmdkID& id) const {
+	return JsonConfig::GetKey(kParentDiskVmdkID, id);
+}
+
+void VmdkConfig::SetParentDiskVmdkId(const VmdkID& id) {
+	JsonConfig::SetKey(kParentDiskVmdkID, id);
 }
 
 bool VmdkConfig::GetVmId(VmID& id) const {

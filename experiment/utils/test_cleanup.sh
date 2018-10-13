@@ -1,7 +1,7 @@
 #!/bin/bash
 TargetName="tgt1"
 #TargetName="192168111242315bd768368ede80f4ff75bee0b88cubuntuvm"
-TargetIP="192.168.5.138"
+TargetIP=`ip route get 8.8.8.8 | sed -n '/src/{s/.*src *//p;q}'`
 #Cleanup 
 iscsiadm -m node --logout
 iscsiadm -m node -o delete

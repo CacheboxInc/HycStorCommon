@@ -25,6 +25,7 @@
 #include "Singleton.h"
 #include "AeroFiberThreads.h"
 #include "FlushManager.h"
+#include "SetCkptBmapConfig.cpp"
 #include "ScanManager.h"
 #include "FlushInstance.h"
 #include "ScanInstance.h"
@@ -274,7 +275,7 @@ int NewScanReq(VmID vmid, const std::string& config) {
 	if (pio_unlikely(!start_instance)) {
 #if 0
 		/*
-		 * TBD: Abort any already running scan session if it is processing 
+		 * TBD: Abort any already running scan session if it is processing
 		 * less than 32 VmDKs. This will help scan to start with larger
 		 * set of VmDKs instead of keep on working on narrow set of entries.
 		 */
@@ -421,17 +422,35 @@ int RemoveVmUsingVmID(VmID vmid) {
 			return 1;
 		}
 
+		#if 0
 		/* Delete aerospike set first */
 		if (AeroSetDelete(vmid)) {
 			LOG(ERROR) << "Unable to Clean the aerospike set entries";
 		}
+		#endif
 
-		LOG(ERROR) << __func__ << "Calling FreeInstance";
+		LOG(INFO) << __func__ << " Calling FreeInstance";
 		return managerp->FreeInstance(handle);
 	} catch (...) {
-		LOG(ERROR) << __func__ << "Returing because of exeception";
+		LOG(ERROR) << __func__ << " Returing because of exeception";
 		return 1;
 	}
+}
+
+int CommitCkpt(VmID vmid, std::string& ckpt_id) {
+	auto managerp = SingletonHolder<VmManager>::GetInstance();
+	auto vmp = managerp->GetInstance(vmid);
+	if (pio_unlikely(not vmp)) {
+		LOG(ERROR) << "Given VmID:" << vmid << " is not present";
+		return 1;
+	}
+
+	auto f = vmp->CommitCheckPoint(stol(ckpt_id));
+	f.wait();
+	auto rc = f.value();
+	LOG(ERROR) << __func__ << " Done with commit for Ckpt ID:"
+			<< ckpt_id << ", ret:" << rc;
+	return rc;
 }
 
 int NewVmdkStatsReq(const std::string& vmdkid, VmdkCacheStats* vmdk_stats) {
@@ -469,7 +488,7 @@ std::shared_ptr<AeroSpikeConn> GetAeroConn(const ActiveVmdk *vmdkp) {
 	AeroClusterID aero_cluster_id;
 	auto ret = vm_confp->GetAeroClusterID(aero_cluster_id);
 	if (pio_unlikely(ret == 0)) {
-		LOG(ERROR) << __func__ << "Unable to find aerospike cluster "
+		LOG(ERROR) << __func__ << " Unable to find aerospike cluster "
 			"id for given disk." " Please check JSON configuration "
 			"with associated VM. Moving ahead without"
 			" Aero connection object";
@@ -560,6 +579,157 @@ int RemoveActiveVmdk(VmHandle vm_handle, VmdkID vmdkid) {
 	}
 
 	return 0;
+}
+
+int PrepareCkpt(VmHandle vm_handle) {
+
+	LOG(ERROR) << __func__ << "Start";
+	auto managerp = SingletonHolder<VmdkManager>::GetInstance();
+
+	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
+	if (pio_unlikely(not vmp)) {
+		LOG(ERROR) << __func__ << " Invalid vm_handle:-" << vm_handle;
+		return StorRpc_constants::kInvalidVmdkHandle();
+	}
+
+	/* Create very firt checkpoint if not present, we want a forzen copy to update bitmap */
+	auto cur_ckptid = vmp->GetCurCkptID();
+	if (pio_likely(cur_ckptid == MetaData_constants::kInvalidCheckPointID() + 1)) {
+
+		LOG(ERROR) << __func__ << " Creating first checkpoint";
+		auto f = vmp->TakeCheckPoint();
+		f.wait();
+		auto [id, rc] = f.value();
+		if (pio_unlikely(rc)) {
+			return rc;
+		}
+		log_assert (id == MetaData_constants::kInvalidCheckPointID() + 1);
+		LOG(ERROR) << __func__ << "Checkpoint done";
+	}
+
+	return 0;
+}
+
+uint64_t GetBlocks(std::string& s, const char& delimiter,
+		std::unordered_set<BlockID>& blocks,
+		size_t block_size) {
+
+	std::string token;
+	std::istringstream tokenStream(s);
+	while (std::getline(tokenStream, token, delimiter))
+	{
+		std::string temp = token;
+		std::size_t first = temp.find_first_of(":");
+		if (first == std::string::npos) {
+			return 1;
+		}
+
+		std::string strNew = temp.substr(0, first);
+		auto start = stol(strNew);
+
+		strNew = temp.substr(first + 1, temp.length() - 1);
+		auto length = stol(strNew);
+
+		bool partial_ = not IsBlockSizeAlgined(start, block_size);
+		if (partial_) {
+			auto aligned_start = AlignDownToBlockSize(start, block_size);
+			length += start - aligned_start;
+			start = aligned_start;
+		}
+
+		while (length > 0)  {
+			log_assert(start % block_size == 0);
+			blocks.insert(start / block_size);
+			start += block_size;
+			length -= block_size;
+		}
+	}
+
+	/* Print the blocks */
+	for (auto a : blocks) {
+		LOG(ERROR) << __func__ << "block ::" << a;
+	}
+
+	return 0;
+}
+
+int SetCkptBitmap(VmHandle vm_handle, VmdkID vmdkid, const std::string& config) {
+
+	auto managerp = SingletonHolder<VmdkManager>::GetInstance();
+
+	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
+	if (pio_unlikely(not vmp)) {
+		LOG(ERROR) << __func__ << " Invalid vm_handle:-" << vm_handle;
+		return StorRpc_constants::kInvalidVmdkHandle();
+	}
+
+	auto vmdkp = managerp->GetInstance(vmdkid);
+	if (pio_unlikely(not vmdkp)) {
+		LOG(ERROR) << __func__ << " Invalid vmdkid:-" << vmdkid;
+		return StorRpc_constants::kInvalidVmdkHandle();
+	}
+
+	auto cur_ckptid = vmp->GetCurCkptID();
+	if (cur_ckptid == MetaData_constants::kInvalidCheckPointID() + 1) {
+		LOG(ERROR) << __func__ << " The very first checkpoint"
+			" has not been created,"
+			" please run prepare_ckpt REST call first.";
+		return -EINVAL;
+	}
+
+	std::unique_ptr<config::SetCkptBmapConfig> configp
+		= std::make_unique<config::SetCkptBmapConfig>(config);
+
+	auto ckpt_id = MetaData_constants::kInvalidCheckPointID();
+	if(pio_likely(!configp->GetCkptID(ckpt_id))) {
+		LOG(ERROR) << __func__ << " Ckpt ID has not given as input, assuming ckpt id as 1";
+		//ckpt_id = vmp->GetCurCkptID() - 1;
+		ckpt_id = MetaData_constants::kInvalidCheckPointID() + 1;
+	}
+
+	if (pio_unlikely(ckpt_id != MetaData_constants::kInvalidCheckPointID() + 1)) {
+		LOG(ERROR) << __func__ << " Invalid ckpt id as input, currently"
+				" ckpt bitmap set is allowed only for 1st "
+				" checkpoint only";
+		return -EINVAL;
+	}
+
+	/*
+	 * It's responsibility of caller to break extent list into smaller
+	 * chunks and stream it to storD using multiple set ckpt bitmap calls
+	 * Handle the cases of string overflow
+	 */
+
+	std::string extents;
+	extents.clear();
+	try {
+		if (pio_likely(!configp->GetExtents(extents))) {
+			LOG(ERROR) << __func__ << " Invalid configurtion, no extents input found";
+			return -EINVAL;
+		}
+	} catch (const std::exception& e) {
+		LOG(ERROR) << __func__ << " Exception " << e.what();
+		return -ENOMEM;
+	}
+
+	if (pio_unlikely(extents.empty())) {
+		LOG(ERROR) << "Invalid configurtion, empty extents list as input";
+		return -EINVAL;
+	}
+
+	auto active_disk = dynamic_cast<ActiveVmdk*>(vmdkp);
+	std::unordered_set<BlockID> blocks;
+	if (GetBlocks(extents, ',', blocks, active_disk->BlockSize())) {
+		LOG(ERROR) << "Unable to create block list from given extents";
+		return -ENOMEM;
+	}
+
+	auto rc = active_disk->SetCkptBitmap(ckpt_id, blocks);
+	if (pio_unlikely(rc)) {
+		LOG(ERROR) << __func__ << " Failed to set checkpoint bitmap";
+	}
+
+	return rc;
 }
 
 VmHandle GetVmHandle(const std::string& vmid) {

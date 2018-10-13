@@ -374,7 +374,7 @@ folly::Future<int> AeroSpike::AeroWrite(ActiveVmdk *vmdkp,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
 	auto batch = std::make_unique<WriteBatch>(vmdkp->GetID(), ns,
-		vmdkp->GetVM()->GetJsonConfig()->GetTargetName());
+		vmdkp->GetVM()->GetSetName());
 	if (pio_unlikely(batch == nullptr)) {
 		LOG(ERROR) << "WriteBatch allocation failed";
 		return -ENOMEM;
@@ -495,7 +495,7 @@ int AeroSpike::ReadBatchInit(ActiveVmdk *vmdkp,
 		}
 
 		auto rec = std::make_unique<ReadRecord>(block, r_batch_rec,
-				ns, vmdkp, r_batch_rec->setp_);
+				ns, vmdkp, block->GetSetName());
 		if (pio_unlikely(not rec)) {
 			LOG(ERROR) << "ReadRecord allocation failed";
 			return -ENOMEM;
@@ -632,7 +632,7 @@ folly::Future<int> AeroSpike::AeroRead(ActiveVmdk *vmdkp,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
 	auto batch = std::make_unique<ReadBatch>(vmdkp->GetID(), ns,
-			vmdkp->GetVM()->GetJsonConfig()->GetTargetName());
+			vmdkp->GetVM()->GetSetName());
 	log_assert(batch != nullptr);
 
 	batch->aero_conn_ = aero_conn.get();
@@ -714,6 +714,15 @@ folly::Future<int> AeroSpike::AeroRead(ActiveVmdk *vmdkp,
 						auto ret = as_bytes_copy(bp, 0, (uint8_t *) destp->Payload(),
 							(uint32_t) destp->PayloadSize());
 						log_assert(ret == destp->PayloadSize());
+						if (pio_unlikely(ret != destp->PayloadSize())) {
+							LOG(ERROR) << __func__ << "Access error, data found after"  
+								" cache read is less than expected size";
+							blockp->SetResult(-EIO, RequestStatus::kFailed);
+							failed.emplace_back(blockp);
+							rc = -ENOMEM;
+							break;
+						}
+
 						blockp->PushRequestBuffer(std::move(destp));
 						blockp->SetResult(0, RequestStatus::kHit);
 						}
@@ -1076,33 +1085,40 @@ folly::Future<int> AeroSpike::AeroDelCmdProcess(ActiveVmdk *vmdkp,
 	return AeroDel(vmdkp, ckpt, process, failed, ns, aero_conn);
 }
 
-WriteRecord::WriteRecord(RequestBlock* blockp, WriteBatch* batchp, const std::string& ns, ActiveVmdk *vmdkp) :
-	rq_block_(blockp), batchp_(batchp), setp_(batchp->setp_) {
+WriteRecord::WriteRecord(RequestBlock* blockp, WriteBatch* batchp,
+	const std::string& ns, ActiveVmdk *vmdkp) :
+	rq_block_(blockp), batchp_(batchp) {
+
 	std::ostringstream os;
-
 	if (ns == kAsNamespaceCacheClean) {
-		os << (batchp->pre_keyp_) << ":"
-		<< std::to_string(blockp->GetReadCheckPointId()) << ":"
-		<< std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
 
-		/* Set the setname from where we want to write */
-		if (blockp->GetReadCheckPointId() == MetaData_constants::kInvalidCheckPointID() + 1){
-			std::string parent_disk = vmdkp->GetJsonConfig()->GetParentDisk();
-			if (parent_disk.size()) {
-				setp_ = parent_disk;
-				os.str("");
-				os.clear();
-				os << std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
-			}
+		/* Writes in Clean namespace is due to following */
+		/* 1. Read Populate for aligned Read IOs, blockp will be set */
+		/* 3. Read Populate for unaligned Read IOs, blockp will be set */
+		/* 2. Read Populate for unaligned Write IOs, blockp would be set */
+		/* 2. Moving data from DIRTY to CLEAN namespace: blockp would have setname set */
+
+		/* Set the setname in reqblock where we want to write */
+		std::string bset = blockp->GetSetName();
+		log_assert(!bset.empty());
+		std::string pset = vmdkp->GetParentDiskSet();
+		if (pio_likely(bset != pset)) {
+			os << (batchp->pre_keyp_) << ":"
+			<< std::to_string(blockp->GetReadCheckPointId()) << ":" <<
+			std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
+		} else {
+			auto pvmdkid = vmdkp->GetParentDiskVmdkId();
+			os << pvmdkid << ":" << std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
 		}
+		setp_ = bset;
 	} else {
+		setp_ = batchp->setp_;
 		os << (batchp->pre_keyp_) << ":"
 		<< std::to_string(batchp->ckpt_) << ":"
 		<< std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
 	}
 
 	key_val_ = os.str();
-//	LOG(ERROR) << __func__ << "::Key is::" << key_val_;
 }
 
 WriteRecord::~WriteRecord() {
@@ -1117,22 +1133,33 @@ ReadRecord::ReadRecord(RequestBlock* blockp, ReadBatch* batchp, const std::strin
 		ActiveVmdk *vmdkp, const std::string& setp) :
 		rq_block_(blockp), batchp_(batchp), setp_(setp) {
 	std::ostringstream os;
-	os << batchp->pre_keyp_ << ":"
-		<< std::to_string(blockp->GetReadCheckPointId()) << ":"
-		<< std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
 	if (ns == kAsNamespaceCacheClean) {
-		if (blockp->GetReadCheckPointId() ==
-			MetaData_constants::kInvalidCheckPointID() + 1) {
-			std::string parent_disk;
-			parent_disk = vmdkp->GetJsonConfig()->GetParentDisk();
-			if (parent_disk.size()) {
-				setp_ = parent_disk;
-				os.str("");
-				os.clear();
-				os << std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
-			}
+
+		/* Read from Clean namespace can be due to following */
+		/* 1. Cache read for aligned IO */
+		/* 2. Cache read for unaligned Write IOs,
+		 * blockp would be set approiately */
+
+		/* Get the setname from where we want to write */
+		std::string bset = blockp->GetSetName();
+		log_assert(!bset.empty());
+		std::string pset = vmdkp->GetParentDiskSet();
+		if (pio_likely(bset != pset)) {
+			os << (batchp->pre_keyp_) << ":"
+			<< std::to_string(blockp->GetReadCheckPointId()) << ":" <<
+			std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
+		} else {
+			auto pvmdkid = vmdkp->GetParentDiskVmdkId();
+			os << pvmdkid << ":" << std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
 		}
+		setp_ = bset;
+	} else {
+		setp_ = batchp->setp_;
+		os << (batchp->pre_keyp_) << ":"
+		<< std::to_string(blockp->GetReadCheckPointId()) << ":" <<
+		std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
 	}
+
 	key_val_ = os.str();
 }
 

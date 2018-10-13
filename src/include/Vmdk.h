@@ -46,6 +46,7 @@ public:
 	std::pair<::ondisk::BlockID, ::ondisk::BlockID> Blocks() const noexcept;
 	const Roaring& GetRoaringBitMap() const noexcept;
 	void SetSerialized() noexcept;
+	void UnsetSerialized() noexcept;
 	bool IsSerialized() const noexcept;
 	void SetFlushed() noexcept;
 	bool IsFlushed() const noexcept;
@@ -132,17 +133,22 @@ public:
 	folly::Future<int> Write(Request* reqp, ::ondisk::CheckPointID ckpt_id);
 	folly::Future<int> WriteSame(Request* reqp, ::ondisk::CheckPointID ckpt_id);
 	folly::Future<int> TakeCheckPoint(::ondisk::CheckPointID check_point);
+	folly::Future<int> CommitCheckPoint(::ondisk::CheckPointID check_point);
 	int FlushStages(::ondisk::CheckPointID check_point, bool perform_move);
 	int FlushStage(::ondisk::CheckPointID check_point);
 	int MoveStage(::ondisk::CheckPointID check_point);
-	const CheckPoint* GetCheckPoint(::ondisk::CheckPointID ckpt_id) const;
+	CheckPoint* GetCheckPoint(::ondisk::CheckPointID ckpt_id) const;
 
 	folly::Future<int> BulkWrite(::ondisk::CheckPointID ckpt_id,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process);
+
 	folly::Future<int> BulkRead(const CheckPoints& min_max,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process);
+
+	int SetCkptBitmap(::ondisk::CheckPointID ckpt_id,
+		std::unordered_set<::ondisk::BlockID>& blocks);
 public:
 	size_t BlockSize() const;
 	size_t BlockShift() const;
@@ -150,6 +156,15 @@ public:
 	bool CleanupOnWrite() const {
 		return cleanup_on_write_;
 	};
+
+	const std::string GetParentDiskSet() const {
+		return parentdisk_set_;
+	};
+
+	const ::ondisk::VmdkID GetParentDiskVmdkId() const {
+		return parentdisk_vmdkid_;
+	};
+
 	VirtualMachine* GetVM() const noexcept;
 	const config::VmdkConfig* GetJsonConfig() const noexcept;
 
@@ -196,7 +211,7 @@ private:
 		CopyDirtyBlocksSet(::ondisk::CheckPointID ckpt_id);
 	void RemoveDirtyBlockSet(::ondisk::CheckPointID ckpt_id);
 	::ondisk::CheckPointID GetModifiedCheckPoint(::ondisk::BlockID block,
-		const CheckPoints& min_max) const;
+		const CheckPoints& min_max, bool& found) const;
 public:
 	void SetReadCheckPointId(const std::vector<RequestBlock*>& blockps,
 		const CheckPoints& min_max) const;
@@ -237,6 +252,8 @@ private:
 public:
 	std::unique_ptr<RequestHandler> headp_{nullptr};
 	std::unique_ptr<FlushAuxData> aux_info_{nullptr};
+	std::string parentdisk_set_;
+	::ondisk::VmdkID parentdisk_vmdkid_;
 
 private:
 	static constexpr uint32_t kDefaultBlockSize{4096};

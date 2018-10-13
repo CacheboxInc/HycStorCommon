@@ -22,6 +22,8 @@ std::shared_ptr<AeroSpikeConn> GetAeroConnUsingVmID(ondisk::VmID vmid);
 
 void RemoveVm(::hyc_thrift::VmdkHandle vm_handle);
 int RemoveVmUsingVmID(ondisk::VmID vmid);
+int PrepareCkpt(::hyc_thrift::VmdkHandle vm_handle);
+int CommitCkpt(ondisk::VmID vmid, std::string& ckpt_id);
 int NewFlushReq(ondisk::VmID vmid, const std::string& config);
 int NewScanReq(ondisk::VmID vmid, const std::string& config);
 int NewFlushStatusReq(ondisk::VmID vmid, FlushStats &flush_stat);
@@ -32,6 +34,7 @@ int NewVmdkStatsReq(const std::string& vmdkid, VmdkCacheStats* vmdk_stats);
 VmdkHandle NewActiveVmdk(hyc_thrift::VmHandle vm_handle, ::ondisk::VmdkID vmdkid,
 		const std::string& config);
 int RemoveActiveVmdk(hyc_thrift::VmHandle vm_handle, ::ondisk::VmdkID vmdkid);
+int SetCkptBitmap(hyc_thrift::VmHandle vm_handle, ::ondisk::VmdkID vmdkid, const std::string& config);
 VmdkHandle GetVmdkHandle(const std::string& vmdkid);
 void RemoveVmdk(hyc_thrift::VmdkHandle handle);
 

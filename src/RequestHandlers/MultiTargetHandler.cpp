@@ -46,12 +46,17 @@ void MultiTargetHandler::InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 	}
 
 	if (configp->IsFileCacheEnabled()) {
-		auto file_target = std::make_unique<FileCacheHandler>(configp);
-		targets_.push_back(std::move(file_target));
+		auto file_cache = std::make_unique<FileCacheHandler>(configp);
+		targets_.push_back(std::move(file_cache));
 	}
 
 	auto cache_target = std::make_unique<CacheTargetHandler>(vmdkp, configp);
 	targets_.push_back(std::move(cache_target));
+
+	if (configp->IsFileTargetEnabled()) {
+		auto file_target = std::make_unique<FileTargetHandler>(configp);
+		targets_.push_back(std::move(file_target));
+	}
 
 #ifdef USE_NEP
 	if (configp->IsNetworkTargetEnabled()) {
@@ -264,7 +269,7 @@ folly::Future<int> MultiTargetHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
-	return targets_[0]->BulkReadPopulate(vmdkp, requests, process, failed);		
+	return targets_[0]->BulkReadPopulate(vmdkp, requests, process, failed);
 }
 
 }

@@ -15,12 +15,14 @@ public:
 	VmdkConfig();
 	void SetVmdkId(const ::ondisk::VmdkID& id);
 	bool GetVmdkId(::ondisk::VmdkID& id) const;
+	void SetParentDiskVmdkId(const ::ondisk::VmdkID& id);
+	bool GetParentDiskVmdkId(::ondisk::VmdkID& id) const;
 	void SetVmId(const ::ondisk::VmID& id);
 	bool GetVmId(::ondisk::VmID& id) const;
 	void SetBlockSize(uint32_t size);
 	bool GetBlockSize(uint32_t& size) const;
 	void SetParentDisk(const std::string& parent_name);
-	std::string GetParentDisk() const;
+	bool GetParentDisk(std::string& parent_name);
 
 	void DisableCompression();
 	void ConfigureCompression(const std::string& algo, uint16_t level);
@@ -131,6 +133,7 @@ public:
 	static const std::string kAeroMetaDataKV;
 	static const std::string kMetaDataKV;
 	static const std::string kParentDiskName;
+	static const std::string kParentDiskVmdkID;
 	static const std::string kCleanupOnWrite;
 };
 

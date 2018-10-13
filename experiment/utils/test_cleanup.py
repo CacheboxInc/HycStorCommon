@@ -65,9 +65,12 @@ print ("Send POST stord_svc vmdk_delete")
 r = requests.post("%s://127.0.0.1:9000/stord_svc/v1.0/vmdk_delete/?vm-id=%s&vmdk-id=%s" % (h, VmId, VmdkID), headers=headers, cert=cert, verify=False)
 assert (r.status_code == 200)
 
+
+'''
 print ("Send POST stord_svc del_target")
 r = requests.post("%s://127.0.0.1:9000/stord_svc/v1.0/del_target/?vm_id=%s&vmdk_id=%s" % (h, VmId, VmdkID), headers=headers, cert=cert, verify=False)
 assert (r.status_code == 200)
+'''
 
 # POST call 4 to stord_svc vm_delete
 print ("Send POST stord_svc vm_delete %s" %VmId)

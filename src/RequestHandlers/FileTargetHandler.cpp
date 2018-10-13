@@ -591,11 +591,32 @@ folly::Future<int> FileTargetHandler::ReadPopulate(ActiveVmdk *vmdkp,
 	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
+folly::Future<int> FileTargetHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	failed.clear();
+	if (pio_unlikely(not nextp_)) {
+		failed.reserve(process.size());
+		std::copy(process.begin(), process.end(), std::back_inserter(failed));
+		return -ENODEV;
+	}
+
+	return nextp_->BulkReadPopulate(vmdkp, requests, process, failed);
+}
+
+folly::Future<int> FileTargetHandler::BulkRead(ActiveVmdk* vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	return this->Read(vmdkp, nullptr, process, failed);
+}
+
 folly::Future<int> FileTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
 		::ondisk::CheckPointID ckpt,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
-	return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
+	return this->Write(vmdkp, nullptr, ckpt, process, failed);
 }
 }

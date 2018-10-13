@@ -74,6 +74,14 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	if (not config_->GetCleanupOnWrite(cleanup_on_write_)) {
 		cleanup_on_write_ = true;
 	}
+
+	config_->GetParentDisk(parentdisk_set_);
+	if (!config_->GetParentDiskVmdkId(parentdisk_vmdkid_)) {
+		parentdisk_vmdkid_.clear();
+	}
+	LOG(ERROR) << "Parent Name::-" <<
+		parentdisk_set_.c_str() << ", ID::-" <<
+		parentdisk_vmdkid_.c_str();
 }
 
 ActiveVmdk::~ActiveVmdk() = default;
@@ -130,7 +138,7 @@ void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
 }
 
 CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
-		const CheckPoints& min_max) const {
+		const CheckPoints& min_max, bool& found) const {
 	auto [min, max] = min_max;
 	log_assert(min > MetaData_constants::kInvalidCheckPointID());
 
@@ -207,6 +215,8 @@ CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
 	 *     MetaData_constants::kInvalidCheckPointID() + 1 from this function for now
 	 * - Return MetaData_constants::kInvalidCheckPointID() from here
 	 */
+
+	found = false;
 	return MetaData_constants::kInvalidCheckPointID() + 1;
 }
 
@@ -214,10 +224,12 @@ void ActiveVmdk::SetReadCheckPointId(const std::vector<RequestBlock*>& blockps,
 		const CheckPoints& min_max) const {
 	for (auto blockp : blockps) {
 		auto block = blockp->GetBlockID();
+		bool found = true;
 		/* find latest checkpoint in which the block is modified */
-		auto ckpt_id = GetModifiedCheckPoint(block, min_max);
+		auto ckpt_id = GetModifiedCheckPoint(block, min_max, found);
 		log_assert(ckpt_id != MetaData_constants::kInvalidCheckPointID());
 		blockp->SetReadCheckPointId(ckpt_id);
+		blockp->AssignSet(found);
 	}
 }
 
@@ -726,7 +738,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 
 		size = block_cnt * BlockSize();
 		LOG (ERROR) << "blk count::" << block_cnt
-			<< "start block::" << start_block << "size::" << size;
+			<< ", start block::" << start_block << ", size::" << size;
 		auto iobuf = NewRequestBuffer(size);
 		if (pio_unlikely(not iobuf)) {
 			throw std::bad_alloc();
@@ -742,7 +754,8 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 		reqp->SetFlushCkptID(ckpt_id);
 
 		this->Flush(reqp.get(), min_max)
-		.then([this, iobuf = std::move(iobuf), reqp = std::move(reqp)] (int rc) mutable {
+		.then([this, iobuf = std::move(iobuf), reqp = std::move(reqp),
+			block_cnt = block_cnt] (int rc) mutable {
 
 			/* TBD : Free the created IO buffer */
 			this->aux_info_->lock_.lock();
@@ -773,7 +786,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 				}
 			}
 
-			++aux_info_->flushed_blks_;
+			aux_info_->flushed_blks_+= block_cnt;
 			aux_info_->lock_.unlock();
 		});
 
@@ -809,7 +822,9 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 		reqp->SetFlushCkptID(ckpt_id);
 
 		this->Flush(reqp.get(), min_max)
-		.then([this, iobuf = std::move(iobuf), reqp = std::move(reqp)] (int rc) mutable {
+		.then([this, iobuf = std::move(iobuf),
+			reqp = std::move(reqp), block_cnt = block_cnt]
+				(int rc) mutable {
 
 			/* TBD : Free the created IO buffer */
 			this->aux_info_->lock_.lock();
@@ -817,7 +832,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 
 			/* If some of the requests has failed then don't submit new ones */
 			if (pio_unlikely(rc)) {
-				LOG(ERROR) << "Some of the flush request failed";
+				LOG(ERROR) << "Some of the flush requests are failed";
 				aux_info_->failed_ = true;
 			}
 
@@ -840,7 +855,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 				}
 			}
 
-			++aux_info_->flushed_blks_;
+			aux_info_->flushed_blks_+= block_cnt;
 			aux_info_->lock_.unlock();
 		});
 	}
@@ -857,6 +872,36 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 	log_assert(aux_info_->pending_cnt_ == 0);
 	aux_info_->lock_.unlock();
 	return aux_info_->failed_;
+}
+
+int ActiveVmdk::SetCkptBitmap(CheckPointID ckpt_id,
+	std::unordered_set<::ondisk::BlockID>& blocks) {
+
+	auto checkpoint = GetCheckPoint(ckpt_id);
+	if (pio_unlikely(checkpoint == nullptr)) {
+		LOG(ERROR) << __func__ << " No checkpoint information found"
+			" for given checkpoint ID::" << ckpt_id;
+		return -EINVAL;
+	}
+
+	if (pio_likely(blocks.size())) {
+
+		/*
+		 * TBD : Mark the checkpoint unserialized because after this point
+		 * on disk state (if any) is inconsistent and checkpoint need to
+		 * be serialized again post all the bitmap updates (in context of
+		 * commit checkpoint). Serialized this information to disk.
+		 */
+
+		if (pio_unlikely(checkpoint->IsSerialized())) {
+			LOG(ERROR) << __func__ << " Resetting the Serialized flag for VMDKID:" << GetID();
+			checkpoint->UnsetSerialized();
+		}
+
+		checkpoint->SetModifiedBlocks(std::move(blocks));
+	}
+
+	return 0;
 }
 
 folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
@@ -885,6 +930,9 @@ folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
 			/* ignore serialized write status */
 		} else {
 			checkpoint->SetSerialized();
+			if (pio_likely(checkpoint->IsSerialized())) {
+				LOG(ERROR) << __func__ << "Setting serialized true for vmdkid:" << GetID();
+			}
 		}
 
 		std::lock_guard<std::mutex> guard(checkpoints_.mutex_);
@@ -899,7 +947,42 @@ folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
 	});
 }
 
-const CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
+folly::Future<int> ActiveVmdk::CommitCheckPoint(CheckPointID ckpt_id) {
+
+	LOG(ERROR) << __func__ << " Commit on checkpoint ID:" << ckpt_id;
+	auto checkpoint = GetCheckPoint(ckpt_id);
+	if (pio_unlikely(not checkpoint)) {
+		return -ENOMEM;
+	}
+
+	/*
+	 * Some of the disks may be untouched during bitmap update, doesn't
+	 * need to seralized them again (serialized flag has not been flipped
+	 * for them
+	 */
+
+	if (pio_unlikely(checkpoint->IsSerialized())) {
+		LOG(ERROR) << __func__ << " Serialized flag is already set for VMDKID:" << GetID();
+		return 0;
+	} else {
+		LOG(ERROR) << __func__ << " Serialized flag is false for VMDKID:" << GetID();
+	}
+
+	auto json = checkpoint->Serialize();
+	auto key = checkpoint->SerializationKey();
+	return metad_kv_->Write(std::move(key), std::move(json))
+	.then([this, ckpt_id, checkpoint = std::move(checkpoint)] (int rc) mutable {
+		if (pio_unlikely(rc < 0)) {
+			/* ignore serialized write status */
+		} else {
+			checkpoint->SetSerialized();
+		}
+
+		return 0;
+	});
+}
+
+CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
 	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
 	auto it1 = pio::BinarySearch(checkpoints_.unflushed_.begin(),
 		checkpoints_.unflushed_.end(), ckpt_id, []
@@ -959,7 +1042,6 @@ std::string CheckPoint::SerializationKey() const {
 }
 
 void CheckPoint::SetModifiedBlocks(const std::unordered_set<BlockID>& blocks) {
-	log_assert(blocks_bitset_.isEmpty());
 	for (auto b : blocks) {
 		blocks_bitset_.add(b);
 	}
@@ -986,6 +1068,10 @@ const Roaring& CheckPoint::GetRoaringBitMap() const noexcept {
 
 void CheckPoint::SetSerialized() noexcept {
 	serialized_ = true;
+}
+
+void CheckPoint::UnsetSerialized() noexcept {
+	serialized_ = false;
 }
 
 bool CheckPoint::IsSerialized() const noexcept {

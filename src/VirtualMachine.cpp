@@ -22,6 +22,7 @@ constexpr size_t kBulkReadMaxSize = 256 * 1024;
 VirtualMachine::VirtualMachine(VmHandle handle, VmID vm_id,
 		const std::string& config) : handle_(handle), vm_id_(std::move(vm_id)),
 		config_(std::make_unique<config::VmConfig>(config)) {
+		setname_ = config_->GetTargetName();
 }
 
 VirtualMachine::~VirtualMachine() = default;
@@ -145,10 +146,37 @@ folly::Future<CheckPointResult> VirtualMachine::TakeCheckPoint() {
 				}
 			}
 			CheckPointComplete(ckpt_id);
-			return std::make_pair(ckpt_id, 0);;
+			return std::make_pair(ckpt_id, 0);
 		});
 	});
 }
+
+folly::Future<int> VirtualMachine::CommitCheckPoint(CheckPointID ckpt_id) {
+
+	std::vector<folly::Future<int>> futures;
+	futures.reserve(vmdk_.list_.size());
+	{
+		std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+		for (const auto& vmdkp : vmdk_.list_) {
+			auto fut = vmdkp->CommitCheckPoint(ckpt_id);
+			futures.emplace_back(std::move(fut));
+		}
+	}
+
+	return folly::collectAll(std::move(futures))
+	.then([this, ckpt_id] (const std::vector<folly::Try<int>>& results)
+			-> folly::Future<int> {
+		for (auto& t : results) {
+			if (pio_likely(t.hasValue() and t.value() == 0)) {
+				continue;
+			} else {
+				return t.value();
+			}
+		}
+		return (0);
+	});
+}
+
 
 int VirtualMachine::FlushStatus(FlushStats &flush_stat) {
 	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
@@ -238,7 +266,7 @@ int VirtualMachine::AeroCacheStats(AeroStats *aero_statsp, AeroSpikeConn *aerop)
 		std::lock_guard<std::mutex> lock(vmdk_.mutex_);
 		for (const auto& vmdkp : vmdk_.list_) {
 			/* Loop on each disk for this disk to get the Parent Cache stats */
-			auto parent_disk = vmdkp->GetJsonConfig()->GetParentDisk();
+			auto parent_disk = vmdkp->GetParentDiskSet();
 			if (pio_unlikely(!parent_disk.size())) {
 				continue;
 			}
@@ -372,6 +400,16 @@ folly::Future<int> VirtualMachine::Write(ActiveVmdk* vmdkp, Request* reqp) {
 		WriteComplete(ckpt_id);
 		return rc;
 	});
+}
+
+::ondisk::CheckPointID VirtualMachine::GetCurCkptID() const {
+	auto ckpt_id = [this] () mutable -> CheckPointID {
+		std::lock_guard<std::mutex> guard(checkpoint_.mutex_);
+		auto ckpt_id = checkpoint_.checkpoint_id_.load();
+		return ckpt_id;
+	} ();
+
+	return ckpt_id;
 }
 
 folly::Future<int> VirtualMachine::BulkWrite(ActiveVmdk* vmdkp,

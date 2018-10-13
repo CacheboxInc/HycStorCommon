@@ -88,6 +88,6 @@ folly::Future<int> BlockTraceHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
-	return nextp_->BulkReadPopulate(vmdkp, requests, process, failed);		
+	return nextp_->BulkReadPopulate(vmdkp, requests, process, failed);
 }
 }

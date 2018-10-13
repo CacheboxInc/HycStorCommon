@@ -15,8 +15,11 @@ fi
 python3 test_tgt.py
 
 #Discovey on local host
-iscsiadm --mode discovery --type sendtargets --portal $TargetIP
-iscsiadm -m node -T $TargetName --login
+discover=false
+if [ $discover = true ] ; then
+	iscsiadm --mode discovery --type sendtargets --portal $TargetIP
+	iscsiadm -m node -T $TargetName --login
+fi
 
 #Turn off Read Ahead
 #echo 0 > /sys/devices/platform/host34/session2/target34:0:0/34:0:0:1/block/sdd/queue/read_ahead_kb

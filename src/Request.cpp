@@ -329,6 +329,19 @@ int RequestBlock::Complete() {
 	return ReadResultPrepare();
 }
 
+int RequestBlock::AssignSet(const bool& ckpt_hit) {
+	if (pio_unlikely(!ckpt_hit)) {
+		std::string pset = vmdkp_->GetParentDiskSet();
+		if (pio_unlikely(!pset.empty())) {
+			setname_ = pset;
+			return 0;
+		}
+	}
+
+	setname_ = vmdkp_->GetVM()->GetSetName();
+	return 0;
+}
+
 RequestBuffer::RequestBuffer(Type type, size_t size) :
 		type_(type), size_(size), payload_size_(size) {
 	InitBuffer();

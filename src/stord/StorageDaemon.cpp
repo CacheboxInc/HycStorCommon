@@ -73,6 +73,9 @@ static const std::string kAeroSetCleanup = "aero_set_cleanup";
 static const std::string kRemoveVmdk = "vmdk_delete";
 static const std::string kRemoveVm = "vm_delete";
 static const std::string kAeroCacheStat = "aero_stat";
+static const std::string kPrepareCkpt = "prepare_ckpt";
+static const std::string kSetCkptBitMap = "set_bitmap";
+static const std::string kCommitCkpt = "commit_ckpt";
 static const uint32_t kBulkWriteMaxSize = 256 * 1024;
 static const std::string kVmdkStats = "vmdk_stats";
 
@@ -230,7 +233,6 @@ public:
 		vmdkp->w_pending_count++;
 		w_lock.unlock();
 
-		//LOG(ERROR) << "Size ::" << size << "Offset::" << offset;
 		auto reqp = std::make_unique<Request>(reqid, vmdkp, Request::Type::kWrite,
 			iobuf->writableData(), size, size, offset);
 
@@ -506,6 +508,9 @@ enum StordSvcErr {
 	STORD_ERR_SCAN_NOT_STARTED,
 	STORD_ERR_AERO_STAT,
 	STORD_ERR_MAX_LIMIT,
+	STORD_ERR_COMMIT_CKPT,
+	STORD_ERR_CKPT_BMAP_SET,
+	STORD_ERR_INVALID_PREPARE_CKPTID,
 };
 
 void HaHeartbeat(void *userp) {
@@ -513,7 +518,7 @@ void HaHeartbeat(void *userp) {
 
 	while(1) {
 		std::unique_lock<std::mutex> lck(g_thread_.ha_guard.mutex_);
-		if (g_thread_.ha_guard.ha_hb_stop_cv_.wait_for(lck, std::chrono::seconds(60),
+		if (g_thread_.ha_guard.ha_hb_stop_cv_.wait_for(lck, std::chrono::seconds(15),
 			 [] { return g_thread_.stop_; })) {
 			LOG(INFO) << " Stop HA heartbeat thread";
 			break;
@@ -1035,6 +1040,157 @@ static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp)
 	return HA_CALLBACK_CONTINUE;
 }
 
+static int
+NewPrepareCkpt(const _ha_request *reqp, _ha_response *resp, void *userp) {
+
+	LOG(ERROR) << __func__ << " Start..";
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::string vmid(param_valuep);
+	LOG(ERROR) << __func__ << " Vmid::" << vmid.c_str();
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
+		std::ostringstream es;
+		es << "PrepareCkpt call failed, Invalid VmID = " << vmid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	LOG(ERROR) << __func__ << "Calling PrepareCkpt";
+	auto ret = pio::PrepareCkpt(vm_handle);
+	if (ret) {
+		std::ostringstream es;
+		es << "PrepareCkpt failed for "
+			<< " VmID = " << vmid;
+		SetErrMsg(resp, STORD_ERR_INVALID_PREPARE_CKPTID, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	const auto res = std::to_string(ret);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+	return HA_CALLBACK_CONTINUE;
+}
+
+static int
+NewSetCkptBitMapReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+
+	LOG(ERROR) << __func__ << " Start..";
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::string vmid(param_valuep);
+	LOG(ERROR) << __func__ << " Vmid::" << vmid.c_str();
+	param_valuep = ha_parameter_get(reqp, "vmdk-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"vmdk-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmdkid(param_valuep);
+	LOG(ERROR) << __func__ << " VmdkID::" << vmdkid.c_str();
+
+	auto data = ha_get_data(reqp);
+	if (data == nullptr) {
+		SetErrMsg(resp, STORD_ERR_INVALID_NO_DATA,
+			"SetCkptBitmap invalid config");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string req_data(data);
+	::free(data);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
+		std::ostringstream es;
+		LOG(ERROR) << "Set Bitmap of VMDK failed. Invalid VmID = " << vmid;
+		es << "Set Bitmap of VMDK failed. Invalid VmID = " << vmid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	LOG(ERROR) << __func__ << "Calling SetCkptBitmap";
+	auto ret = pio::SetCkptBitmap(vm_handle, vmdkid, req_data);
+	if (ret) {
+		std::ostringstream es;
+		es << "Settting CKPT bitmap for VMDK failed."
+			<< " VmID = " << vmid
+			<< " VmdkID = " << vmdkid;
+		SetErrMsg(resp, STORD_ERR_CKPT_BMAP_SET, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	const auto res = std::to_string(ret);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+	return HA_CALLBACK_CONTINUE;
+}
+
+static int
+NewCommitCkpt(const _ha_request *reqp, _ha_response *resp, void *userp) {
+
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	param_valuep = ha_parameter_get(reqp, "ckpt-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"ckpt-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string ckptid(param_valuep);
+	LOG(ERROR) << __func__ << " ckpt-id::" << ckptid.c_str();
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+	auto ret = pio::CommitCkpt(vmid, ckptid);
+	if (ret) {
+		std::ostringstream es;
+		es << "Commit Ckpt failed, " << " VmID = " << vmid;
+		SetErrMsg(resp, STORD_ERR_COMMIT_CKPT, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	const auto res = std::to_string(ret);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+	return HA_CALLBACK_CONTINUE;
+}
+
+
 static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 	if (param_valuep == NULL) {
@@ -1317,8 +1473,7 @@ int main(int argc, char* argv[])
 	std::signal(SIGUSR1, Usr1SignalHandler);
 	std::signal(SIGQUIT, Usr1SignalHandler);
 #endif
-	auto size = sizeof(struct ha_handlers) + 13 * sizeof(struct ha_endpoint_handlers);
-
+	auto size = sizeof(struct ha_handlers) + 16 * sizeof(struct ha_endpoint_handlers);
 	auto handlers =
 		std::unique_ptr<struct ha_handlers,
 		void(*)(void *)>(reinterpret_cast<struct ha_handlers*>(::malloc(size)),
@@ -1431,6 +1586,30 @@ int main(int argc, char* argv[])
 	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kRemoveVm.c_str(),
 		kRemoveVm.size() + 1);
 	handlers->ha_endpoints[handlers->ha_count].callback_function = RemoveVm;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
+	/* Prepare ckpt Request */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kPrepareCkpt.c_str(),
+			kPrepareCkpt.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = NewPrepareCkpt;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
+	/* Set bitmap Request */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kSetCkptBitMap.c_str(),
+			kSetCkptBitMap.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = NewSetCkptBitMapReq;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
+	/* Commit ckpt */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kCommitCkpt.c_str(),
+			kCommitCkpt.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = NewCommitCkpt;
 	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
 	handlers->ha_count += 1;
 

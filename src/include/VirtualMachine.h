@@ -54,6 +54,7 @@ public:
 	folly::Future<int> Read(ActiveVmdk* vmdkp, Request* reqp);
 	folly::Future<int> Flush(ActiveVmdk* vmdkp, Request* reqp, const CheckPoints& min_max);
 	folly::Future<CheckPointResult> TakeCheckPoint();
+	folly::Future<int> CommitCheckPoint(::ondisk::CheckPointID ckpt_id);
 	int FlushStart(::ondisk::CheckPointID ckpt_id, bool perform_move);
 	int FlushStatus(FlushStats &flush_stat);
 	int AeroCacheStats(AeroStats *aero_statsp, AeroSpikeConn *aerop);
@@ -61,6 +62,7 @@ public:
 		VmdkCacheStats *vmdk_stats);
 	folly::Future<int> Stun(::ondisk::CheckPointID ckpt_id);
 	std::vector <::ondisk::VmdkID> GetVmdkIDs();
+	::ondisk::CheckPointID GetCurCkptID() const;
 
 	folly::Future<int> BulkWrite(ActiveVmdk* vmdkp,
 		const std::vector<std::unique_ptr<Request>>& requests,
@@ -73,6 +75,9 @@ public:
 	const ::ondisk::VmID& GetID() const noexcept;
 	VmdkHandle GetHandle() const noexcept;
 	const config::VmConfig* GetJsonConfig() const noexcept;
+	const std::string GetSetName() const {
+		return setname_;
+	};
 
 private:
 	ActiveVmdk* FindVmdk(const ::ondisk::VmdkID& vmdk_id) const;
@@ -83,6 +88,7 @@ private:
 	folly::Future<ReadResultVec> BulkRead(ActiveVmdk* vmdkp,
 		std::unique_ptr<ReqVec> requests, std::unique_ptr<ReqBlockVec> process,
 		std::unique_ptr<IOBufPtrVec> iobufs, size_t read_size);
+	std::string setname_;
 
 private:
 	VmdkHandle handle_;

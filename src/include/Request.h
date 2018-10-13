@@ -146,6 +146,10 @@ public:
 	Request* GetRequest() const noexcept;
 
 	void SetResult(int return_value, RequestStatus status) noexcept;
+	int AssignSet(const bool& ckpt_hit);
+	const std::string GetSetName() const {
+		return setname_;
+	}
 
 	int GetResult() const noexcept;
 	RequestStatus GetStatus() const noexcept;
@@ -200,6 +204,7 @@ private:
 	} status_;
 
 	std::vector<std::unique_ptr<RequestBuffer>> request_buffers_;
+	std::string setname_;
 };
 
 class RequestBuffer {

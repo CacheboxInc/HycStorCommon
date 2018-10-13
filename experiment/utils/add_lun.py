@@ -18,16 +18,23 @@ cert = None
 
 AeroClusterID="1"
 TargetName="tgt1"
+TargetName_D="%s" %TargetName
 
 VmId="1"
 VmdkID="2"
 TargetID="%s" %VmId
 LunID="%s" %VmdkID
+FileTarget="/tmp/hyc/"
+createfile="false"
+DevTarget="/dev/sde"
 
-size_in_gb="10" #Size in GB
+size_in_gb="1" #Size in GB
+size_in_bytes=int(size_in_gb) * int(1024) * int(1024) * int(1024)
+
 DevName="iscsi-%s-disk_%s" %(TargetName, LunID)
 DevPath="/var/hyc/%s" %(DevName)
 cmd="truncate --size=%sG %s" %(size_in_gb, DevPath)
+
 print ("DevPath: %s" %DevPath)
 print ("Cmd: %s" %cmd)
 os.system(cmd);
@@ -44,8 +51,13 @@ params = OrderedDict([('first', 1), ('second', 2), ('third', 3)])
 data = { "service_type": "test_server", "service_instance" : 0, "etcd_ips" : ["3213213", "213213"]}
 
 # POST call 3 to stord_svc
-data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"4096","Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"true"}}
 print ("Send POST stord_svc new_vmdk 1")
+parent = False
+if parent == True:
+	data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"4096", "ParentDiskName":"set10", "ParentDiskVmdkID" : "12", "Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true","CreateFile":"%s" %createfile, "TargetFilePath":"%s" %DevTarget,"TargetFileSize":"%s" %size_in_bytes}, "CleanupOnWrite":"true"}
+else:
+	data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"4096", "Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true","CreateFile":"%s" %createfile, "TargetFilePath":"%s" %DevTarget,"TargetFileSize":"%s" %size_in_bytes}, "CleanupOnWrite":"true"}
+
 r = requests.post("%s://127.0.0.1:9000/stord_svc/v1.0/new_vmdk/?vm-id=%s&vmdk-id=%s" % (h,VmId,VmdkID), data=json.dumps(data2), headers=headers, cert=cert, verify=False)
 assert (r.status_code == 200)
 
