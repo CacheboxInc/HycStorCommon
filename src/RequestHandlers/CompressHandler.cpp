@@ -124,7 +124,7 @@ folly::Future<int> CompressHandler::BulkRead(ActiveVmdk* vmdkp,
 	}
 
 	return nextp_->BulkRead(vmdkp, requests, process, failed)
-	.then([&] (int rc) mutable {
+	.then([this, vmdkp, &process, &failed] (int rc) mutable {
 		if (pio_unlikely(rc < 0 || not failed.empty())) {
 			return rc;
 		}
