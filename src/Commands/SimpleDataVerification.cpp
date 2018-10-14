@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <algorithm>
+#include <random>
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
@@ -85,6 +86,20 @@ ssize_t SafeRead(int fd, char* datap, const size_t size, uint64_t offset) {
 	return size;
 }
 
+template<typename Iter, typename RandomGenerator>
+Iter SelectRandomly(Iter start, Iter end, RandomGenerator& gen) {
+	std::uniform_int_distribution<> dis(0, std::distance(start, end) - 1);
+	return std::next(start, dis(gen));
+}
+
+
+template<typename Iter>
+Iter SelectRandomly(Iter start, Iter end) {
+	static std::random_device rd;
+	static std::mt19937 gen(rd());
+	return SelectRandomly(start, end, gen);
+}
+
 int WriteData(int fd, const char begin_char, std::vector<WriteDetails>& wrote) {
 	const size_t kMaxBlockSize = *bsrange.rbegin();
 
@@ -95,25 +110,28 @@ int WriteData(int fd, const char begin_char, std::vector<WriteDetails>& wrote) {
 	}
 	assert(datap);
 
+	auto bsrange_start = bsrange.begin();
+	auto bsrange_end = bsrange.end();
 	uint64_t count = 0;
 	for (size_t offset = 0; offset < DiskSize; ) {
-		for (auto& block_size : bsrange) {
-			const char ch = begin_char + (count % 26);
-			::memset(datap, ch, block_size);
+		auto it = SelectRandomly(bsrange_start, bsrange_end);
+		assert(it != bsrange_end);
+		auto block_size = *it;
+		const char ch = begin_char + (count % 26);
+		::memset(datap, ch, block_size);
 
-			ssize_t nwrote = SafeWrite(fd, datap, block_size, offset);
-			if (nwrote != static_cast<ssize_t>(block_size)) {
-				::free(datap);
-				return nwrote;
-			}
+		ssize_t nwrote = SafeWrite(fd, datap, block_size, offset);
+		if (nwrote != static_cast<ssize_t>(block_size)) {
+			::free(datap);
+			return nwrote;
+		}
 
-			wrote.emplace_back(offset, block_size, ch);
-			offset += block_size;
-			++count;
+		wrote.emplace_back(offset, block_size, ch);
+		offset += block_size;
+		++count;
 
-			if (offset >= DiskSize) {
-				break;
-			}
+		if (offset >= DiskSize) {
+			break;
 		}
 	}
 	::free(datap);
