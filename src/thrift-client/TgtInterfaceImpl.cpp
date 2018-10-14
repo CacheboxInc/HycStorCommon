@@ -954,6 +954,9 @@ void StordVmdk::BulkReadComplete(const std::vector<Request*>& requests,
 			log_assert(reqp != nullptr);
 			ReadDataCopy(reqp, result);
 		}
+	}
+
+	for (auto reqp : requests) {
 		RequestComplete(reqp);
 	}
 }
@@ -971,6 +974,7 @@ void StordVmdk::ScheduleBulkRead(folly::EventBase* basep,
 		if (hyc_unlikely(trie.hasException())) {
 			LOG(ERROR) << __func__ << " STORD sent exception";
 			RequestComplete(*thrift_requests, -ENOMEM);
+			return;
 		}
 
 		const auto& result = trie.value();
