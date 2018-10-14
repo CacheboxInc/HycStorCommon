@@ -212,7 +212,7 @@ int32_t StordConnection::Disconnect() {
 	}
 
 	if (base_) {
-		base_->runInEventBaseThread([this] () {
+		base_->runInEventBaseThreadAndWait([this] () {
 			ping_.timeout_ = nullptr;
 			sched_pending_.~SchedulePending();
 		});
