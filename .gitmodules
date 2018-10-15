@@ -11,3 +11,6 @@
 [submodule "thirdparty/hyc-datapack"]
 	path = thirdparty/hyc-datapack
 	url = git@github.com:CacheboxInc/hyc-datapack.git
+[submodule "thirdparty/cpr"]
+	path = thirdparty/cpr
+	url = git@github.com:CacheboxInc/cpr.git
