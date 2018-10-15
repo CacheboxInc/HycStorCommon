@@ -79,9 +79,6 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	if (!config_->GetParentDiskVmdkId(parentdisk_vmdkid_)) {
 		parentdisk_vmdkid_.clear();
 	}
-	LOG(ERROR) << "Parent Name::-" <<
-		parentdisk_set_.c_str() << ", ID::-" <<
-		parentdisk_vmdkid_.c_str();
 }
 
 ActiveVmdk::~ActiveVmdk() = default;
@@ -930,9 +927,6 @@ folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
 			/* ignore serialized write status */
 		} else {
 			checkpoint->SetSerialized();
-			if (pio_likely(checkpoint->IsSerialized())) {
-				LOG(ERROR) << __func__ << "Setting serialized true for vmdkid:" << GetID();
-			}
 		}
 
 		std::lock_guard<std::mutex> guard(checkpoints_.mutex_);

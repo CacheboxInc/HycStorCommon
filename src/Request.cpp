@@ -338,7 +338,10 @@ int RequestBlock::AssignSet(const bool& ckpt_hit) {
 		}
 	}
 
-	setname_ = vmdkp_->GetVM()->GetSetName();
+	auto vmp = vmdkp_->GetVM();
+	if (pio_likely(vmp)) {
+		setname_ = vmdkp_->GetVM()->GetSetName();
+	}
 	return 0;
 }
 
