@@ -63,6 +63,11 @@ void MultiTargetHandler::InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 		auto network_target = std::make_unique<NetworkTargetHandler>(configp);
 		targets_.push_back(std::move(network_target));
 	}
+#else
+	if (not configp->IsFileTargetEnabled()) {
+		auto success = std::make_unique<SuccessHandler>(configp);
+		targets_.emplace_back(std::move(success));
+	}
 #endif
 }
 
