@@ -134,6 +134,18 @@ static void ConfigureSuccessHandler(VmdkConfig& config) {
 	config.EnableSuccessHandler();
 }
 
+static void ConfigureReadAhead(VmdkConfig& config) {
+	std::string enable;
+	std::cout << "Is ReadAhead enabled [y/n]> ";
+	std::cin >> enable;
+	if (enable == "n") {
+		config.DisableReadAhead();
+		return;
+	}
+
+	config.EnableReadAhead();
+}
+
 int main(int argc, char* argv[]) {
 	std::string vmid;
 	std::string vmdkid;
@@ -173,6 +185,8 @@ int main(int argc, char* argv[]) {
 	ConfigureFileCache(config);
 	ConfigureSuccessHandler(config);
 	ConfigureFileTarget(config);
+	
+	ConfigureReadAhead(config);
 
 	std::cout << "VMDK Configuration\n\n"
 		<< config.Serialize() << std::endl;

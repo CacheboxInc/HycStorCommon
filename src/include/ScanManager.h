@@ -7,8 +7,6 @@
 #include "gen-cpp2/MetaData_types.h"
 #include "SpinLock.h"
 #include "ScanInstance.h"
-#include "halib.h"
-#include "Vmdk.h"
 
 namespace pio {
 class ScanManager {
