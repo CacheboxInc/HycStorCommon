@@ -60,6 +60,10 @@ public:
 	void ConfigureFileTargetCreate(const bool& file_create);
 	void SetCleanupOnWrite(const bool& val);
 	bool GetCleanupOnWrite(bool& val) const;
+	
+	void EnableReadAhead();
+	void DisableReadAhead();
+	bool IsReadAheadEnabled() const;
 
 	enum class ErrorType {
 		kThrow,
@@ -135,6 +139,7 @@ public:
 	static const std::string kParentDiskName;
 	static const std::string kParentDiskVmdkID;
 	static const std::string kCleanupOnWrite;
+	static const std::string kReadAhead;
 };
 
 std::ostream& operator <<(std::ostream& os, const VmdkConfig::ErrorType& type);

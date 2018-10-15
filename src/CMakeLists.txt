@@ -82,6 +82,7 @@ set(LIBRARY_LIST
 	atomic
 	${ThriftLibs}
 	aio
+	ghb
 	${HYC_COMPRESS_LIBS}
 	${HYC_ENCRYPT_LIBS}
 )
@@ -95,7 +96,6 @@ endif(USE_NEP)
 
 set(StorageLayerFiles
 	TgtInterfaceImpl.cpp
-
 	VirtualMachine.cpp
 	VmConfig.cpp
 	AeroConfig.cpp
@@ -111,12 +111,11 @@ set(StorageLayerFiles
 	FlushConfig.cpp
 	AeroFiberThreads.cpp
 	SetCkptBmapConfig.cpp
-
 	RangeLock.cpp
 	Request.cpp
 	RamCache.cpp
-
 	MetaDataKV.cpp
+	ReadAhead.cpp
 
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/LockHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/RequestHandler.cpp"

@@ -67,6 +67,7 @@ const std::string VmdkConfig::kMetaDataKV = "MetaDataKV";
 const std::string VmdkConfig::kParentDiskName = "ParentDiskName";
 const std::string VmdkConfig::kParentDiskVmdkID = "ParentDiskVmdkID";
 const std::string VmdkConfig::kCleanupOnWrite = "CleanupOnWrite";
+const std::string VmdkConfig::kReadAhead = "ReadAhead";
 
 VmdkConfig::VmdkConfig(const std::string& config) : JsonConfig(config) {
 }
@@ -631,4 +632,24 @@ bool VmdkConfig::GetCleanupOnWrite(bool& val) const {
 	return JsonConfig::GetKey(kCleanupOnWrite, val);
 }
 
+void VmdkConfig::EnableReadAhead() {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, kEnabled});
+	JsonConfig::SetKey(key, true);
+}
+
+void VmdkConfig::DisableReadAhead() {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, kEnabled});
+	JsonConfig::SetKey(key, false);
+}
+
+bool VmdkConfig::IsReadAheadEnabled() const {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, kEnabled});
+
+	bool enabled{false};
+	auto rc = JsonConfig::GetKey(key, enabled);
+	return rc and enabled;
+}
 }}

@@ -34,7 +34,7 @@ void MultiTargetHandler::InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 		auto error = std::make_unique<ErrorHandler>(configp);
 		targets_.emplace_back(std::move(error));
 	}
-
+	
 	if (configp->IsSuccessHandlerEnabled()) {
 		auto success = std::make_unique<SuccessHandler>(configp);
 		targets_.emplace_back(std::move(success));
@@ -109,6 +109,11 @@ folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		auto read_missed = std::make_unique<std::remove_reference<decltype(failed)>::type>();
 		read_missed->swap(failed);
 		failed.clear();
+		
+		/* Initiate ReadAhead and populate cache if ghb sees a pattern based on history */
+		if(pio_likely(vmdkp->read_aheadp_ != NULL)) {
+			vmdkp->read_aheadp_->Run(*read_missed);
+		}
 
 		/* Read from next StorageLayer - probably Network or File */
 		return targets_[1]->Read(vmdkp, reqp, *read_missed, failed)

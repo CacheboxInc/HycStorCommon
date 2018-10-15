@@ -23,6 +23,7 @@
 #include "MetaDataKV.h"
 #include "QLock.h"
 #include "Rendez.h"
+#include "ReadAhead.h"
 
 namespace pio {
 
@@ -252,6 +253,7 @@ private:
 public:
 	std::unique_ptr<RequestHandler> headp_{nullptr};
 	std::unique_ptr<FlushAuxData> aux_info_{nullptr};
+	std::unique_ptr<ReadAhead> read_aheadp_{nullptr};
 	std::string parentdisk_set_;
 	::ondisk::VmdkID parentdisk_vmdkid_;
 

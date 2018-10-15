@@ -5,16 +5,48 @@ git submodule update
 
 MAIN=${PWD}
 
-cd thirdparty/CRoaring
+echo "************************Building thrift************************"
+cd src/thrift
+rm -rf build
 mkdir build
 cd build
-cmake ..
-make
+cmake .. -DCMAKE_BUILD_TYPE=MinSizeRel
+make -j 8
 make install
+cd ../../..
 
-cd ${MAIN}
-
+echo "************************Building CRoaring**********************"
+cd thirdparty/CRoaring
+rm -rf build
 mkdir build
 cd build
-cmake -DCMAKE_BUILD_TYPE=ASan ..
+cmake .. -DCMAKE_BUILD_TYPE=MinSizeRel
+make -j 8 
+make install
+cd ../../..
+
+echo "***********************Building ha-lib***************************"
+cd thirdparty/ha-lib
+cd third-party
 make
+cd ..
+rm -rf build
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=MinSizeRel
+make -j 8
+
+echo "***********************Building prefetch***************************"
+cd src/prefetch
+make -C third_party
+make
+
+echo "***********************Building stord*****************************"
+cd ${MAIN}
+rm -rf build
+mkdir build
+cd build
+cmake -DUSE_NEP=OFF .. -DCMAKE_BUILD_TYPE=Debug
+make -j 8
+
+echo "Done!"

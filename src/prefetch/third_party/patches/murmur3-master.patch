@@ -1,0 +1,15 @@
+diff -urN murmur3-master/makefile murmur3-master-patched/makefile
+--- murmur3-master/makefile	2015-05-02 05:14:12.000000000 +0000
++++ murmur3-master-patched/makefile	2017-08-30 17:47:30.955466262 +0000
+@@ -12,5 +12,10 @@
+ 	$(CC) -fPIC -O3 -c murmur3.c
+ 	$(CC) -shared -Wl,--export-dynamic murmur3.o -o libmurmur3.so
+ 
++static: murmur3.c murmur3.h
++	$(CC) -O3 -c murmur3.c
++	$(AR) cvq libmurmur3.a murmur3.o
++	ranlib libmurmur3.a
++
+ clean:
+-	rm -rf example *.o *.so
++	rm -rf example *.o *.so *.a

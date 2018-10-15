@@ -9,8 +9,8 @@
 #include "SpinLock.h"
 #include "ThreadPool.h"
 #include "FlushInstance.h"
-#include "halib.h"
 
+struct _ha_instance;
 namespace pio {
 class FlushManager {
 public:
