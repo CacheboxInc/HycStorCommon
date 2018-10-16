@@ -149,10 +149,7 @@ public:
 			read->set_reqid(reqp->GetID());
 			read->set_data(std::move(iobuf));
 			read->set_result(rc);
-			auto finish = std::chrono::high_resolution_clock::now();
-			long long duration =
-				std::chrono::duration_cast<std::chrono::microseconds>
-				(finish - reqp->start_time_).count();
+			auto duration = reqp->GetLatency();
 
 			/* Under lock to avoid divide by zero error */
 			/* Overflow wrap, hoping that wrap logic works with temp var too*/
@@ -242,10 +239,7 @@ public:
 			auto write = std::make_unique<WriteResult>();
 			write->set_reqid(reqp->GetID());
 			write->set_result(rc);
-			auto finish = std::chrono::high_resolution_clock::now();
-			long long duration =
-				std::chrono::duration_cast<std::chrono::microseconds>
-				(finish - reqp->start_time_).count();
+			auto duration = reqp->GetLatency();
 
 			/* Under lock to avoid divide by zero error */
 			/* Overflow wrap, hoping that wrap logic works with temp var too*/
@@ -455,7 +449,7 @@ private:
 	std::atomic<VmdkHandle> vmdk_handle_{0};
 };
 
-std::shared_ptr<ThriftServer> thirft_server;
+std::shared_ptr<ThriftServer> thrift_server;
 
 static struct {
 	std::unique_ptr<std::thread> ha_thread_;
@@ -477,8 +471,8 @@ static struct {
 } g_thread_;
 
 static void Usr1SignalHandler(int signal) {
-	thirft_server->stopListening();
-	thirft_server->stop();
+	thrift_server->stopListening();
+	thrift_server->stop();
 }
 
 static bool ValidatePort(const char *flag, int port) {
@@ -1647,15 +1641,15 @@ int main(int argc, char* argv[])
 	log_assert(rc == 0);
 
 	auto si = std::make_shared<StorRpcSvImpl>();
-	thirft_server = std::make_shared<ThriftServer>();
+	thrift_server = std::make_shared<ThriftServer>();
 
-	thirft_server->setInterface(si);
-	thirft_server->setAddress(kServerIp, kServerPort);
+	thrift_server->setInterface(si);
+	thrift_server->setAddress(kServerIp, kServerPort);
 	LOG(INFO) << "Starting Thrift Server";
 	google::FlushLogFiles(google::INFO);
 	google::FlushLogFiles(google::ERROR);
 
-	thirft_server->serve();
+	thrift_server->serve();
 
 	SingletonHolder<FlushManager>::GetInstance()->DestroyInstance();
 	SingletonHolder<AeroFiberThreads>::GetInstance()->FreeInstance();

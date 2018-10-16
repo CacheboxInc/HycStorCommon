@@ -75,13 +75,12 @@ folly::Future<int> CleanHandler::BulkRead(ActiveVmdk* vmdkp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 	failed.clear();
-	if (pio_unlikely(not nextp_)) {
-		failed.reserve(process.size());
-		std::copy(process.begin(), process.end(), std::back_inserter(failed));
-		return -ENODEV;
-	}
-
 	if (pio_unlikely(aero_conn_ == nullptr)) {
+		if (pio_unlikely(not nextp_)) {
+			failed.reserve(process.size());
+			std::copy(process.begin(), process.end(), std::back_inserter(failed));
+			return -ENODEV;
+		}
 		return nextp_->BulkRead(vmdkp, requests, process, failed);
 	}
 

@@ -3,12 +3,12 @@
 #include <vector>
 #include <memory>
 #include <cstdint>
-#include <chrono>
 
 #include <folly/futures/Future.h>
 
 #include "IDs.h"
 #include "DaemonCommon.h"
+#include "TimePoint.h"
 #include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_constants.h"
 #include "gen-cpp2/StorRpc_types.h"
@@ -54,6 +54,10 @@ public:
 	bool IsFailed() const noexcept;
 	int GetResult() const noexcept;
 
+	Offset GetOffset() const noexcept;
+	int64_t GetLatency() const noexcept;
+	size_t GetTransferLength() const noexcept;
+
 	bool IsFlushReq() {
 		return FlushReq_;
 	}
@@ -88,7 +92,7 @@ public:
 			}
 		}
 	}
-	std::chrono::time_point<std::chrono::high_resolution_clock> start_time_;
+	::hyc::TimePoint start_time_;
 
 private:
 	void InitWriteSameBuffer();
