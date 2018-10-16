@@ -106,7 +106,7 @@ int AeroSpike::WriteBatchPrepare(ActiveVmdk *vmdkp,
 		 * aerospike conf file
 		 */
 
-		if (ns == kAsNamespaceCacheDirty || 1) {
+		if (pio_likely(ns == kAsNamespaceCacheDirty)) {
 			record->record_.ttl = -1;
 		} else {
 			record->record_.ttl = 0;
