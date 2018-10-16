@@ -62,7 +62,7 @@ link_directories(${PROJECT_SOURCE_DIR}/install/lib)
 link_directories(${PROJECT_SOURCE_DIR}/thirdparty/restbed/distribution/library/)
 link_directories(${PROJECT_SOURCE_DIR}/thirdparty/ha-lib/build/src/)
 link_directories(${PROJECT_SOURCE_DIR}/thirdparty/ha-lib/third-party/lib/)
-link_directories(${PROJECT_SOURCE_DIR}/src/prefetch/)
+link_directories(${PROJECT_SOURCE_DIR}/src/prefetch/third_party/murmur3-master/)
 
 set(CUSTOM_LIBRARY_PATH ${PROJECT_SOURCE_DIR}/lib)
 

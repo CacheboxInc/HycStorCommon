@@ -82,7 +82,7 @@ set(LIBRARY_LIST
 	atomic
 	${ThriftLibs}
 	aio
-	ghb
+	ReadAhead
 	${HYC_COMPRESS_LIBS}
 	${HYC_ENCRYPT_LIBS}
 )
@@ -159,6 +159,7 @@ add_subdirectory(Commands)
 add_subdirectory(tests)
 add_subdirectory(stord)
 add_subdirectory(Common)
+add_subdirectory(prefetch)
 add_dependencies(CommonLib StorRpcMetaDataLib)
 
 

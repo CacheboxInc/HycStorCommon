@@ -112,7 +112,7 @@ int dc_get_requests(dc_t *dc_struct, uint64_t last_lba, uint64_t *prefetch_lbas)
       prefetch_lbas[i] = last_lba + (i+1)*stride;
     return dc_struct->prefetch_depth;
   } else if (dc_struct->found_match) {
-    int i = 0, j;
+    int i = 0;
     /* Adjust index to skip deltas associated with the current correlation */
     int idx = (dc_struct->next_idx - CORR_DEPTH - 1);
     uint64_t cur_lba = last_lba;
