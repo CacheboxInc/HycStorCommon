@@ -65,7 +65,9 @@ void MultiTargetHandler::InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 	}
 #else
 	if (not configp->IsFileTargetEnabled()) {
-		auto success = std::make_unique<SuccessHandler>(configp);
+		auto new_conf = *configp;
+		new_conf.EnableSuccessHandler();
+		auto success = std::make_unique<SuccessHandler>(&new_conf);
 		targets_.emplace_back(std::move(success));
 	}
 #endif
