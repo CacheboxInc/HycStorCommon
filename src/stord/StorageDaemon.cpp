@@ -55,9 +55,6 @@ using namespace apache::thrift;
 using namespace apache::thrift::async;
 using namespace ::hyc_thrift;
 using namespace pio;
-#ifdef USE_NEP
-using namespace hyc;
-#endif
 
 static constexpr int32_t kServerPort = 9876;
 static const std::string kServerIp = "0.0.0.0";
@@ -1625,8 +1622,8 @@ int main(int argc, char* argv[])
 
 #ifdef USE_NEP
 	/* Initialize threadpool for AeroSpike accesses */
-	auto tmgr_rest = std::make_shared<TargetManagerRest>(
-		SingletonHolder<TargetManager>::GetInstance().get(),
+	auto tmgr_rest = std::make_shared<pio::hyc::TargetManagerRest>(
+		SingletonHolder<pio::hyc::TargetManager>::GetInstance().get(),
 		g_thread_.ha_instance_);
 #endif
 
