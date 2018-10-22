@@ -315,6 +315,17 @@ int NewFlushStatusReq(VmID vmid, FlushStats &flush_stat) {
 	return rc;
 }
 
+int FlushHistoryReq(VmID vmid, std::ostringstream& fh) {
+	auto managerp = SingletonHolder<FlushManager>::GetInstance();
+	std::unique_lock<std::mutex> flush_lock(managerp->lock_);
+	auto t = managerp->GetHistory(vmid, fh);
+
+	if (pio_unlikely(t)) {
+		LOG(ERROR) << "Flush history not present for vmid " << vmid;
+		return 1;
+	}
+	return t;
+}
 
 int NewScanStatusReq(AeroClusterID id, ScanStats &scan_stat) {
 	auto managerp = SingletonHolder<ScanManager>::GetInstance();

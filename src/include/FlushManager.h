@@ -27,6 +27,16 @@ public:
 	FlushInstance* GetInstance(const ::ondisk::VmID& vmid);
 	void FreeInstance(const ::ondisk::VmID& vmid);
 	std::mutex lock_;
+
+	void PopulateHistory(const ::ondisk::VmID& vmid, FlushInstance *fi);
+	struct instance_history {
+		uint64_t FlushedBlks;
+		uint64_t MovedBlks;
+		uint64_t RunDuration;
+		std::chrono::system_clock::time_point StartedAt;
+	};
+	int GetHistory(const ::ondisk::VmID& vmid, std::ostringstream& fh);
+	std::multimap<::ondisk::VmID, instance_history> flush_history_;
 private:
 	SpinLock mutex_;
 	std::unordered_map<::ondisk::VmID, std::unique_ptr<FlushInstance>> instances_;
