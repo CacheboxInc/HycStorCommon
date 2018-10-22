@@ -47,7 +47,7 @@ struct VmdkCacheStats {
 	uint64_t write_miss_{0};
 	uint64_t read_failed_{0};
 	uint64_t write_failed_{0};
-
+	uint64_t read_ahead_blks_{0};
 };
 
 static constexpr auto kBlockIDMax = std::numeric_limits<::ondisk::BlockID>::max();

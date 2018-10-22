@@ -84,10 +84,14 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	// but just for the sake of rule, let this be the last code block
 	read_aheadp_ = NULL;
 	if(config_->IsReadAheadEnabled()) {
+		LOG(INFO) << "ReadAhead is enabled";
 		read_aheadp_ = std::make_unique<ReadAhead>(this);
 		if (not read_aheadp_) {
 			throw std::bad_alloc();
 		}
+	}
+	else {
+		LOG(INFO) << "ReadAhead is disabled";
 	}
 }
 
@@ -142,6 +146,9 @@ void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
 	vmdk_stats->write_miss_     = cache_stats_.write_miss_;
 	vmdk_stats->read_failed_    = cache_stats_.read_failed_;
 	vmdk_stats->write_failed_   = cache_stats_.write_failed_;
+	if(pio_likely(read_aheadp_)) {
+		vmdk_stats->read_ahead_blks_ = read_aheadp_->StatsTotalReadAheadBlocks();
+	}
 }
 
 CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,

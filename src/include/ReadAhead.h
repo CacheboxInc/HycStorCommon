@@ -29,12 +29,8 @@ public:
 	folly::Future<std::unique_ptr<ReadResultVec>>
 	Run(ReqBlockVec& offsets);
 	
-	uint64_t StatsTotalReadMisses() const {
-		return stats_input_blocks_size;
-	}
-
 	uint64_t StatsTotalReadAheadBlocks() const {
-		return stats_rh_blocks_size;
+		return stats_rh_blocks_size_;
 	}
 
 private:
@@ -50,8 +46,7 @@ private:
 	std::mutex 				pending_ios_mutex_; 
 	static std::mutex		prediction_mutex_;
 	static bool				initialized_;
-	static uint64_t			stats_input_blocks_size;
-	static uint64_t			stats_rh_blocks_size;
+	std::atomic<uint64_t>	stats_rh_blocks_size_{0};
 	static ghb_params_t		ghb_params_;
 	static ghb_t     		ghb_;
 	
@@ -62,6 +57,5 @@ private:
 	Read(std::map<int64_t, bool>& predictions);
 	void CoalesceRequests(/*[In]*/std::map<int64_t, bool>& predictions, 
 			/*[Out]*/ReadRequestVec& requests); 
-	void PrintStats();
 };
 }

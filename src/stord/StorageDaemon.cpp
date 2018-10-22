@@ -1421,6 +1421,7 @@ static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *us
 	json_object_set(stat_params, "write_miss", json_integer(vmdk_stats_p->write_miss_));
 	json_object_set(stat_params, "read_failed", json_integer(vmdk_stats_p->read_failed_));
 	json_object_set(stat_params, "write_failed", json_integer(vmdk_stats_p->write_failed_));
+	json_object_set(stat_params, "read_ahead_blks", json_integer(vmdk_stats_p->read_ahead_blks_));
 	std::string stat_params_str = json_dumps(stat_params, JSON_ENCODE_ANY);
 
 	json_object_clear(stat_params);
@@ -1613,7 +1614,7 @@ int main(int argc, char* argv[])
 	handlers->ha_endpoints[handlers->ha_count].callback_function = NewCommitCkpt;
 	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
 	handlers->ha_count += 1;
-
+	
 	g_thread_.ha_instance_ = ::ha_initialize(FLAGS_ha_svc_port,
 			FLAGS_etcd_ip.c_str(), FLAGS_svc_label.c_str(),
 			FLAGS_stord_version.c_str(), 120,

@@ -13,8 +13,6 @@ using namespace pio;
 
 std::mutex ReadAhead::prediction_mutex_;
 bool ReadAhead::initialized_ = false;
-uint64_t ReadAhead::stats_input_blocks_size = 0;
-uint64_t ReadAhead::stats_rh_blocks_size = 0;
 ghb_params_t ReadAhead::ghb_params_ = {};
 ghb_t ReadAhead::ghb_ = {};
 
@@ -83,12 +81,6 @@ ReadAhead::Run(ReqBlockVec& offsets) {
 	}
 	io_lock.unlock();
 	
-	auto off_size = local_offsets.size();
-	if((stats_input_blocks_size + off_size) >= ULONG_MAX) {
-		stats_input_blocks_size = 0;
-	}
-	stats_input_blocks_size += local_offsets.size();
-	
 	RefreshGHB();
 	
 	for(auto it = local_offsets.begin(); it != local_offsets.end(); ++it) {
@@ -113,15 +105,14 @@ ReadAhead::Run(ReqBlockVec& offsets) {
 				predictions.erase(it_predictions);
 			}
 		}
-		
 		auto pred_size = predictions.size();
-		prediction_lock.lock();
-		if((stats_rh_blocks_size + pred_size) >= ULONG_MAX) {
-			stats_rh_blocks_size = 0;
+		auto stats_blocks = stats_rh_blocks_size_.load(std::memory_order_relaxed);
+		if(stats_blocks + pred_size >= ULONG_MAX - 10) {
+			LOG(INFO) << "Resetting readahead stats counter, predicted so far [" << stats_blocks << "] blocks.";
+			stats_rh_blocks_size_.store(0, std::memory_order_relaxed);
+			stats_blocks = 0;
 		}
-		stats_rh_blocks_size += pred_size;
-		prediction_lock.unlock();
-		
+		stats_rh_blocks_size_.store(stats_blocks + pred_size, std::memory_order_relaxed);
 		return Read(predictions);
 	}
 	return folly::makeFuture(std::move(results));
@@ -182,7 +173,3 @@ void ReadAhead::CoalesceRequests(/*[In]*/std::map<int64_t, bool>& predictions,
 	predictions.erase(LONG_MAX);
 }
 
-void ReadAhead::PrintStats() {
-	LOG(ERROR) << "Total requests got so far : " << stats_input_blocks_size; 
-	LOG(ERROR) << "Total Read Ahead requests generated so far : " << stats_rh_blocks_size;
-}
