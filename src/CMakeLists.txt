@@ -60,6 +60,8 @@ set(NEP_LIBRARY_LIST
 	HycNetSim
 	HycGwy
 	HycVddkSync
+	task
+	vaiorpc
 	nanomsg
 	anl
 	jsoncpp

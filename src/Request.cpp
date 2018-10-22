@@ -45,6 +45,18 @@ int Request::GetResult() const noexcept {
 	return status_.return_value_;
 }
 
+int64_t Request::GetLatency() const noexcept {
+	return start_time_.GetMicroSec();
+}
+
+Offset Request::GetOffset() const noexcept {
+	return in_.offset_;
+}
+
+size_t Request::GetTransferLength() const noexcept {
+	return in_.transfer_size_;
+}
+
 void Request::SetResult(int return_value, RequestStatus status) noexcept {
 	status_.return_value_ = return_value;
 	status_.status_ = status;
@@ -94,7 +106,7 @@ Request::Request(RequestID id, ActiveVmdk *vmdkp, Request::Type type, void *buff
 		break;
 	}
 	InitRequestBlocks();
-	start_time_ = std::chrono::high_resolution_clock::now();
+	start_time_.Start();
 }
 
 void Request::InitWriteSameBuffer() {
