@@ -36,11 +36,6 @@ cd build
 cmake .. -DCMAKE_BUILD_TYPE=MinSizeRel
 make -j 8
 
-echo "***********************Building prefetch***************************"
-cd src/prefetch
-make -C third_party
-make
-
 echo "***********************Building stord*****************************"
 cd ${MAIN}
 rm -rf build

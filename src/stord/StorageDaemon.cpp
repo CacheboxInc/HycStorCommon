@@ -75,6 +75,7 @@ static const std::string kSetCkptBitMap = "set_bitmap";
 static const std::string kCommitCkpt = "commit_ckpt";
 static const uint32_t kBulkWriteMaxSize = 256 * 1024;
 static const std::string kVmdkStats = "vmdk_stats";
+static const std::string kFlushHistory = "flush_history";
 
 class StorRpcSvImpl : public virtual StorRpcSvIf {
 public:
@@ -1260,6 +1261,20 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 	json_object_set(flush_params, "moved_blks_cnt", json_integer(total_moved_blks));
 	json_object_set(flush_params, "remaining_blks_cnt", json_integer(remaining_blks));
 
+	param_valuep = ha_parameter_get(reqp, "get_history");
+	if (param_valuep) {
+		std::ostringstream fh;
+		auto t = pio::FlushHistoryReq(vmid, fh);
+		if (pio_unlikely(t)) {
+			LOG(INFO) << "History unavailable for vmid " << vmid;
+		}
+		const auto st = fh.str();
+		json_object_set(flush_params, "history", json_string(st.c_str()));
+
+	} else {
+		LOG(INFO) << "History not queried";
+	}
+
 	std::string flush_params_str = json_dumps(flush_params, JSON_ENCODE_ANY);
 
 	json_object_clear(flush_params);
@@ -1412,6 +1427,11 @@ static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *us
 	json_object_set(stat_params, "write_miss", json_integer(vmdk_stats_p->write_miss_));
 	json_object_set(stat_params, "read_failed", json_integer(vmdk_stats_p->read_failed_));
 	json_object_set(stat_params, "write_failed", json_integer(vmdk_stats_p->write_failed_));
+
+	json_object_set(stat_params, "reads_in_progress", json_integer(vmdk_stats_p->reads_in_progress_));
+	json_object_set(stat_params, "writes_in_progress", json_integer(vmdk_stats_p->writes_in_progress_));
+
+	json_object_set(stat_params, "read_ahead_blks", json_integer(vmdk_stats_p->read_ahead_blks_));
 	std::string stat_params_str = json_dumps(stat_params, JSON_ENCODE_ANY);
 
 	json_object_clear(stat_params);
@@ -1423,6 +1443,56 @@ static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *us
 	return HA_CALLBACK_CONTINUE;
 }
 
+static int NewFlushHistoryReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
+		std::ostringstream es;
+		LOG(ERROR) << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		es << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+
+	json_t *flush_params = json_object();
+
+	std::ostringstream fh;
+	auto t = pio::FlushHistoryReq(vmid, fh);
+	if (pio_unlikely(t)) {
+		LOG(ERROR) << "History unavailable for vmid " << vmid
+			<< ". First flush not triggered or still in progress";
+	}
+	const auto st = fh.str();
+	json_object_set(flush_params, "history", json_string(st.c_str()));
+
+	std::string flush_params_str = json_dumps(flush_params, JSON_ENCODE_ANY);
+
+	json_object_clear(flush_params);
+	json_decref(flush_params);
+
+	ha_set_response_body(resp, HTTP_STATUS_OK, flush_params_str.c_str(),
+			strlen(flush_params_str.c_str()));
+
+	return HA_CALLBACK_CONTINUE;
+}
 
 
 int main(int argc, char* argv[])
@@ -1465,7 +1535,7 @@ int main(int argc, char* argv[])
 	std::signal(SIGUSR1, Usr1SignalHandler);
 	std::signal(SIGQUIT, Usr1SignalHandler);
 #endif
-	auto size = sizeof(struct ha_handlers) + 16 * sizeof(struct ha_endpoint_handlers);
+	auto size = sizeof(struct ha_handlers) + 17 * sizeof(struct ha_endpoint_handlers);
 	auto handlers =
 		std::unique_ptr<struct ha_handlers,
 		void(*)(void *)>(reinterpret_cast<struct ha_handlers*>(::malloc(size)),
@@ -1602,6 +1672,14 @@ int main(int argc, char* argv[])
 	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kCommitCkpt.c_str(),
 			kCommitCkpt.size() + 1);
 	handlers->ha_endpoints[handlers->ha_count].callback_function = NewCommitCkpt;
+	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
+	handlers->ha_count += 1;
+
+	/* Flush History Request */
+	handlers->ha_endpoints[handlers->ha_count].ha_http_method = GET;
+	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kFlushHistory.c_str(),
+			kFlushHistory.size() + 1);
+	handlers->ha_endpoints[handlers->ha_count].callback_function = NewFlushHistoryReq;
 	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
 	handlers->ha_count += 1;
 

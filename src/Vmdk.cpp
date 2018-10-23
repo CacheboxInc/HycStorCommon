@@ -21,6 +21,7 @@
 #include "FlushManager.h"
 #include "FlushInstance.h"
 #include "Vmdk.h"
+#include "Singleton.h"
 
 using namespace ::hyc_thrift;
 using namespace ::ondisk;
@@ -84,10 +85,14 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	// but just for the sake of rule, let this be the last code block
 	read_aheadp_ = NULL;
 	if(config_->IsReadAheadEnabled()) {
+		LOG(INFO) << "ReadAhead is enabled";
 		read_aheadp_ = std::make_unique<ReadAhead>(this);
 		if (not read_aheadp_) {
 			throw std::bad_alloc();
 		}
+	}
+	else {
+		LOG(INFO) << "ReadAhead is disabled";
 	}
 }
 
@@ -142,6 +147,13 @@ void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
 	vmdk_stats->write_miss_     = cache_stats_.write_miss_;
 	vmdk_stats->read_failed_    = cache_stats_.read_failed_;
 	vmdk_stats->write_failed_   = cache_stats_.write_failed_;
+
+	vmdk_stats->reads_in_progress_  = stats_.reads_in_progress_;
+	vmdk_stats->writes_in_progress_ = stats_.writes_in_progress_;
+
+	if(pio_likely(read_aheadp_)) {
+		vmdk_stats->read_ahead_blks_ = read_aheadp_->StatsTotalReadAheadBlocks();
+	}
 }
 
 CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
@@ -674,6 +686,7 @@ int ActiveVmdk::MoveStage(CheckPointID ckpt_id) {
 	log_assert(aux_info_->sleeping_ == false);
 	log_assert(aux_info_->pending_cnt_ == 0);
 	aux_info_->lock_.unlock();
+
 	return aux_info_->failed_;
 }
 
@@ -878,6 +891,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 	log_assert(aux_info_->sleeping_ == false);
 	log_assert(aux_info_->pending_cnt_ == 0);
 	aux_info_->lock_.unlock();
+
 	return aux_info_->failed_;
 }
 
