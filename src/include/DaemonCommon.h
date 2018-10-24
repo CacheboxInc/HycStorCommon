@@ -47,6 +47,10 @@ struct VmdkCacheStats {
 	uint64_t write_miss_{0};
 	uint64_t read_failed_{0};
 	uint64_t write_failed_{0};
+
+	uint64_t reads_in_progress_{0};
+	uint64_t writes_in_progress_{0};
+
 	uint64_t read_ahead_blks_{0};
 };
 

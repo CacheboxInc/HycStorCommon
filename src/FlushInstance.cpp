@@ -22,6 +22,7 @@ FlushInstance::FlushInstance(VmID vmid, const std::string& config):
 	vmid_(std::move(vmid)),
 	config_(std::make_unique<config::FlushConfig>(config)) {
 	start_time_ = std::chrono::steady_clock::now();
+	start_time_system_ = std::chrono::system_clock::now();
 }
 
 FlushInstance::~FlushInstance() {

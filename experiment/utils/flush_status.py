@@ -15,16 +15,30 @@ from urllib.parse import urlencode
 h = "http"
 cert = None
 
-vmid="1"
 if len(sys.argv) > 1:
-	vmid=sys.argv[1]
+    if sys.argv[1].lower() == "https" :
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        h = "https"
+        cert=('./cert/cert.pem', './cert/key.pem')
 
 headers = {'Content-type': 'application/json'}
 params = OrderedDict([('first', 1), ('second', 2), ('third', 3)])
 data = { "service_type": "test_server", "service_instance" : 0, "etcd_ips" : ["3213213", "213213"]}
 
 # POST call 1 to stord_svc
-print ("Send GET stord_svc flush_status %s" %vmid)
-r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/flush_status/?vm-id=%s" % (h, vmid))
+data1 = {"vmid": 1}
+print ("Send GET stord_svc flush_status 1")
+r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/flush_status/?vm-id=1" % h)
+print(r.text)
+assert (r.status_code == 200)
+
+print ("Send GET stord_svc flush_status with flush_history 1")
+r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/flush_status/?vm-id=1&get_history=1" % h)
+print(r.text)
+assert (r.status_code == 200)
+
+print ("Send GET stord_svc flush_history 1")
+r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/flush_history/?vm-id=1&vmdk-id=1" % h)
 print(r.text)
 assert (r.status_code == 200)

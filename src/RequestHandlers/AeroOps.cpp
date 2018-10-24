@@ -168,9 +168,13 @@ static void WritePipeListener(void *udatap, as_event_loop *lp) {
 
 	auto batchp = wrp->batchp_;
 	std::unique_lock<std::mutex> b_lock(batchp->batch.lock_);
-	if (batchp->batch.nsent_ >= batchp->batch.nwrites_) {
-		LOG(ERROR) << __func__ << "nsent::" << batchp->batch.nsent_
-			<< "nwrites::" << batchp->batch.nwrites_;
+	if (pio_unlikely(batchp->batch.nsent_ >= batchp->batch.nwrites_)) {
+		LOG(ERROR) << __func__ << "Pipeline Submit Error nsent::"
+			<< batchp->batch.nsent_
+			<< " nwrites::" << batchp->batch.nwrites_
+			<< " ncomplete::" << batchp->batch.ncomplete_
+			<< " retry::" << batchp->retry_cnt_
+			<< " Submit status::" << batchp->submitted_;
 		log_assert(batchp->batch.nsent_ < batchp->batch.nwrites_);
 	}
 
@@ -183,8 +187,10 @@ static void WritePipeListener(void *udatap, as_event_loop *lp) {
 	if (batchp->batch.rec_it_ == batchp->batch.recordsp_.end()) {
 		/* complete batch is submitted */
 		batchp->submitted_ = true;
+		log_assert(batchp->batch.nsent_ == batchp->batch.nwrites_);
 	} else {
 		fnp = WritePipeListener;
+		log_assert(batchp->batch.nsent_ < batchp->batch.nwrites_);
 	}
 	b_lock.unlock();
 
@@ -715,7 +721,7 @@ folly::Future<int> AeroSpike::AeroRead(ActiveVmdk *vmdkp,
 							(uint32_t) destp->PayloadSize());
 						log_assert(ret == destp->PayloadSize());
 						if (pio_unlikely(ret != destp->PayloadSize())) {
-							LOG(ERROR) << __func__ << "Access error, data found after"  
+							LOG(ERROR) << __func__ << "Access error, data found after"
 								" cache read is less than expected size";
 							blockp->SetResult(-EIO, RequestStatus::kFailed);
 							failed.emplace_back(blockp);
@@ -885,7 +891,16 @@ static void DelPipeListener(void *udatap, as_event_loop *lp) {
 	as_pipe_listener fnp = DelPipeListener;
 
 	std::unique_lock<std::mutex> b_lock(batchp->batch.lock_);
-	log_assert(batchp->batch.nsent_ < batchp->batch.ndeletes_);
+	if (pio_unlikely(batchp->batch.nsent_ >= batchp->batch.ndeletes_)) {
+		LOG(ERROR) << __func__ << "Pipeline Submit Error nsent::"
+			<< batchp->batch.nsent_
+			<< " ndeletes::" << batchp->batch.ndeletes_
+			<< " ncomplete::" << batchp->batch.ncomplete_
+			<< " retry::" << batchp->retry_cnt_
+			<< " Submit status::" << batchp->submitted_;
+		log_assert(batchp->batch.nsent_ < batchp->batch.ndeletes_);
+	}
+
 	log_assert(batchp->submitted_ == false);
 	batchp->batch.nsent_++;
 
@@ -895,6 +910,9 @@ static void DelPipeListener(void *udatap, as_event_loop *lp) {
 		/* complete batch is submitted */
 		batchp->submitted_ = true;
 		fnp                = NULL;
+		log_assert(batchp->batch.nsent_ == batchp->batch.ndeletes_);
+	} else {
+		log_assert(batchp->batch.nsent_ < batchp->batch.ndeletes_);
 	}
 
 	b_lock.unlock();
