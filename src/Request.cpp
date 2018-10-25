@@ -334,6 +334,7 @@ int RequestBlock::Complete() {
 	default:
 		break;
 	case Request::Type::kWriteSame:
+	case Request::Type::kMove:
 	case Request::Type::kWrite: {
 		return 0;
 	}}

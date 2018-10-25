@@ -221,6 +221,28 @@ folly::Future<int> DirtyHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 	.then([this, vmdkp, reqp, &process, &failed, connect = this->aero_conn_] (int rc) mutable
 			-> folly::Future<int> {
 		if (pio_unlikely(rc)) {
+			LOG(ERROR) << __func__ << "Reading from DIRTY namespace failed, error code::" << rc;
+			return rc;
+		}
+
+		/* We should not be seeing any Miss */
+		for (auto blockp : process) {
+			if (pio_unlikely(blockp->IsReadHit())) {
+				blockp->SetResult(0, RequestStatus::kSuccess);
+			} else {
+				blockp->SetResult(-EIO, RequestStatus::kFailed);
+				failed.emplace_back(blockp);
+				LOG(ERROR) << __func__ << "Record not found ::-"
+					<< vmdkp->GetID() << ":"
+					<< blockp->GetReadCheckPointId() << ":"
+					<< blockp->GetAlignedOffset();
+				rc = -EIO;
+			}
+		}
+
+		if (pio_unlikely(rc)) {
+			LOG(ERROR) << __func__ << "Some of the records has not "
+				" found in DIRTY namespace, error code::" << rc;
 			return rc;
 		}
 
@@ -230,6 +252,7 @@ folly::Future<int> DirtyHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 		.then([this, vmdkp, reqp, &process, &failed, connect] (int rc) mutable
 			-> folly::Future<int> {
 			if (pio_unlikely(rc)) {
+				LOG(ERROR) << __func__ << "Writing in CLEAN namespace failed, error code::" << rc;
 				return rc;
 			}
 
@@ -238,6 +261,7 @@ folly::Future<int> DirtyHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 				process, failed, kAsNamespaceCacheDirty, connect)
 			.then([&process, &failed]  (int rc) mutable {
 				if (pio_unlikely(rc)) {
+					LOG(ERROR) << __func__ << "Delete from DIRTY namespace failed, error code::" << rc;
 					return rc;
 				}
 
