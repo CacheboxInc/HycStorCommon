@@ -56,7 +56,6 @@ void ReadAhead::InitializeGHB() {
 
 folly::Future<std::unique_ptr<ReadResultVec>>
 ReadAhead::Run(ReqBlockVec& offsets) {
-	uint64_t* prefetch_lbas = new uint64_t[prefetch_depth_];
 	auto block_size = vmdkp_->BlockSize();
 	std::map<int64_t, bool> predictions;
 	auto results = std::make_unique<ReadResultVec>();
@@ -83,6 +82,7 @@ ReadAhead::Run(ReqBlockVec& offsets) {
 	
 	RefreshGHB();
 	
+	uint64_t* prefetch_lbas = new uint64_t[prefetch_depth_];
 	for(auto it = local_offsets.begin(); it != local_offsets.end(); ++it) {
 		int n_prefetch = ghb_update_and_query(&ghb_, 1, it->first, prefetch_lbas);
 		if(n_prefetch) {
