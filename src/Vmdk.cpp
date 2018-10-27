@@ -607,6 +607,8 @@ int ActiveVmdk::MoveStage(CheckPointID ckpt_id) {
 
 	auto min_max = std::make_pair(ckpt_id, ckpt_id);
 	const auto& bitmap = ckptp->GetRoaringBitMap();
+	auto vmdkid = GetID();
+	LOG (ERROR) << __func__ << vmdkid << "::" << "Move stage start";
 	for (const auto& block : bitmap) {
 		aux_info_->lock_.lock();
 		if (aux_info_->failed_) {
@@ -647,7 +649,7 @@ int ActiveVmdk::MoveStage(CheckPointID ckpt_id) {
 
 			/* If some of the requests has failed then don't submit new ones */
 			if (pio_unlikely(rc)) {
-				LOG(ERROR) << "Some of the Move request failed";
+				LOG(ERROR) << __func__ << "Some of the Move requests failed";
 				aux_info_->failed_ = true;
 			}
 
@@ -687,6 +689,10 @@ int ActiveVmdk::MoveStage(CheckPointID ckpt_id) {
 	log_assert(aux_info_->pending_cnt_ == 0);
 	aux_info_->lock_.unlock();
 
+	LOG (ERROR) << __func__ << vmdkid << "::"
+		<< "Move stage End, total moved blocks count::"
+		<< aux_info_->moved_blks_
+		<< ", status::" << aux_info_->failed_;
 	return aux_info_->failed_;
 }
 
@@ -708,7 +714,9 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 	auto min_max = std::make_pair(ckpt_id, ckpt_id);
 	int64_t prev_block = -1, cur_block = -1, start_block = -1;
 	uint32_t block_cnt = 0;
+	auto vmdkid  = GetID();
 
+	LOG (ERROR) << __func__ << vmdkid << "::" << " Flush stage start";
 	const auto& bitmap = ckptp->GetRoaringBitMap();
 	for (const auto& block : bitmap) {
 
@@ -757,7 +765,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 		aux_info_->lock_.unlock();
 
 		size = block_cnt * BlockSize();
-		LOG (ERROR) << "blk count::" << block_cnt
+		LOG (ERROR) << __func__ << "::" << vmdkid << "::" << "blk count::" << block_cnt
 			<< ", start block::" << start_block << ", size::" << size;
 		auto iobuf = NewRequestBuffer(size);
 		if (pio_unlikely(not iobuf)) {
@@ -783,7 +791,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 
 			/* If some of the requests has failed then don't submit new ones */
 			if (pio_unlikely(rc)) {
-				LOG(ERROR) << "Some of the flush request failed";
+				LOG(ERROR) << __func__ << " Some of the flush requests failed";
 				aux_info_->failed_ = true;
 			}
 
@@ -817,8 +825,8 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 		size = 0;
 	}
 
-	LOG (ERROR) << "blk count::" << block_cnt
-		<< "start block::" << start_block << "size::" << size;
+	LOG (ERROR) << __func__ << vmdkid << "::" << " Outside loop blk count::" << block_cnt
+		<< ", start block::" << start_block << "size::" << size;
 	/* Submit any last pending accumlated IOs */
 	aux_info_->lock_.lock();
 	if (aux_info_->failed_ || block_cnt == 0) {
@@ -827,8 +835,10 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 		aux_info_->pending_cnt_++;
 		aux_info_->lock_.unlock();
 		size = block_cnt * BlockSize();
-		LOG (ERROR) << "blk count::" << block_cnt
-			<< "start block::" << start_block << "size::" << size;
+		LOG (ERROR) << __func__ << "::" << vmdkid << "::"
+			<< "Last set of blocks count::" << block_cnt
+			<< ", start block::" << start_block
+			<< ", size::" << size;
 		auto iobuf = NewRequestBuffer(size);
 		if (pio_unlikely(not iobuf)) {
 			throw std::bad_alloc();
@@ -892,6 +902,10 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 	log_assert(aux_info_->pending_cnt_ == 0);
 	aux_info_->lock_.unlock();
 
+	LOG (ERROR) << __func__ << vmdkid << "::"
+		<< "Flush stage End, total flushed blocks count::"
+		<< aux_info_->flushed_blks_
+		<< ", status::" << aux_info_->failed_;
 	return aux_info_->failed_;
 }
 
