@@ -355,21 +355,24 @@ folly::Future<int> ActiveVmdk::Flush(Request* reqp, const CheckPoints& min_max) 
 	return headp_->Flush(this, reqp, *process, *failed)
 	.then([this, reqp, process = std::move(process),
 			failed = std::move(failed)] (folly::Try<int>& result) mutable {
+		auto rc = 0;
 		if (result.hasException<std::exception>()) {
 			reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
+			rc = -ENOMEM;
 		} else {
-			auto rc = result.value();
+			rc = result.value();
 			if (pio_unlikely(rc < 0)) {
 				reqp->SetResult(rc, RequestStatus::kFailed);
 			} else if (pio_unlikely(not failed->empty())) {
 				const auto blockp = failed->front();
 				log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
 				reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
+				rc = -EIO;
 			}
 		}
 
 		--stats_.flushes_in_progress_;
-		return reqp->Complete();
+		return rc;
 	});
 }
 
@@ -394,21 +397,25 @@ folly::Future<int> ActiveVmdk::Move(Request* reqp, const CheckPoints& min_max) {
 	return headp_->Move(this, reqp, *process, *failed)
 	.then([this, reqp, process = std::move(process),
 			failed = std::move(failed)] (folly::Try<int>& result) mutable {
+
+		auto rc = 0;
 		if (result.hasException<std::exception>()) {
 			reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
+			rc = -ENOMEM;
 		} else {
-			auto rc = result.value();
+			rc = result.value();
 			if (pio_unlikely(rc < 0)) {
 				reqp->SetResult(rc, RequestStatus::kFailed);
 			} else if (pio_unlikely(not failed->empty())) {
 				const auto blockp = failed->front();
 				log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
 				reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
+				rc = -EIO;
 			}
 		}
 
 		--stats_.moves_in_progress_;
-		return reqp->Complete();
+		return rc;
 	});
 }
 
@@ -826,7 +833,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 	}
 
 	LOG (ERROR) << __func__ << vmdkid << "::" << " Outside loop blk count::" << block_cnt
-		<< ", start block::" << start_block << "size::" << size;
+		<< ", start block::" << start_block << ", size::" << size;
 	/* Submit any last pending accumlated IOs */
 	aux_info_->lock_.lock();
 	if (aux_info_->failed_ || block_cnt == 0) {
@@ -903,7 +910,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 	aux_info_->lock_.unlock();
 
 	LOG (ERROR) << __func__ << vmdkid << "::"
-		<< "Flush stage End, total flushed blocks count::"
+		<< "Flush stage End, total attempted flushed blocks count::"
 		<< aux_info_->flushed_blks_
 		<< ", status::" << aux_info_->failed_;
 	return aux_info_->failed_;
