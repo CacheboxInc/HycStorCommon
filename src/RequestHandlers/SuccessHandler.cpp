@@ -16,9 +16,11 @@
 #include "SuccessHandler.h"
 #include "Vmdk.h"
 #include "Work.h"
+#include "hyc_compress.h"
 #include "BackGroundWorker.h"
 
 using namespace std::chrono_literals;
+using namespace pio::hyc;
 using namespace ::ondisk;
 
 namespace pio {
@@ -79,12 +81,47 @@ struct SuccessWork {
 	}
 };
 
+void SuccessHandler::InitializeCompression(const config::VmdkConfig* configp) {
+	hyc_disk_uuid_t uuid = {0, 0};
+	const auto algo = configp->GetCompressionType();
+	const auto type = get_compress_type(algo.c_str());
+	log_assert(type != HYC_COMPRESS_UNKNOWN);
+	compress_.ctxp_ = hyc_compress_ctx_init(uuid, type, 0, true);
+	log_assert(compress_.ctxp_);
+
+	uint32_t bs;
+	auto bs_set = configp->GetBlockSize(bs);
+	log_assert(bs_set == true);
+
+	auto zero_buf = pio::NewRequestBuffer(bs);
+	log_assert(zero_buf and zero_buf->Size() == bs);
+	auto zbufp = zero_buf->Payload();
+	std::memset(zbufp, 0, bs);
+
+	auto sz = hyc_compress_get_maxlen(compress_.ctxp_, bs);
+	auto compress_buffer = pio::NewRequestBuffer(sz);
+	auto cbufp = compress_buffer->Payload();
+	auto rc = hyc_compress(compress_.ctxp_, zbufp, bs, cbufp, &sz);
+	log_assert(rc == HYC_COMPRESS_SUCCESS and sz < bs);
+
+	compress_.buffer_ = pio::NewRequestBuffer(sz);
+	log_assert(compress_.buffer_);
+	std::memcpy(compress_.buffer_->Payload(), cbufp, sz);
+
+	LOG(ERROR) << "Using Compression Algorithm " << algo
+		<< " Compressed Buffer Size " << sz;
+}
+
 SuccessHandler::SuccessHandler(const config::VmdkConfig* configp) :
 		RequestHandler(nullptr), rd_(), gen_(rd_()) {
 	delay_ = 0;
 	enabled_ = configp->IsSuccessHandlerEnabled();
 	if (enabled_) {
 		delay_ = configp->GetSuccessHandlerDelay();
+	}
+
+	if (configp->IsCompressionEnabled() and configp->SuccessHandlerCompressData()) {
+		InitializeCompression(configp);
 	}
 
 	if (not delay_) {
@@ -96,11 +133,14 @@ SuccessHandler::SuccessHandler(const config::VmdkConfig* configp) :
 }
 
 SuccessHandler::~SuccessHandler() {
+	if (compress_.ctxp_) {
+		hyc_compress_ctx_dinit(compress_.ctxp_);
+	}
 }
 
-int SuccessHandler::ReadNow(ActiveVmdk *vmdkp, Request *reqp,
+int SuccessHandler::ReadNowCommon(ActiveVmdk* vmdkp,
 		const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock *>& failed) {
+		std::vector<RequestBlock*>& failed) {
 	failed.clear();
 	for (auto blockp : process) {
 		if (pio_unlikely(blockp->IsReadHit())) {
@@ -108,18 +148,34 @@ int SuccessHandler::ReadNow(ActiveVmdk *vmdkp, Request *reqp,
 			continue;
 		}
 
-		auto destp = NewRequestBuffer(vmdkp->BlockSize());
-		if (pio_unlikely(not destp)) {
+		auto buffer = [&] () {
+			if (compress_.ctxp_) {
+				return pio::CloneRequestBuffer(compress_.buffer_.get());
+			}
+			auto buffer = NewRequestBuffer(vmdkp->BlockSize());
+			if (pio_unlikely(not buffer)) {
+				return buffer;
+			}
+			std::memset(buffer->Payload(), 0, buffer->Size());
+			return buffer;
+		} ();
+
+		if (pio_unlikely(not buffer)) {
 			blockp->SetResult(-ENOMEM, RequestStatus::kFailed);
 			failed.emplace_back(blockp);
 			return -ENOMEM;
 		}
 
-		::memset(destp->Payload(), 0, destp->Size());
-		blockp->PushRequestBuffer(std::move(destp));
+		blockp->PushRequestBuffer(std::move(buffer));
 		blockp->SetResult(0, RequestStatus::kSuccess);
 	}
 	return 0;
+}
+
+int SuccessHandler::ReadNow(ActiveVmdk *vmdkp, Request *reqp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed) {
+	return ReadNowCommon(vmdkp, process, failed);
 }
 
 folly::Future<int> SuccessHandler::ReadDelayed(ActiveVmdk *vmdkp,
@@ -273,25 +329,7 @@ int SuccessHandler::BulkReadNow(ActiveVmdk* vmdkp,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
-	failed.clear();
-	for (auto blockp : process) {
-		if (pio_unlikely(blockp->IsReadHit())) {
-			blockp->SetResult(0, RequestStatus::kSuccess);
-			continue;
-		}
-
-		auto destp = NewRequestBuffer(vmdkp->BlockSize());
-		if (pio_unlikely(not destp)) {
-			blockp->SetResult(-ENOMEM, RequestStatus::kFailed);
-			failed.emplace_back(blockp);
-			return -ENOMEM;
-		}
-
-		::memset(destp->Payload(), 0, destp->Size());
-		blockp->PushRequestBuffer(std::move(destp));
-		blockp->SetResult(0, RequestStatus::kSuccess);
-	}
-	return 0;
+	return ReadNowCommon(vmdkp, process, failed);
 }
 
 folly::Future<int> SuccessHandler::BulkRead(ActiveVmdk* vmdkp,

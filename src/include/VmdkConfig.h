@@ -81,6 +81,8 @@ public:
 	void DisableSuccessHandler();
 	void SetSuccessHandlerDelay(int32_t delay);
 	int32_t GetSuccessHandlerDelay() const;
+	bool SuccessHandlerCompressData() const;
+	void SetSuccessHandlerCompressData();
 
 	void SetTargetId(uint32_t target_id);
 	bool GetTargetId(uint32_t& target_id) const;
@@ -129,6 +131,7 @@ public:
 
 	static const std::string kSuccessHandler;
 	static const std::string kDelay;
+	static const std::string kSuccessCompressEnabled;
 
 	static const std::string kTargetID;
 	static const std::string kLunID;

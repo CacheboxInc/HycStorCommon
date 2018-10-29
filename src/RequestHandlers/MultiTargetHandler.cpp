@@ -67,6 +67,9 @@ void MultiTargetHandler::InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 	if (not configp->IsFileTargetEnabled()) {
 		auto new_conf = *configp;
 		new_conf.EnableSuccessHandler();
+		if (configp->IsCompressionEnabled()) {
+			new_conf.SetSuccessHandlerCompressData();
+		}
 		auto success = std::make_unique<SuccessHandler>(&new_conf);
 		targets_.emplace_back(std::move(success));
 	}

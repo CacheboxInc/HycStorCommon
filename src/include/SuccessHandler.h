@@ -9,6 +9,9 @@ namespace pio {
 /* Forward declaration for Pimpl */
 class BackGroundWorkers;
 class Work;
+namespace hyc {
+struct hyc_compress_ctx_;
+}
 
 class SuccessHandler : public RequestHandler {
 public:
@@ -56,6 +59,7 @@ public:
 		std::vector<RequestBlock*>& failed) override;
 
 private:
+	void InitializeCompression(const config::VmdkConfig* configp);
 	folly::Future<int> WriteDelayed(ActiveVmdk *vmdkp, Request *reqp,
 		::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed);
@@ -74,6 +78,9 @@ private:
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed);
 
+	int ReadNowCommon(ActiveVmdk* vmdkp,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed);
 private:
 	bool enabled_{false};
 	int32_t delay_{0};
@@ -87,5 +94,10 @@ private:
 		mutable std::mutex mutex_;
 		std::vector<std::shared_ptr<Work>> scheduled_;
 	} work_;
+
+	struct {
+		hyc::hyc_compress_ctx_* ctxp_{nullptr};
+		std::unique_ptr<RequestBuffer> buffer_;
+	} compress_;
 };
 }

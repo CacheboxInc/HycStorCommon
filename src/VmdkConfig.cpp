@@ -55,6 +55,7 @@ const std::map<VmdkConfig::ErrorType, std::string> VmdkConfig::kErrorToString = 
 };
 
 const std::string VmdkConfig::kSuccessHandler = "SuccessHandler";
+const std::string VmdkConfig::kSuccessCompressEnabled = "CompressData";
 const std::string VmdkConfig::kDelay = "Delay";
 
 const std::string VmdkConfig::kTargetID = "TargetID";
@@ -564,6 +565,21 @@ bool VmdkConfig::IsSuccessHandlerEnabled() const {
 	bool enabled{false};
 	auto rc = JsonConfig::GetKey(key, enabled);
 	return rc and enabled;
+}
+
+bool VmdkConfig::SuccessHandlerCompressData() const {
+	std::string key;
+	StringDelimAppend(key, '.', {kSuccessHandler, kSuccessCompressEnabled});
+
+	bool enabled{false};
+	auto rc = JsonConfig::GetKey(key, enabled);
+	return rc and enabled;
+}
+
+void VmdkConfig::SetSuccessHandlerCompressData() {
+	std::string key;
+	StringDelimAppend(key, '.', {kSuccessHandler, kSuccessCompressEnabled});
+	JsonConfig::SetKey(key, true);
 }
 
 void VmdkConfig::SetSuccessHandlerDelay(int32_t delay) {
