@@ -126,6 +126,7 @@ protected:
 		
 		uint64_t lbas[N_ACCESSES];
 		auto process = std::make_unique<ReqBlockVec>();
+		std::vector<std::unique_ptr<Request>> requests;
 
 		generate_accesses(pattern, lbas);
 		for(int i=0; i<N_ACCESSES; i++) {
@@ -142,6 +143,7 @@ protected:
 				process->emplace_back(blockp);
 			return true;
 			});
+			requests.emplace_back(std::move(req));
 		}
 	
 		auto future = vmdkp_->read_aheadp_->Run(*process);
