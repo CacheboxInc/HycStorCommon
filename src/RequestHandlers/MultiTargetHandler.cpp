@@ -34,7 +34,7 @@ void MultiTargetHandler::InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 		auto error = std::make_unique<ErrorHandler>(configp);
 		targets_.emplace_back(std::move(error));
 	}
-	
+
 	if (configp->IsSuccessHandlerEnabled()) {
 		auto success = std::make_unique<SuccessHandler>(configp);
 		targets_.emplace_back(std::move(success));
@@ -114,7 +114,7 @@ folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		auto read_missed = std::make_unique<std::remove_reference<decltype(failed)>::type>();
 		read_missed->swap(failed);
 		failed.clear();
-		
+
 		/* Initiate ReadAhead and populate cache if ghb sees a pattern based on history */
 		if(pio_likely(vmdkp->read_aheadp_ != NULL)) {
 			vmdkp->read_aheadp_->Run(*read_missed);
@@ -170,11 +170,22 @@ folly::Future<int> MultiTargetHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
 	return targets_[0]->Read(vmdkp, reqp, process, failed)
 	.then([this, vmdkp, reqp, &process, &failed] (int rc) mutable -> folly::Future<int> {
 		/* Read from CacheLayer complete */
+		auto vmdkid = vmdkp->GetID();
 		if(pio_unlikely(rc != 0)) {
+			LOG(ERROR) << __func__ << "Reading from DIRTY namespace failed for vmdkid::"
+				<< vmdkid << ", error code::" << rc;
 			return rc;
 		}
 
+		/* We should not be seeing any Miss */
 		if(pio_unlikely(failed.size())) {
+			for (auto blockp : failed) {
+				if (pio_likely(blockp->IsReadMissed())) {
+					LOG(ERROR) << __func__ << "Record not found ::" << vmdkid << ":"
+					<< blockp->GetReadCheckPointId() << ":"
+					<< blockp->GetAlignedOffset();
+				}
+			}
 
 			/* TBD: - failure, do we need to move all Request
 			 * blocks in failed vector. Get the error code

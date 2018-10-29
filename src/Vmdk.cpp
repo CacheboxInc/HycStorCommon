@@ -690,7 +690,7 @@ int ActiveVmdk::MoveStage(CheckPointID ckpt_id) {
 		reqp->SetFlushCkptID(ckpt_id);
 
 		this->Move(reqp.get(), min_max)
-		.then([this, iobuf = std::move(iobuf), reqp = std::move(reqp)] (int rc) mutable {
+		.then([this, iobuf = std::move(iobuf), reqp = std::move(reqp), vmdkid] (int rc) mutable {
 
 			/* TBD : Free the created IO buffer */
 			this->aux_info_->lock_.lock();
@@ -698,7 +698,7 @@ int ActiveVmdk::MoveStage(CheckPointID ckpt_id) {
 
 			/* If some of the requests has failed then don't submit new ones */
 			if (pio_unlikely(rc)) {
-				LOG(ERROR) << __func__ << "Some of the Move requests failed";
+				LOG(ERROR) << __func__ << "Some of the Move requests failed for vmdkid::" << vmdkid;
 				aux_info_->failed_ = true;
 			}
 
@@ -832,7 +832,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 
 		this->Flush(reqp.get(), min_max)
 		.then([this, iobuf = std::move(iobuf), reqp = std::move(reqp),
-			block_cnt = block_cnt] (int rc) mutable {
+			block_cnt = block_cnt, vmdkid] (int rc) mutable {
 
 			/* TBD : Free the created IO buffer */
 			this->aux_info_->lock_.lock();
@@ -840,7 +840,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 
 			/* If some of the requests has failed then don't submit new ones */
 			if (pio_unlikely(rc)) {
-				LOG(ERROR) << __func__ << " Some of the flush requests failed";
+				LOG(ERROR) << __func__ << " Some of the flush requests failed for vmdkid::" << vmdkid;
 				aux_info_->failed_ = true;
 			}
 
@@ -874,7 +874,8 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 		size = 0;
 	}
 
-	LOG (ERROR) << __func__ << vmdkid << "::" << " Outside loop blk count::" << block_cnt
+	LOG (ERROR) << __func__ << "::" << vmdkid << "::"
+		<< " Outside loop blk count::" << block_cnt
 		<< ", start block::" << start_block << ", size::" << size;
 	/* Submit any last pending accumlated IOs */
 	aux_info_->lock_.lock();
@@ -902,7 +903,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 
 		this->Flush(reqp.get(), min_max)
 		.then([this, iobuf = std::move(iobuf),
-			reqp = std::move(reqp), block_cnt = block_cnt]
+			reqp = std::move(reqp), block_cnt = block_cnt, vmdkid]
 				(int rc) mutable {
 
 			/* TBD : Free the created IO buffer */
@@ -911,7 +912,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 
 			/* If some of the requests has failed then don't submit new ones */
 			if (pio_unlikely(rc)) {
-				LOG(ERROR) << "Some of the flush requests are failed";
+				LOG(ERROR) << __func__ << "Some of the flush requests failed for vmdkid::" << vmdkid;
 				aux_info_->failed_ = true;
 			}
 

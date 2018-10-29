@@ -51,15 +51,19 @@ folly::Future<int> DirtyHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		 * return from here.
 		 */
 
+		auto vmdkid = vmdkp->GetID();
 		if (reqp->IsFlushReq()) {
 			auto rc = 0;
 			for (auto blockp : process) {
 				if (pio_unlikely(blockp->IsReadHit())) {
 					blockp->SetResult(0, RequestStatus::kSuccess);
 				} else {
+					LOG(ERROR) << __func__ << "Record not found ::" << vmdkid << ":"
+						<< blockp->GetReadCheckPointId() << ":"
+						<< blockp->GetAlignedOffset();
 					blockp->SetResult(-ENOMEM, RequestStatus::kFailed);
 					failed.emplace_back(blockp);
-					rc = 1;
+					rc = -EIO;
 				}
 			}
 			return rc;
@@ -232,7 +236,7 @@ folly::Future<int> DirtyHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 			} else {
 				blockp->SetResult(-EIO, RequestStatus::kFailed);
 				failed.emplace_back(blockp);
-				LOG(ERROR) << __func__ << "Record not found ::-"
+				LOG(ERROR) << __func__ << "Record not found ::"
 					<< vmdkp->GetID() << ":"
 					<< blockp->GetReadCheckPointId() << ":"
 					<< blockp->GetAlignedOffset();
