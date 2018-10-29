@@ -92,7 +92,7 @@ folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	}
 
 	return promise->getFuture()
-	.then([io, req_blocks, promise, &process, &failed] (int rc) mutable {
+	.then([io, req_blocks, promise, &process, &failed, vmdkp] (int rc) mutable {
 
 		if (rc != 0) {
 			failed.reserve(process.size());
@@ -111,6 +111,8 @@ folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 			#endif
 			blockp->PushRequestBuffer(std::move(*it));
 			blockp->SetResult(0, RequestStatus::kSuccess);
+
+			vmdkp->IncrNwReadBytes((*it)->PayloadSize());
 			req_blocks->erase(it);
 		}
 
@@ -132,9 +134,11 @@ folly::Future<int> NetworkTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
 		return -ENOMEM;
 	}
 
+	size_t curr_bytes_write = 0;
 	for (auto& blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
 		io->AddIoVec(blockp->GetAlignedOffset(), srcp->PayloadSize(), srcp->Payload());
+		curr_bytes_write += srcp->PayloadSize();
 	}
 
 	auto promise = std::make_shared<folly::Promise<int>>();
@@ -147,12 +151,13 @@ folly::Future<int> NetworkTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
 	}
 
 	return promise->getFuture()
-	.then([io, promise, &process, &failed] (int rc) mutable {
+	.then([io, promise, &process, &failed, vmdkp, curr_bytes_write] (int rc) mutable {
 		if (pio_unlikely(rc != 0)) {
 			failed.reserve(process.size());
 			std::copy(process.begin(), process.end(), std::back_inserter(failed));
 			return -EIO;
 		}
+		vmdkp->IncrNwWriteBytes(curr_bytes_write);
 		return 0;
 	});
 }
@@ -192,7 +197,7 @@ folly::Future<int> NetworkTargetHandler::BulkRead(ActiveVmdk* vmdkp,
 	}
 
 	return promise->getFuture()
-	.then([&process, &failed, io, buffers,
+	.then([&process, &failed, io, buffers, vmdkp,
 			promise = std::move(promise)]  (int rc) mutable {
 		if (pio_unlikely(rc != 0)) {
 			failed.reserve(process.size());
@@ -206,6 +211,8 @@ folly::Future<int> NetworkTargetHandler::BulkRead(ActiveVmdk* vmdkp,
 			log_assert(it != eit);
 			blockp->PushRequestBuffer(std::move(*it));
 			blockp->SetResult(0, RequestStatus::kSuccess);
+
+			vmdkp->IncrNwReadBytes((*it)->PayloadSize());
 			++it;
 		}
 		return 0;
@@ -232,6 +239,7 @@ folly::Future<int> NetworkTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		return -ENOMEM;
 	}
 
+	size_t curr_bytes_write = 0;
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
 		#if 0
@@ -241,6 +249,7 @@ folly::Future<int> NetworkTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		#endif
 		io->AddIoVec(blockp->GetAlignedOffset(), srcp->PayloadSize(),
 			srcp->Payload());
+		curr_bytes_write += srcp->PayloadSize();
 	}
 
 	auto promise = std::make_shared<folly::Promise<int>>();
@@ -253,7 +262,7 @@ folly::Future<int> NetworkTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 	}
 
 	return promise->getFuture()
-	.then([io, promise, &process, &failed] (int rc) mutable {
+	.then([io, promise, &process, &failed, vmdkp, curr_bytes_write] (int rc) mutable {
 		#if 0
 		LOG(ERROR) << __func__ << "In NetworkTargetHandler::Write future";
 		#endif
@@ -262,6 +271,7 @@ folly::Future<int> NetworkTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 			std::copy(process.begin(), process.end(), std::back_inserter(failed));
 			return -EIO;
 		}
+		vmdkp->IncrNwWriteBytes(curr_bytes_write);
 		return 0;
 	});
 }

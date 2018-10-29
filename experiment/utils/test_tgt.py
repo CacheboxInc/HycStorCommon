@@ -17,7 +17,7 @@ h = "http"
 cert = None
 
 # Edit AeroSpike details here
-AeroClusterIPs="192.168.3.112,192.168.2.24"
+AeroClusterIPs="192.168.3.193"
 AeroClusterPort="3000"
 AeroClusterID="1"
 TargetName="tgt1"
@@ -41,7 +41,7 @@ cmd="truncate --size=%sG %s" %(size_in_gb, DevPath)
 
 print ("DevPath: %s" %DevPath)
 print ("Cmd: %s" %cmd)
-os.system(cmd);
+#os.system(cmd);
 
 if len(sys.argv) > 1:
     if sys.argv[1].lower() == "https" :

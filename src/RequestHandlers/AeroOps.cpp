@@ -100,6 +100,9 @@ int AeroSpike::WriteBatchPrepare(ActiveVmdk *vmdkp,
 			return rc;
 		}
 
+		auto srcp = record->rq_block_->GetRequestBufferAtBack();
+		w_batch_rec->batch_write_size_ += srcp->PayloadSize();
+
 		/*
 		 * Set TTL -1 for DIRTY namespace writes, for CLEAN
 		 * namespace it should be inherited from global
@@ -239,6 +242,7 @@ int AeroSpike::ResetWriteBatchState(WriteBatch *batchp) {
 	batchp->retry_ = false;
 	batchp->batch.nsent_ = 0;
 	batchp->batch.ncomplete_ = 0;
+	batchp->batch_write_size_ = 0;
 	batchp->promise_ = std::make_unique<folly::Promise<int>>();
 	return 0;
 }
@@ -409,6 +413,7 @@ folly::Future<int> AeroSpike::AeroWrite(ActiveVmdk *vmdkp,
 
 			std::unique_lock<std::mutex> w_lock(vmdkp->w_aero_stat_lock_);
 			if (pio_unlikely(!batch->failed_)) {
+				vmdkp->IncrAeroWriteBytes(batch->batch_write_size_);
 				if ((vmdkp->w_aero_total_latency_ + duration)
 					< vmdkp->w_aero_total_latency_ ||
 					vmdkp->w_aero_io_blks_count_ > MAX_W_IOS_IN_HISTORY) {
@@ -731,6 +736,7 @@ folly::Future<int> AeroSpike::AeroRead(ActiveVmdk *vmdkp,
 
 						blockp->PushRequestBuffer(std::move(destp));
 						blockp->SetResult(0, RequestStatus::kHit);
+						vmdkp->IncrAeroReadBytes(ret);
 						}
 						break;
 

@@ -225,6 +225,7 @@ folly::Future<int> MultiTargetHandler::BulkReadComplete(ActiveVmdk* vmdkp,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process, std::vector<RequestBlock*>& failed) {
 	if (failed.empty()) {
+		vmdkp->cache_stats_.read_hits_ += process.size();
 		return 0;
 	}
 
@@ -242,7 +243,9 @@ folly::Future<int> MultiTargetHandler::BulkReadComplete(ActiveVmdk* vmdkp,
 	return targets_[1]->BulkRead(vmdkp, requests, *missed, failed)
 	.then([this, vmdkp, &requests, &failed, missed = std::move(missed)]
 			(int rc) mutable -> folly::Future<int> {
+		vmdkp->cache_stats_.read_miss_ += (*missed).size();
 		if (pio_unlikely(rc)) {
+			vmdkp->cache_stats_.read_failed_ += failed.size();
 			return rc < 0 ? rc : -rc;
 		}
 		if (pio_unlikely(not failed.empty())) {
@@ -251,7 +254,8 @@ folly::Future<int> MultiTargetHandler::BulkReadComplete(ActiveVmdk* vmdkp,
 		}
 
 		return targets_[0]->BulkReadPopulate(vmdkp, requests, *missed, failed)
-		.then([missed = std::move(missed)] (int rc) mutable -> folly::Future<int> {
+		.then([missed = std::move(missed), vmdkp] (int rc) mutable -> folly::Future<int> {
+			vmdkp->cache_stats_.read_populates_ += (*missed).size();
 			return rc;
 		});
 	});
@@ -272,6 +276,7 @@ folly::Future<int> MultiTargetHandler::BulkRead(ActiveVmdk* vmdkp,
 			}
 		}
 		if (pio_unlikely(rc and f)) {
+			vmdkp->cache_stats_.read_failed_ += failed.size();
 			LOG(ERROR) << "Read error " << rc;
 			return rc < 0 ? rc : -rc;
 		}

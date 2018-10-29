@@ -34,6 +34,26 @@ namespace config {
 	class FlushConfig;
 }
 
+/* Vmdk statistics */
+typedef struct __st_vmdk_stats__ {
+    uint64_t    writes_in_progress;
+    uint64_t    reads_in_progress;
+    uint64_t    flushes_in_progress;
+    uint64_t    moves_in_progress;
+    uint64_t    block_size;
+    uint64_t    block_shift;
+    uint64_t    block_mask;
+    uint64_t    flushed_chkpnts;
+    uint64_t    unflushed_chkpnts;
+    uint64_t    flushed_blocks;
+    uint64_t    moved_blocks;
+    uint64_t    pending_blocks;
+    uint64_t    read_misses;
+    uint64_t    read_hits;
+    uint64_t    dirty_blocks;
+    uint64_t    clean_blocks;
+}st_vmdk_stats;
+
 class CheckPoint {
 public:
 	CheckPoint(::ondisk::VmdkID vmdk_id, ::ondisk::CheckPointID id);
@@ -104,6 +124,10 @@ public:
 	uint64_t GetMovedBlksCnt() {
 		return moved_blks_;
 	}
+
+	uint64_t GetPendingBlksCnt() {
+		return pending_cnt_;
+	}
 };
 
 class Vmdk {
@@ -115,7 +139,7 @@ public:
 
 protected:
 	VmdkHandle handle_;
-	::ondisk::VmdkID     id_;
+	::ondisk::VmdkID id_;
 };
 
 class ActiveVmdk : public Vmdk {
@@ -139,6 +163,27 @@ public:
 	int FlushStage(::ondisk::CheckPointID check_point);
 	int MoveStage(::ondisk::CheckPointID check_point);
 	CheckPoint* GetCheckPoint(::ondisk::CheckPointID ckpt_id) const;
+
+	/* Functions to gathering Vmdk statistics at this point in time */
+	void GetVmdkInfo(st_vmdk_stats& vmdk_stats);
+	uint64_t WritesInProgress() const noexcept;
+	uint64_t ReadsInProgress() const noexcept;
+	uint64_t FlushesInProgress() const noexcept;
+	uint64_t MovesInProgress() const noexcept;
+	uint64_t FlushedCheckpoints() const noexcept;
+	uint64_t UnflushedCheckpoints() const noexcept;
+    uint64_t GetFlushedBlksCnt() const noexcept;
+    uint64_t GetMovedBlksCnt() const noexcept;
+    uint64_t GetPendingBlksCnt() const noexcept;
+	uint64_t GetReadHits() const noexcept;
+	uint64_t GetReadMisses() const noexcept;
+	uint64_t GetDirtyBlockCount() const noexcept;
+	uint64_t GetCleanBlockCount() const noexcept;
+
+	void IncrNwReadBytes(size_t read_bytes);
+	void IncrNwWriteBytes(size_t write_bytes);
+	void IncrAeroReadBytes(size_t read_bytes);
+	void IncrAeroWriteBytes(size_t write_bytes);
 
 	folly::Future<int> BulkWrite(::ondisk::CheckPointID ckpt_id,
 		const std::vector<std::unique_ptr<Request>>& requests,
@@ -186,18 +231,22 @@ public:
 	std::mutex r_aero_stat_lock_, w_aero_stat_lock_;
 
 	struct {
+		std::atomic<uint64_t> total_reads_{0};
+		std::atomic<uint64_t> total_writes_{0};
 		std::atomic<uint64_t> parent_blks_{0};
 		std::atomic<uint64_t> read_populates_{0};
 		std::atomic<uint64_t> cache_writes_{0};
 
 		std::atomic<uint64_t> read_hits_{0};
-		std::atomic<uint64_t> write_hits_{0};
-
 		std::atomic<uint64_t> read_miss_{0};
-		std::atomic<uint64_t> write_miss_{0};
 
 		std::atomic<uint64_t> read_failed_{0};
 		std::atomic<uint64_t> write_failed_{0};
+
+		std::atomic<size_t> nw_bytes_write_{0};
+		std::atomic<size_t> nw_bytes_read_{0};
+		std::atomic<size_t> aero_bytes_write_{0};
+		std::atomic<size_t> aero_bytes_read_{0};
 	} cache_stats_;
 
 	void GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept;

@@ -70,6 +70,7 @@ struct WriteBatch {
 	bool failed_{false};
 	bool submitted_{false};
 	as_status as_result_{AEROSPIKE_OK};
+	std::atomic<size_t> batch_write_size_{0};
 };
 
 struct ReadBatch;

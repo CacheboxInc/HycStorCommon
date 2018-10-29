@@ -82,6 +82,8 @@ public:
 private:
 	ActiveVmdk* FindVmdk(const ::ondisk::VmdkID& vmdk_id) const;
 	ActiveVmdk* FindVmdk(VmdkHandle vmdk_handle) const;
+
+private:
 	void WriteComplete(::ondisk::CheckPointID ckpt_id);
 	void CheckPointComplete(::ondisk::CheckPointID ckpt_id);
 	void FlushComplete(::ondisk::CheckPointID ckpt_id);

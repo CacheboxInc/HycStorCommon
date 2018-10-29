@@ -110,6 +110,25 @@ size_t ActiveVmdk::BlockMask() const {
 	return BlockSize() - 1;
 }
 
+void ActiveVmdk::IncrNwReadBytes(size_t read_bytes) {
+	cache_stats_.nw_bytes_read_ += read_bytes;
+	return;
+}
+
+void ActiveVmdk::IncrNwWriteBytes(size_t write_bytes) {
+	cache_stats_.nw_bytes_write_ += write_bytes;
+	return;
+}
+
+void ActiveVmdk::IncrAeroReadBytes(size_t read_bytes) {
+	cache_stats_.aero_bytes_read_ += read_bytes;
+	return;
+}
+
+void ActiveVmdk::IncrAeroWriteBytes(size_t write_bytes) {
+	cache_stats_.aero_bytes_write_ += write_bytes;
+	return;
+}
 void ActiveVmdk::SetEventFd(int eventfd) noexcept {
 	eventfd_ = eventfd;
 }
@@ -139,12 +158,12 @@ int ActiveVmdk::Cleanup() {
 }
 
 void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
+	vmdk_stats->total_reads_    = cache_stats_.total_reads_;
+	vmdk_stats->total_writes_   = cache_stats_.total_writes_;
 	vmdk_stats->read_populates_ =  cache_stats_.read_populates_;
 	vmdk_stats->cache_writes_   =  cache_stats_.cache_writes_;
 	vmdk_stats->read_hits_      = cache_stats_.read_hits_;
-	vmdk_stats->write_hits_     = cache_stats_.write_hits_;
 	vmdk_stats->read_miss_      = cache_stats_.read_miss_;
-	vmdk_stats->write_miss_     = cache_stats_.write_miss_;
 	vmdk_stats->read_failed_    = cache_stats_.read_failed_;
 	vmdk_stats->write_failed_   = cache_stats_.write_failed_;
 
@@ -154,6 +173,25 @@ void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
 	if(pio_likely(read_aheadp_)) {
 		vmdk_stats->read_ahead_blks_ = read_aheadp_->StatsTotalReadAheadBlocks();
 	}
+
+	vmdk_stats->flushes_in_progress_ = FlushesInProgress();
+	vmdk_stats->moves_in_progress_   = MovesInProgress();
+
+	vmdk_stats->block_size_  = BlockSize();
+
+	vmdk_stats->flushed_chkpnts_   = FlushedCheckpoints();
+	vmdk_stats->unflushed_chkpnts_ = UnflushedCheckpoints();
+
+	vmdk_stats->flushed_blocks_ = GetFlushedBlksCnt();
+	vmdk_stats->moved_blocks_   = GetMovedBlksCnt() ;
+	vmdk_stats->pending_blocks_ = GetPendingBlksCnt();
+	vmdk_stats->dirty_blocks_   = GetDirtyBlockCount();
+	vmdk_stats->clean_blocks_   = GetCleanBlockCount();
+
+	vmdk_stats->nw_bytes_write_   = cache_stats_.nw_bytes_write_;
+	vmdk_stats->nw_bytes_read_    = cache_stats_.nw_bytes_read_;
+	vmdk_stats->aero_bytes_write_ = cache_stats_.aero_bytes_write_;
+	vmdk_stats->aero_bytes_read_  = cache_stats_.aero_bytes_read_;
 }
 
 CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
@@ -268,6 +306,7 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp, const CheckPoints& min_max) {
 	SetReadCheckPointId(*process, min_max);
 
 	++stats_.reads_in_progress_;
+	++cache_stats_.total_reads_;
 	return headp_->Read(this, reqp, *process, *failed)
 	.then([this, reqp, process = std::move(process),
 			failed = std::move(failed)] (folly::Try<int>& result) mutable {
@@ -294,6 +333,7 @@ folly::Future<int> ActiveVmdk::BulkRead(const CheckPoints& min_max,
 		const std::vector<RequestBlock*>& process) {
 	SetReadCheckPointId(process, min_max);
 	++stats_.reads_in_progress_;
+	++cache_stats_.total_reads_;
 
 	auto failed = std::make_unique<std::vector<RequestBlock*>>();
 	return headp_->BulkRead(this, requests, process, *failed)
@@ -477,6 +517,7 @@ folly::Future<int> ActiveVmdk::BulkWrite(::ondisk::CheckPointID ckpt_id,
 	}
 
 	++stats_.writes_in_progress_;
+	++cache_stats_.total_writes_;
 	auto failed = std::make_unique<std::vector<RequestBlock*>>();
 
 	return headp_->BulkWrite(this, ckpt_id, requests, process, *failed)
@@ -544,6 +585,7 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 	});
 
 	++stats_.writes_in_progress_;
+	++cache_stats_.total_writes_;
 	return headp_->Write(this, reqp, ckpt_id, *process, *failed)
 	.then([this, reqp, ckpt_id, process = std::move(process),
 			failed = std::move(failed)] (folly::Try<int>& result) mutable {
@@ -1043,8 +1085,90 @@ CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
 	return nullptr;
 }
 
+uint64_t ActiveVmdk::WritesInProgress() const noexcept {
+	return stats_.writes_in_progress_;
+}
+
+uint64_t ActiveVmdk::ReadsInProgress() const noexcept {
+	return stats_.reads_in_progress_;
+}
+
+uint64_t ActiveVmdk::FlushesInProgress() const noexcept {
+	return stats_.flushes_in_progress_;
+}
+
+uint64_t ActiveVmdk::MovesInProgress() const noexcept {
+	return stats_.moves_in_progress_;
+}
+	
+uint64_t ActiveVmdk::FlushedCheckpoints() const noexcept {
+	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
+    return checkpoints_.flushed_.size();
+}
+
+uint64_t ActiveVmdk::UnflushedCheckpoints() const noexcept {
+	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
+    return checkpoints_.unflushed_.size();
+}
+
+uint64_t ActiveVmdk::GetFlushedBlksCnt() const noexcept {
+	if (not aux_info_) {
+		return 0;
+	}
+	return aux_info_->GetFlushedBlksCnt();
+}
+
+uint64_t ActiveVmdk::GetMovedBlksCnt() const noexcept {
+	if (not aux_info_) {
+		return 0;
+	}
+	return aux_info_->GetMovedBlksCnt();
+}
+
+uint64_t ActiveVmdk::GetPendingBlksCnt() const noexcept {
+	if (not aux_info_) {
+		return 0;
+	}
+	return aux_info_->GetPendingBlksCnt();
+}
+
+uint64_t ActiveVmdk::GetReadHits() const noexcept {
+	return 0;
+}
+
+uint64_t ActiveVmdk::GetReadMisses() const noexcept {
+	return 0;
+}
+
+uint64_t ActiveVmdk::GetDirtyBlockCount() const noexcept {
+	return 0;
+}
+
+uint64_t ActiveVmdk::GetCleanBlockCount() const noexcept {
+	return 0;
+}
+
+void ActiveVmdk::GetVmdkInfo(st_vmdk_stats& vmdk_stats) {
+    vmdk_stats.writes_in_progress = WritesInProgress();
+    vmdk_stats.reads_in_progress = ReadsInProgress();
+    vmdk_stats.flushes_in_progress = FlushesInProgress();
+    vmdk_stats.moves_in_progress = MovesInProgress();
+    vmdk_stats.block_size = BlockSize();
+    vmdk_stats.block_shift = BlockShift();
+    vmdk_stats.block_mask = BlockMask();
+    vmdk_stats.flushed_chkpnts = FlushedCheckpoints();
+    vmdk_stats.unflushed_chkpnts = UnflushedCheckpoints();
+    vmdk_stats.flushed_blocks = GetFlushedBlksCnt();
+    vmdk_stats.moved_blocks = GetMovedBlksCnt() ;
+    vmdk_stats.pending_blocks = GetPendingBlksCnt();
+    vmdk_stats.read_misses = GetReadMisses();
+    vmdk_stats.read_hits = GetReadHits();
+    vmdk_stats.dirty_blocks = GetDirtyBlockCount();
+    vmdk_stats.clean_blocks = GetCleanBlockCount();
+}
+
 CheckPoint::CheckPoint(VmdkID vmdk_id, CheckPointID id) :
-		vmdk_id_(std::move(vmdk_id)), self_(id) {
+	vmdk_id_(std::move(vmdk_id)), self_(id) {
 }
 
 CheckPoint::~CheckPoint() = default;

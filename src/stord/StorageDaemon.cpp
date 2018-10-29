@@ -27,6 +27,7 @@
 #include "FlushManager.h"
 #include "TgtInterfaceImpl.h"
 #include "ScanManager.h"
+#include "VmManager.h"
 #include <boost/format.hpp>
 #include <boost/property_tree/ini_parser.hpp>
 
@@ -1418,13 +1419,13 @@ static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *us
 	}
 
 	json_t *stat_params = json_object();
+	json_object_set(stat_params, "total_reads", json_integer(vmdk_stats_p->total_reads_));
+	json_object_set(stat_params, "total_writes", json_integer(vmdk_stats_p->total_writes_));
 	json_object_set(stat_params, "parent_blks", json_integer(vmdk_stats_p->parent_blks_));
 	json_object_set(stat_params, "read_populates", json_integer(vmdk_stats_p->read_populates_));
 	json_object_set(stat_params, "cache_writes", json_integer(vmdk_stats_p->cache_writes_));
 	json_object_set(stat_params, "read_hits", json_integer(vmdk_stats_p->read_hits_));
-	json_object_set(stat_params, "write_hits", json_integer(vmdk_stats_p->write_hits_));
 	json_object_set(stat_params, "read_miss", json_integer(vmdk_stats_p->read_miss_));
-	json_object_set(stat_params, "write_miss", json_integer(vmdk_stats_p->write_miss_));
 	json_object_set(stat_params, "read_failed", json_integer(vmdk_stats_p->read_failed_));
 	json_object_set(stat_params, "write_failed", json_integer(vmdk_stats_p->write_failed_));
 
@@ -1432,6 +1433,22 @@ static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *us
 	json_object_set(stat_params, "writes_in_progress", json_integer(vmdk_stats_p->writes_in_progress_));
 
 	json_object_set(stat_params, "read_ahead_blks", json_integer(vmdk_stats_p->read_ahead_blks_));
+	json_object_set(stat_params, "flushes_in_progress", json_integer(vmdk_stats_p->flushes_in_progress_));
+	json_object_set(stat_params, "moves_in_progress", json_integer(vmdk_stats_p->moves_in_progress_));
+	json_object_set(stat_params, "block_size", json_integer(vmdk_stats_p->block_size_));
+	json_object_set(stat_params, "flushed_chkpnts", json_integer(vmdk_stats_p->flushed_chkpnts_));
+	json_object_set(stat_params, "unflushed_chkpnts", json_integer(vmdk_stats_p->unflushed_chkpnts_));
+	json_object_set(stat_params, "flushed_blocks", json_integer(vmdk_stats_p->flushed_blocks_));
+	json_object_set(stat_params, "moved_blocks", json_integer(vmdk_stats_p->moved_blocks_));
+	json_object_set(stat_params, "pending_blocks", json_integer(vmdk_stats_p->pending_blocks_));
+	json_object_set(stat_params, "dirty_blocks", json_integer(vmdk_stats_p->dirty_blocks_));
+	json_object_set(stat_params, "clean_blocks", json_integer(vmdk_stats_p->clean_blocks_));
+
+	json_object_set(stat_params, "nw_bytes_write", json_integer(vmdk_stats_p->nw_bytes_write_));
+	json_object_set(stat_params, "nw_bytes_read", json_integer(vmdk_stats_p->nw_bytes_read_));
+	json_object_set(stat_params, "aero_bytes_write", json_integer(vmdk_stats_p->aero_bytes_write_));
+	json_object_set(stat_params, "aero_bytes_read", json_integer(vmdk_stats_p->aero_bytes_read_));
+
 	std::string stat_params_str = json_dumps(stat_params, JSON_ENCODE_ANY);
 
 	json_object_clear(stat_params);
