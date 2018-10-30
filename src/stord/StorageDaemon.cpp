@@ -1449,6 +1449,11 @@ static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *us
 	json_object_set(stat_params, "aero_bytes_write", json_integer(vmdk_stats_p->aero_bytes_write_));
 	json_object_set(stat_params, "aero_bytes_read", json_integer(vmdk_stats_p->aero_bytes_read_));
 
+	json_object_set(stat_params, "bufsz_before_compress", json_integer(vmdk_stats->bufsz_before_compress));
+	json_object_set(stat_params, "bufsz_after_compress", json_integer(vmdk_stats->bufsz_after_compress));
+	json_object_set(stat_params, "bufsz_before_uncompress", json_integer(vmdk_stats->bufsz_before_uncompress));
+	json_object_set(stat_params, "bufsz_after_uncompress", json_integer(vmdk_stats->bufsz_after_uncompress));
+
 	std::string stat_params_str = json_dumps(stat_params, JSON_ENCODE_ANY);
 
 	json_object_clear(stat_params);

@@ -55,12 +55,14 @@ CompressHandler::RequestBlockReadComplete(ActiveVmdk* vmdkp,
 
 	int32_t error = 0;
 	auto srcp = blockp->GetRequestBufferAtBack();
+	vmdkp->cache_stats_.bufsz_before_uncompress += srcp->PayloadSize();
 	auto rc = hyc_uncompress(ctxp_, srcp->Payload(), srcp->PayloadSize(),
 		destp->Payload(), &dest_bufsz);
 	if (pio_unlikely(rc != HYC_COMPRESS_SUCCESS)) {
 		LOG(ERROR) << "Uncompress failed";
 		error = -ENOMEM;
 	}
+	vmdkp->cache_stats_.bufsz_after_uncompress += dest_bufsz;
 
 	return std::make_pair(std::move(destp), error);
 }
@@ -147,12 +149,14 @@ int CompressHandler::ProcessWrite(ActiveVmdk *vmdkp,
 		}
 		auto dest_bufp = dst_uptr.get();
 
+		vmdkp->cache_stats_.bufsz_before_compress += srcp->PayloadSize();
 		auto rc = hyc_compress(ctxp_, srcp->Payload(), srcp->PayloadSize(),
 			dest_bufp, &dest_bufsz);
 		if (pio_unlikely(rc != HYC_COMPRESS_SUCCESS)) {
 			error = -ENOMEM;
 			break;
 		}
+		vmdkp->cache_stats_.bufsz_after_compress += dest_bufsz;
 
 		//TODO: avoid extra mem alloc and copy
 		//1. allocate NewRequestBuffer() with maxsize

@@ -247,6 +247,11 @@ public:
 		std::atomic<size_t> nw_bytes_read_{0};
 		std::atomic<size_t> aero_bytes_write_{0};
 		std::atomic<size_t> aero_bytes_read_{0};
+
+		std::atomic<uint64_t> bufsz_before_compress{0};
+		std::atomic<uint64_t> bufsz_after_compress{0};
+		std::atomic<uint64_t> bufsz_before_uncompress{0};
+		std::atomic<uint64_t> bufsz_after_uncompress{0};
 	} cache_stats_;
 
 	void GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept;

@@ -70,6 +70,11 @@ struct VmdkCacheStats {
 	size_t nw_bytes_read_{0};
 	size_t aero_bytes_write_{0};
 	size_t aero_bytes_read_{0};
+
+	uint64_t bufsz_before_compress{0};
+	uint64_t bufsz_after_compress{0};
+	uint64_t bufsz_before_uncompress{0};
+	uint64_t bufsz_after_uncompress{0};
 };
 
 static constexpr auto kBlockIDMax = std::numeric_limits<::ondisk::BlockID>::max();

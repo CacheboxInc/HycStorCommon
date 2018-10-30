@@ -192,6 +192,11 @@ void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
 	vmdk_stats->nw_bytes_read_    = cache_stats_.nw_bytes_read_;
 	vmdk_stats->aero_bytes_write_ = cache_stats_.aero_bytes_write_;
 	vmdk_stats->aero_bytes_read_  = cache_stats_.aero_bytes_read_;
+
+	vmdk_stats->bufsz_before_compress = cache_stats_.bufsz_before_compress;
+	vmdk_stats->bufsz_after_compress = cache_stats_.bufsz_after_compress;
+	vmdk_stats->bufsz_before_uncompress = cache_stats_.bufsz_before_uncompress;
+	vmdk_stats->bufsz_after_uncompress = cache_stats_.bufsz_after_uncompress;
 }
 
 CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
