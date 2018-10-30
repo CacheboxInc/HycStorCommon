@@ -656,10 +656,12 @@ uint64_t GetBlocks(std::string& s, const char& delimiter,
 		}
 	}
 
+	#if 0
 	/* Print the blocks */
 	for (auto a : blocks) {
 		LOG(ERROR) << __func__ << "block ::" << a;
 	}
+	#endif
 
 	return 0;
 }
