@@ -180,6 +180,8 @@ public:
 	uint64_t GetDirtyBlockCount() const noexcept;
 	uint64_t GetCleanBlockCount() const noexcept;
 
+	void IncrReadBytes(size_t read_bytes);
+	void IncrWriteBytes(size_t write_bytes);
 	void IncrNwReadBytes(size_t read_bytes);
 	void IncrNwWriteBytes(size_t write_bytes);
 	void IncrAeroReadBytes(size_t read_bytes);
@@ -233,6 +235,9 @@ public:
 	struct {
 		std::atomic<uint64_t> total_reads_{0};
 		std::atomic<uint64_t> total_writes_{0};
+		std::atomic<size_t> total_bytes_reads_{0};
+		std::atomic<size_t> total_bytes_writes_{0};
+
 		std::atomic<uint64_t> parent_blks_{0};
 		std::atomic<uint64_t> read_populates_{0};
 		std::atomic<uint64_t> cache_writes_{0};

@@ -40,6 +40,9 @@ struct ScanStats {
 struct VmdkCacheStats {
 	uint64_t total_reads_{0};
 	uint64_t total_writes_{0};
+	size_t total_bytes_reads_{0};
+	size_t total_bytes_writes_{0};
+
 	uint64_t parent_blks_{0};
 	uint64_t read_populates_{0};
 	uint64_t cache_writes_{0};

@@ -110,6 +110,16 @@ size_t ActiveVmdk::BlockMask() const {
 	return BlockSize() - 1;
 }
 
+void ActiveVmdk::IncrReadBytes(size_t read_bytes) {
+	cache_stats_.total_bytes_reads_ += read_bytes;
+	return;
+}
+
+void ActiveVmdk::IncrWriteBytes(size_t write_bytes) {
+	cache_stats_.total_bytes_writes_ += write_bytes;
+	return;
+}
+
 void ActiveVmdk::IncrNwReadBytes(size_t read_bytes) {
 	cache_stats_.nw_bytes_read_ += read_bytes;
 	return;
@@ -192,6 +202,9 @@ void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
 	vmdk_stats->nw_bytes_read_    = cache_stats_.nw_bytes_read_;
 	vmdk_stats->aero_bytes_write_ = cache_stats_.aero_bytes_write_;
 	vmdk_stats->aero_bytes_read_  = cache_stats_.aero_bytes_read_;
+
+	vmdk_stats->total_bytes_reads_  = cache_stats_.total_bytes_reads_;
+	vmdk_stats->total_bytes_writes_ = cache_stats_.total_bytes_writes_;
 
 	vmdk_stats->bufsz_before_compress = cache_stats_.bufsz_before_compress;
 	vmdk_stats->bufsz_after_compress = cache_stats_.bufsz_after_compress;
@@ -329,6 +342,7 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp, const CheckPoints& min_max) {
 		}
 
 		--stats_.reads_in_progress_;
+		IncrReadBytes(reqp->GetBufferSize());
 		return reqp->Complete();
 	});
 }
@@ -337,8 +351,8 @@ folly::Future<int> ActiveVmdk::BulkRead(const CheckPoints& min_max,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process) {
 	SetReadCheckPointId(process, min_max);
-	++stats_.reads_in_progress_;
-	++cache_stats_.total_reads_;
+	stats_.reads_in_progress_ += requests.size();
+	cache_stats_.total_reads_ += requests.size();
 
 	auto failed = std::make_unique<std::vector<RequestBlock*>>();
 	return headp_->BulkRead(this, requests, process, *failed)
@@ -373,6 +387,7 @@ folly::Future<int> ActiveVmdk::BulkRead(const CheckPoints& min_max,
 			if (pio_unlikely(rc < 0)) {
 				res = rc;
 			}
+			IncrReadBytes(reqp->GetBufferSize());
 		}
 		return res;
 	});
@@ -497,6 +512,7 @@ int ActiveVmdk::WriteRequestComplete(Request* reqp, CheckPointID ckpt_id) {
 
 int ActiveVmdk::WriteComplete(Request* reqp, CheckPointID ckpt_id) {
 	--stats_.writes_in_progress_;
+	IncrWriteBytes(reqp->GetBufferSize());
 	return WriteRequestComplete(reqp, ckpt_id);
 }
 
@@ -510,6 +526,7 @@ int ActiveVmdk::WriteComplete(
 		if (pio_unlikely(rc < 0)) {
 			ret = rc;
 		}
+		IncrWriteBytes(request->GetBufferSize());
 	}
 	return ret;
 }
@@ -521,8 +538,8 @@ folly::Future<int> ActiveVmdk::BulkWrite(::ondisk::CheckPointID ckpt_id,
 		return -ENXIO;
 	}
 
-	++stats_.writes_in_progress_;
-	++cache_stats_.total_writes_;
+	stats_.writes_in_progress_ += requests.size();
+	cache_stats_.total_writes_ += requests.size();
 	auto failed = std::make_unique<std::vector<RequestBlock*>>();
 
 	return headp_->BulkWrite(this, ckpt_id, requests, process, *failed)

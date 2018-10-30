@@ -83,6 +83,10 @@ public:
 
 	void SetResult(int return_value, RequestStatus status) noexcept;
 
+	size_t GetBufferSize() {
+		return in_.buffer_size_;
+	}
+
 public:
 	template <typename Lambda>
 	void ForEachRequestBlock(Lambda&& func) {

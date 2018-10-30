@@ -1421,6 +1421,8 @@ static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *us
 	json_t *stat_params = json_object();
 	json_object_set(stat_params, "total_reads", json_integer(vmdk_stats_p->total_reads_));
 	json_object_set(stat_params, "total_writes", json_integer(vmdk_stats_p->total_writes_));
+	json_object_set(stat_params, "total_bytes_reads", json_integer(vmdk_stats_p->total_bytes_reads_));
+	json_object_set(stat_params, "total_bytes_writes", json_integer(vmdk_stats_p->total_bytes_writes_));
 	json_object_set(stat_params, "parent_blks", json_integer(vmdk_stats_p->parent_blks_));
 	json_object_set(stat_params, "read_populates", json_integer(vmdk_stats_p->read_populates_));
 	json_object_set(stat_params, "cache_writes", json_integer(vmdk_stats_p->cache_writes_));
