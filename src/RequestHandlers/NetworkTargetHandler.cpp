@@ -109,10 +109,11 @@ folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
                                 ":" << bufferp->Size() <<
                                 ":" << crc_t10dif((unsigned char *) bufferp->Payload(), bufferp->Size());
 			#endif
+			vmdkp->IncrNwReadBytes((*it)->PayloadSize());
+
 			blockp->PushRequestBuffer(std::move(*it));
 			blockp->SetResult(0, RequestStatus::kSuccess);
 
-			vmdkp->IncrNwReadBytes((*it)->PayloadSize());
 			req_blocks->erase(it);
 		}
 
@@ -209,10 +210,10 @@ folly::Future<int> NetworkTargetHandler::BulkRead(ActiveVmdk* vmdkp,
 		auto eit = buffers->end();
 		for (auto blockp : process) {
 			log_assert(it != eit);
+			vmdkp->IncrNwReadBytes((*it)->PayloadSize());
 			blockp->PushRequestBuffer(std::move(*it));
 			blockp->SetResult(0, RequestStatus::kSuccess);
 
-			vmdkp->IncrNwReadBytes((*it)->PayloadSize());
 			++it;
 		}
 		return 0;
