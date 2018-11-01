@@ -479,6 +479,7 @@ struct VmdkStats {
 	std::atomic<int64_t> write_latency_{0};
 
 	std::atomic<int64_t> pending_{0};
+	std::atomic<int64_t> rpc_requests_scheduled_{0};
 };
 
 class StordVmdk {
@@ -505,10 +506,12 @@ public:
 
 	::hyc_thrift::VmdkHandle GetHandle() const noexcept;
 	const std::string& GetVmdkId() const noexcept;
-	void ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp);
+	void ScheduleMore(folly::EventBase* basep, StorRpcAsyncClient* clientp);
 
 	friend std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
 private:
+	void ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp);
+	int64_t RpcRequestScheduledCount() const noexcept;
 	uint64_t PendingOperations() const noexcept;
 	std::pair<Request*, bool> NewRequest(Request::Type type,
 		const void* privatep, char* bufferp, size_t buf_sz, size_t xfer_sz,
@@ -517,7 +520,6 @@ private:
 	int PostRequestCompletion() const;
 	void ReadDataCopy(Request* reqp, const ReadResult& result);
 
-	void ScheduleMore(folly::EventBase* basep, StorRpcAsyncClient* clientp);
 	void ScheduleRead(folly::EventBase* basep, StorRpcAsyncClient* clientp,
 		Request* reqp);
 	void ScheduleWrite(folly::EventBase* basep, StorRpcAsyncClient* clientp,
@@ -570,7 +572,7 @@ void SchedulePending::runLoopCallback() noexcept {
 
 	for (auto& vmdkp : vmdks) {
 		auto clientp = connectp_->GetRpcClient();
-		vmdkp->ScheduleNow(basep, clientp);
+		vmdkp->ScheduleMore(basep, clientp);
 	}
 }
 
@@ -684,6 +686,10 @@ uint64_t StordVmdk::PendingOperations() const noexcept {
 	return stats_.pending_;
 }
 
+int64_t StordVmdk::RpcRequestScheduledCount() const noexcept {
+	return stats_.rpc_requests_scheduled_;
+}
+
 std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 		const void* privatep, char* bufferp, size_t buf_sz, size_t xfer_sz,
 		int64_t offset) {
@@ -712,6 +718,7 @@ std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 
 void StordVmdk::UpdateStats(Request* reqp) {
 	--stats_.pending_;
+	log_assert(stats_.rpc_requests_scheduled_ >= 0);
 	auto latency = reqp->timer.GetMicroSec();
 	switch (reqp->type) {
 	case Request::Type::kRead:
@@ -875,11 +882,14 @@ void StordVmdk::ScheduleWriteSame(folly::EventBase* basep,
 			(const WriteResult& result) mutable {
 		reqp->result = result.get_result();
 		RequestComplete(reqp);
+		--stats_.rpc_requests_scheduled_;
 	})
 	.onError([this, reqp] (const std::exception& e) mutable {
 		reqp->result = -EIO;
 		RequestComplete(reqp);
+		--stats_.rpc_requests_scheduled_;
 	});
+	++stats_.rpc_requests_scheduled_;
 }
 
 void StordVmdk::ScheduleWrite(folly::EventBase* basep,
@@ -893,11 +903,14 @@ void StordVmdk::ScheduleWrite(folly::EventBase* basep,
 			(const WriteResult& result) mutable {
 		reqp->result = result.get_result();
 		RequestComplete(reqp);
+		--stats_.rpc_requests_scheduled_;
 	})
 	.onError([this, reqp] (const std::exception& e) mutable {
 		reqp->result = -EIO;
 		RequestComplete(reqp);
+		--stats_.rpc_requests_scheduled_;
 	});
+	++stats_.rpc_requests_scheduled_;
 }
 
 void StordVmdk::ScheduleBulkWrite(folly::EventBase* basep,
@@ -911,12 +924,15 @@ void StordVmdk::ScheduleBulkWrite(folly::EventBase* basep,
 		if (hyc_unlikely(trie.hasException())) {
 			LOG(ERROR) << __func__ << " STORD sent exception";
 			RequestComplete(*reqs, -ENOMEM);
+			--stats_.rpc_requests_scheduled_;
 			return;
 		}
 
 		const auto& results = trie.value();
 		RequestComplete(results);
+		--stats_.rpc_requests_scheduled_;
 	});
+	++stats_.rpc_requests_scheduled_;
 }
 
 void StordVmdk::ScheduleRead(folly::EventBase* basep,
@@ -930,11 +946,14 @@ void StordVmdk::ScheduleRead(folly::EventBase* basep,
 			ReadDataCopy(reqp, result);
 		}
 		RequestComplete(reqp);
+		--stats_.rpc_requests_scheduled_;
 	})
 	.onError([this, reqp] (const std::exception& e) mutable {
 		reqp->result = -EIO;
 		RequestComplete(reqp);
+		--stats_.rpc_requests_scheduled_;
 	});
+	++stats_.rpc_requests_scheduled_;
 }
 
 void StordVmdk::BulkReadComplete(const std::vector<Request*>& requests,
@@ -974,12 +993,15 @@ void StordVmdk::ScheduleBulkRead(folly::EventBase* basep,
 		if (hyc_unlikely(trie.hasException())) {
 			LOG(ERROR) << __func__ << " STORD sent exception";
 			RequestComplete(*thrift_requests, -ENOMEM);
+			--stats_.rpc_requests_scheduled_;
 			return;
 		}
 
 		const auto& result = trie.value();
 		BulkReadComplete(requests, result);
+		--stats_.rpc_requests_scheduled_;
 	});
+	++stats_.rpc_requests_scheduled_;
 }
 
 void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp) {
@@ -1042,7 +1064,9 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp
 
 void StordVmdk::ScheduleMore(folly::EventBase* basep,
 		StorRpcAsyncClient* clientp) {
-	ScheduleNow(basep, clientp);
+	if (not RpcRequestScheduledCount()) {
+		ScheduleNow(basep, clientp);
+	}
 }
 
 RequestID StordVmdk::ScheduleRead(const void* privatep, char* bufferp,
