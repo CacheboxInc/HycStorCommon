@@ -85,7 +85,7 @@ folly::Future<int> CleanHandler::BulkRead(ActiveVmdk* vmdkp,
 	}
 
 	return aero_obj_->AeroReadCmdProcess(vmdkp, process, failed,
-		kAsNamespaceCacheDirty, aero_conn_)
+		kAsNamespaceCacheClean, aero_conn_)
 	.then([&process, &failed] (int rc) mutable
 			-> folly::Future<int> {
 		if (pio_unlikely(rc != 0)) {
