@@ -1146,6 +1146,7 @@ WriteRecord::WriteRecord(RequestBlock* blockp, WriteBatch* batchp,
 }
 
 WriteRecord::~WriteRecord() {
+	as_record_destroy(&record_);
 	as_key_destroy(&key_);
 }
 
