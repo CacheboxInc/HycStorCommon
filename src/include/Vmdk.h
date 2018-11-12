@@ -172,9 +172,9 @@ public:
 	uint64_t MovesInProgress() const noexcept;
 	uint64_t FlushedCheckpoints() const noexcept;
 	uint64_t UnflushedCheckpoints() const noexcept;
-    uint64_t GetFlushedBlksCnt() const noexcept;
-    uint64_t GetMovedBlksCnt() const noexcept;
-    uint64_t GetPendingBlksCnt() const noexcept;
+	uint64_t GetFlushedBlksCnt() const noexcept;
+	uint64_t GetMovedBlksCnt() const noexcept;
+	uint64_t GetPendingBlksCnt() const noexcept;
 	uint64_t GetReadHits() const noexcept;
 	uint64_t GetReadMisses() const noexcept;
 	uint64_t GetDirtyBlockCount() const noexcept;

@@ -172,7 +172,7 @@ static void WritePipeListener(void *udatap, as_event_loop *lp) {
 	auto batchp = wrp->batchp_;
 	std::unique_lock<std::mutex> b_lock(batchp->batch.lock_);
 	if (pio_unlikely(batchp->batch.nsent_ >= batchp->batch.nwrites_)) {
-		LOG(ERROR) << __func__ << "Pipeline Submit Error nsent::"
+		LOG(ERROR) << __func__ << " Pipeline Submit Error nsent::"
 			<< batchp->batch.nsent_
 			<< " nwrites::" << batchp->batch.nwrites_
 			<< " ncomplete::" << batchp->batch.ncomplete_
@@ -182,12 +182,13 @@ static void WritePipeListener(void *udatap, as_event_loop *lp) {
 	}
 
 	log_assert(batchp->submitted_ == false);
-	batchp->batch.nsent_++;
+	++batchp->batch.nsent_;
 
 	wrp = batchp->batch.rec_it_->get();
-	std::advance(batchp->batch.rec_it_, 1);
+	++batchp->batch.rec_it_;
 	as_pipe_listener fnp = nullptr;
-	if (batchp->batch.rec_it_ == batchp->batch.recordsp_.end()) {
+
+	if(pio_unlikely(batchp->batch.nsent_ == batchp->batch.nwrites_)) {
 		/* complete batch is submitted */
 		batchp->submitted_ = true;
 		log_assert(batchp->batch.nsent_ == batchp->batch.nwrites_);
@@ -202,7 +203,8 @@ static void WritePipeListener(void *udatap, as_event_loop *lp) {
 	auto complete = false;
 	as_error err;
 	auto s = aerospike_key_put_async(&batchp->aero_conn_->as_, &err,
-			NULL, kp, rp, WriteListener, (void *) wrp, lp, fnp);
+			NULL, kp, rp, WriteListener,
+			reinterpret_cast<void*>(wrp), lp, fnp);
 	if (pio_unlikely(s != AEROSPIKE_OK)) {
 		LOG(ERROR) << __func__ << "::request submit failed, code"
 			<< err.code << "msg:" << err.message;
@@ -288,7 +290,7 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 	/* Get very first record from vector to start */
 	batchp->batch.rec_it_ = (batchp->batch.recordsp_).begin();
 	wrp = batchp->batch.rec_it_->get();
-	std::advance(batchp->batch.rec_it_, 1);
+	++batchp->batch.rec_it_;
 
 	kp  = &wrp->key_;
 	rp  = &wrp->record_;
@@ -306,7 +308,8 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 	batchp->batch.nsent_ = 1;
 	s = aerospike_key_put_async(&batchp->aero_conn_->as_,
 			&err, NULL, kp, rp,
-			WriteListener, (void *) wrp, lp, fnp);
+			WriteListener,
+			reinterpret_cast<void*>(wrp), lp, fnp);
 	if (pio_unlikely(s != AEROSPIKE_OK)) {
 		LOG(ERROR) << __func__ << "::request submit failed, err code:-"
 			<< err.code << "msg:" << err.message;
@@ -333,25 +336,22 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 			auto rec =  v_rec.get();
 			switch(rec->status_) {
 				default:
-					#if 0
 					LOG(ERROR) << __func__ << rec->status_
 						<< "::failed write request::"
-						<< batchp->retry_cnt_;
-					#endif
+						<< rec->status_;
 					batchp->failed_ = true;
 					batchp->retry_ = false;
 					break;
+				case AEROSPIKE_ERR_ASYNC_CONNECTION:
 				case AEROSPIKE_ERR_TIMEOUT:
 				case AEROSPIKE_ERR_RECORD_BUSY:
 				case AEROSPIKE_ERR_DEVICE_OVERLOAD:
 				case AEROSPIKE_ERR_CLUSTER:
 				case AEROSPIKE_ERR_SERVER:
-					#if 0
 					LOG(ERROR) << __func__ << rec->status_
 						<< "::Retyring for failed write request"
-						<< ", retry cnt ::-"
+						<< ", retry cnt ::"
 						<< batchp->retry_cnt_;
-					#endif
 					batchp->failed_ = true;
 					batchp->retry_ = true;
 					break;
@@ -546,7 +546,7 @@ static void ReadListener(as_error *errp, as_batch_read_records *records,
 	if (pio_unlikely(errp)) {
 		batchp->as_result_ = errp->code;
 		if (errp->code != AEROSPIKE_ERR_RECORD_NOT_FOUND) {
-			VLOG(2) << __func__ << "error msg:-" <<
+			LOG(ERROR) << __func__ << "error msg:-" <<
 				errp->message << "err code:-" << errp->code;
 			rc = 1;
 		}
@@ -601,19 +601,20 @@ folly::Future<int> AeroSpike::ReadBatchSubmit(ReadBatch *batchp) {
 			case AEROSPIKE_OK:
 			case AEROSPIKE_ERR_RECORD_NOT_FOUND:
 				break;
+			case AEROSPIKE_ERR_NO_MORE_CONNECTIONS:
 			case AEROSPIKE_ERR_TIMEOUT:
 			case AEROSPIKE_ERR_RECORD_BUSY:
 			case AEROSPIKE_ERR_DEVICE_OVERLOAD:
 			case AEROSPIKE_ERR_SERVER:
 			case AEROSPIKE_ERR_CLUSTER:
-				#if 0
-				LOG(ERROR) << __func__ << "retyring for failed Aerospike_batch_read_async"
+				LOG(ERROR) << __func__ << "Retyring for failed aerospike_batch_read_async"
 					<<  ", err code::-" << batchp->as_result_;
-				#endif
 				batchp->retry_ = true;
 				batchp->failed_ = true;
 				break;
 			default:
+				LOG(ERROR) << __func__ << "Unretryable error for failed aerospike_batch_read_async"
+					<<  ", err code::-" << batchp->as_result_;
 				batchp->failed_ = true;
 				batchp->retry_ = false;
 				break;
@@ -1029,19 +1030,21 @@ folly::Future<int> AeroSpike::DelBatchSubmit(DelBatch *batchp) {
 			auto rec =  v_rec.get();
 			switch (rec->status_) {
 				default:
+					LOG(ERROR) << __func__ << rec->status_
+						<< "::failed delete request::"
+						<< rec->status_;
 					batchp->failed_ = true;
 					batchp->retry_ = false;
 					break;
+				case AEROSPIKE_ERR_ASYNC_CONNECTION:
 				case AEROSPIKE_ERR_TIMEOUT:
 				case AEROSPIKE_ERR_RECORD_BUSY:
 				case AEROSPIKE_ERR_DEVICE_OVERLOAD:
 				case AEROSPIKE_ERR_CLUSTER:
 				case AEROSPIKE_ERR_SERVER:
-					#if 0
 					LOG(ERROR) << __func__ <<
 					"::Retrying for failed delete request, retry cnt :"
 					<< batchp->retry_cnt_;
-					#endif
 					batchp->failed_ = true;
 					batchp->retry_ = true;
 					break;
