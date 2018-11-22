@@ -27,6 +27,8 @@
 
 namespace pio {
 
+using PreloadBlock = std::pair<::ondisk::BlockID, uint16_t>;
+
 /* forward declaration for Pimpl */
 namespace config {
 	class VmdkConfig;
@@ -197,6 +199,8 @@ public:
 
 	int SetCkptBitmap(::ondisk::CheckPointID ckpt_id,
 		std::unordered_set<::ondisk::BlockID>& blocks);
+
+	const std::vector<PreloadBlock>& GetPreloadBlocks() const noexcept;
 public:
 	size_t BlockSize() const;
 	size_t BlockShift() const;
@@ -272,6 +276,7 @@ private:
 	void RemoveDirtyBlockSet(::ondisk::CheckPointID ckpt_id);
 	::ondisk::CheckPointID GetModifiedCheckPoint(::ondisk::BlockID block,
 		const CheckPoints& min_max, bool& found) const;
+	void ComputePreloadBlocks();
 public:
 	void SetReadCheckPointId(const std::vector<RequestBlock*>& blockps,
 		const CheckPoints& min_max) const;
@@ -308,6 +313,8 @@ private:
 		std::atomic<uint64_t> flushes_in_progress_{0};
 		std::atomic<uint64_t> moves_in_progress_{0};
 	} stats_;
+
+	std::vector<PreloadBlock> preload_blocks_;
 
 public:
 	std::unique_ptr<RequestHandler> headp_{nullptr};

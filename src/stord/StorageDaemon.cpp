@@ -58,7 +58,6 @@ using namespace ::hyc_thrift;
 using namespace pio;
 
 static constexpr int32_t kServerPort = 9876;
-static constexpr uint32_t kBulkWriteMaxSize = 256 * 1024;
 static constexpr char kServerIp[] = "0.0.0.0";
 
 class StorRpcSvImpl : public virtual StorRpcSvIf {

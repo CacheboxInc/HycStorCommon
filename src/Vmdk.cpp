@@ -81,6 +81,8 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 		parentdisk_vmdkid_.clear();
 	}
 
+	ComputePreloadBlocks();
+
 	// Let this always be the last code block, pulling it up does not harm anything
 	// but just for the sake of rule, let this be the last code block
 	read_aheadp_ = NULL;
@@ -165,6 +167,37 @@ int ActiveVmdk::Cleanup() {
 		return 0;
 	}
 	return headp_->Cleanup(this);
+}
+
+const std::vector<PreloadBlock>& ActiveVmdk::GetPreloadBlocks() const noexcept {
+	return preload_blocks_;
+}
+
+void ActiveVmdk::ComputePreloadBlocks() {
+	std::vector<std::pair<Offset, uint32_t>> pl;
+	config_->GetPreloadBlocks(pl);
+	if (pl.empty()) {
+		return;
+	}
+
+	std::vector<BlockID> blocks;
+	for (const auto& p : pl) {
+		auto ids = pio::GetBlockIDs(p.first, p.second, BlockShift());
+		for (const auto v : pio::iter::Range(ids.first, ids.second+1)) {
+			blocks.emplace_back(v);
+		}
+	}
+	preload_blocks_ = MergeConsecutive(blocks, kBulkReadMaxSize >> BlockShift());
+	if (VLOG_IS_ON(2)) {
+		if (not preload_blocks_.empty()) {
+			LOG(INFO) << "List of blocks to preload ";
+			for (const auto& b : preload_blocks_) {
+				LOG(INFO) << "start block " << b.first << " nblocks = " << b.second;
+			}
+		} else {
+			LOG(INFO) << "no blocks to preload";
+		}
+	}
 }
 
 void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
