@@ -62,8 +62,8 @@ void MultiTargetHandler::InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 	if (configp->IsNetworkTargetEnabled()) {
 		auto network_target = std::make_unique<NetworkTargetHandler>(configp);
 		targets_.push_back(std::move(network_target));
-	}
-#else
+	} else
+#endif
 	if (not configp->IsFileTargetEnabled()) {
 		auto new_conf = *configp;
 		new_conf.EnableSuccessHandler();
@@ -73,7 +73,7 @@ void MultiTargetHandler::InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 		auto success = std::make_unique<SuccessHandler>(&new_conf);
 		targets_.emplace_back(std::move(success));
 	}
-#endif
+	log_assert(targets_.size() >= 2);
 }
 
 MultiTargetHandler::~MultiTargetHandler() {

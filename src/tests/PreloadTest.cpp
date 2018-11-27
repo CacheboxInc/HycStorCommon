@@ -88,6 +88,8 @@ public:
 		c.SetBlockSize(block_size);
 		c.ConfigureRamCache(1024);
 		c.SetPreloadBlocks(preload_.offsets_);
+		c.DisableFileTarget();
+		c.DisableNetworkTarget();
 		return NewActiveVmdk(vm_handle, kVmdkid.c_str(), c.Serialize().c_str());
 	}
 };
