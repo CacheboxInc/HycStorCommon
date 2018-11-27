@@ -94,6 +94,8 @@ add_compile_options(
   -pipe
   -fdata-sections
   -ffunction-sections
+  -g
+  -ggdb
 )
 
 # Include cppcheck target.  must come after compiler flags defined
