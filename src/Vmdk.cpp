@@ -265,54 +265,15 @@ CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
 		}
 	}
 
-	auto cur_max = MetaData_constants::kInvalidCheckPointID();
-	size_t it_index;
-
-	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
-	auto eit = checkpoints_.unflushed_.end();
-	for (auto it = checkpoints_.unflushed_.begin(); it != eit;) {
-		if (it->get()->ID() > max || it->get()->ID() < min) {
-			++it;
+	for (auto ckpt = max; min <= ckpt; --ckpt) {
+		auto ckptp = GetCheckPoint(ckpt);
+		if (not ckptp) {
+			log_assert(ckpt == min_max.second);
 			continue;
 		}
-
-		if (it->get()->ID() > cur_max) {
-			cur_max = it->get()->ID();
-			it_index = it - checkpoints_.unflushed_.begin();
-		}
-
-		++it;
-	}
-
-	if (cur_max != MetaData_constants::kInvalidCheckPointID()) {
-		auto it = checkpoints_.unflushed_.begin() + it_index;
-		const auto& bitmap = it->get()->GetRoaringBitMap();
+		const auto& bitmap = ckptp->GetRoaringBitMap();
 		if (bitmap.contains(block)) {
-			return it->get()->ID();
-		}
-	}
-
-	cur_max = MetaData_constants::kInvalidCheckPointID();
-	eit = checkpoints_.flushed_.end();
-	for (auto it = checkpoints_.flushed_.begin(); it != eit; ) {
-		if (it->get()->ID() > max || it->get()->ID() < min) {
-			++it;
-			continue;
-		}
-
-		if (it->get()->ID() > cur_max) {
-			cur_max = it->get()->ID();
-			it_index = it - checkpoints_.flushed_.begin();
-		}
-
-		++it;
-	}
-
-	if (cur_max != MetaData_constants::kInvalidCheckPointID()) {
-		auto it = checkpoints_.flushed_.begin() + it_index;
-		const auto& bitmap = it->get()->GetRoaringBitMap();
-		if (bitmap.contains(block)) {
-			return it->get()->ID();
+			return ckptp->ID();
 		}
 	}
 

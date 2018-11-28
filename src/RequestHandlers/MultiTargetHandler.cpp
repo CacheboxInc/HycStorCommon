@@ -15,6 +15,9 @@
 #include "VmdkConfig.h"
 #include "Request.h"
 #include "DaemonUtils.h"
+#if 0
+#include "cksum.h"
+#endif
 
 #ifdef USE_NEP
 #include "NetworkTargetHandler.h"
@@ -201,6 +204,16 @@ folly::Future<int> MultiTargetHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
 			std::copy(process.begin(), process.end(), std::back_inserter(failed));
 			return -ENODEV;
 		}
+
+		#if 0
+		for (auto& blockp : process) {
+			/* Get the cksum of blocks after read */
+			auto destp = blockp->GetRequestBufferAtBack();
+			LOG(ERROR) << __func__ << "FlushRead [Cksum]" << blockp->GetAlignedOffset() <<
+				":" << destp->Size() <<
+				":" << crc_t10dif((unsigned char *) destp->Payload(), destp->Size());
+		}
+		#endif
 
 		/* Write on prem, Next layer is target handler layer */
 		return targets_[1]->Write(vmdkp, reqp, 0, process, failed)
