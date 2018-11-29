@@ -1500,6 +1500,244 @@ static int NewFlushHistoryReq(const _ha_request *reqp, _ha_response *resp, void 
 	return HA_CALLBACK_CONTINUE;
 }
 
+/************************************************************************ 
+ 		REST APIs to serve RTO/RPO HA workflow -- START 
+ ************************************************************************
+*/
+
+/************************************************************************
+ * Returns all unflushed checkpoints for the given VmId, if no checkpoint 
+ * exists then create a new one and return that
+ * Input Param: VmID 
+ * Output Param: Json array of unflushed checkpoints for the given VmID
+ * Returns: Integer denoting success/failure
+ * HTTP Response: 200(OK) if successful else a http error code
+ ************************************************************************ 
+*/
+static int GetUnflushedCheckpoints(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+    if (param_valuep == NULL) {
+        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+            "vm-id param not given");
+        return HA_CALLBACK_CONTINUE;
+    }
+    std::string vmid(param_valuep);
+	
+	json_t *json_params = json_object();
+	json_t *array = json_array();
+	// Dummy data
+	json_array_append_new(array, json_integer(42));
+	json_array_append_new(array, json_integer(43));
+	json_array_append_new(array, json_integer(44));
+	
+	json_object_set(json_params, "unflushed_checkpoints", array);
+	std::string json_params_str = json_dumps(json_params, JSON_ENCODE_ANY);
+    json_object_clear(json_params);
+    json_decref(json_params);
+    json_object_clear(array);
+    json_decref(array);
+    
+	ha_set_response_body(resp, HTTP_STATUS_OK, json_params_str.c_str(), strlen(json_params_str.c_str()));
+
+    return HA_CALLBACK_CONTINUE;
+}
+
+/*****************************************************************************
+ * Prepare for flush by going through the recovery protocol if any previous 
+ * flush has not completed gracefully
+ * Input Param: VmID 
+ * Output Param: None
+ * Returns: Integer denoting success/failure
+ * HTTP Response: 200(OK) if successful else a http error code
+ ***************************************************************************** 
+*/
+static int PrepareFlush(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+    if (param_valuep == NULL) {
+        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+            "vm-id param not given");
+        return HA_CALLBACK_CONTINUE;
+    }
+    std::string vmid(param_valuep);
+	int rc = 0;
+	const auto res = std::to_string(rc);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+
+    return HA_CALLBACK_CONTINUE;
+}
+
+/*****************************************************************************
+ * Start writing to top most delta on prem, this API is async and hence the
+ * status will be returned via another REST call which will be polled by HA
+ * Input Param: VmID, Array of checkpoint Ids
+ * Output Param: None
+ * Returns: Integer denoting success/failure
+ * HTTP Response: 202(Accepted) if successful else a http error code
+ ***************************************************************************** 
+*/
+static int AsyncStartFlush(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+    if (param_valuep == NULL) {
+        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+            "vm-id param not given");
+        return HA_CALLBACK_CONTINUE;
+    }
+    std::string vmid(param_valuep);
+	
+	char *data = ha_get_data(reqp);
+	if (data == nullptr) {
+		SetErrMsg(resp, STORD_ERR_INVALID_NO_DATA,
+			"Checkpoint IDs invalid");
+		return HA_CALLBACK_CONTINUE;
+	}
+	assert(data);
+
+    //A json_array of checkpoint ids, need to be converted to c++ array/list of CheckPointIDs
+	//e.g; {"checkpoint-ids": "[41, 42, 43]"}
+	std::string ckpt_ids(data);
+	::free(data);
+
+	int rc = 0;
+	const auto res = std::to_string(rc);
+	ha_set_response_body(resp, HTTP_STATUS_ACCEPTED, res.c_str(), res.size());
+
+    return HA_CALLBACK_CONTINUE;
+}
+
+/*****************************************************************************
+ * Serialize "checkpoints to snapshot mapping" and persist in Aerospike
+ * Input Param: VmID, SnapshotID, Array of checkpointIds 
+ * Output Param: None
+ * Returns: Integer denoting success/failure
+ * HTTP Response: 200(OK) if successful else a http error code
+ ***************************************************************************** 
+*/
+static int SerializeCheckpoints(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+    if (param_valuep == NULL) {
+        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+            "vm-id param not given");
+        return HA_CALLBACK_CONTINUE;
+    }
+    std::string vmid(param_valuep);
+	
+	char *data = ha_get_data(reqp);
+	if (data == nullptr) {
+		SetErrMsg(resp, STORD_ERR_INVALID_NO_DATA,
+			"Checkpoint IDs invalid");
+		return HA_CALLBACK_CONTINUE;
+	}
+	assert(data);
+
+    //A json_array of checkpoint ids, need to be converted to c++ array/list of CheckPointIDs
+	//e.g; {"checkpoint-ids": "[41, 42, 43]"}
+	std::string ckpt_ids(data);
+	::free(data);
+    
+	int rc = 0;
+	const auto res = std::to_string(rc);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+
+    return HA_CALLBACK_CONTINUE;
+}
+
+/*****************************************************************************
+ * Start internal move stage for the given VmId
+ * Input Param: VmID 
+ * Output Param: None
+ * Returns: Integer denoting success/failure
+ * HTTP Response: 202(Accepted) if successful else a http error code
+ ***************************************************************************** 
+*/
+static int AsyncStartMoveStage(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+    if (param_valuep == NULL) {
+        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+            "vm-id param not given");
+        return HA_CALLBACK_CONTINUE;
+    }
+    std::string vmid(param_valuep);
+	int rc = 0;
+	const auto res = std::to_string(rc);
+	ha_set_response_body(resp, HTTP_STATUS_ACCEPTED, res.c_str(), res.size());
+
+    return HA_CALLBACK_CONTINUE;
+}
+
+/*****************************************************************************
+ * Delete the given snapshots for the given VmId
+ * Input Param: VmID, Array of checkpoint Ids
+ * Output Param: None
+ * Returns: Integer denoting success/failure
+ * HTTP Response: 200(OK) if successful else a http error code
+ ***************************************************************************** 
+*/
+static int DeleteSnapshots(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+    if (param_valuep == NULL) {
+        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+            "vm-id param not given");
+        return HA_CALLBACK_CONTINUE;
+    }
+    std::string vmid(param_valuep);
+	
+	char *data = ha_get_data(reqp);
+	if (data == nullptr) {
+		SetErrMsg(resp, STORD_ERR_INVALID_NO_DATA,
+			"Snapshot IDs invalid");
+		return HA_CALLBACK_CONTINUE;
+	}
+	assert(data);
+
+    //A json_array of checkpoint ids, need to be converted to c++ array/list of CheckPointIDs
+	//e.g; {"snapshot-ids": "[41, 42, 43]"}
+	std::string snapshot_ids(data);
+	::free(data);
+	
+	int rc = 0;
+	const auto res = std::to_string(rc);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+
+    return HA_CALLBACK_CONTINUE;
+}
+
+/*****************************************************************************
+ * Start internal move stage which will move data from dirty to clean
+ * Input Param: VmID
+ * Output Param: move running status, count of moved blocks, remaining blocks
+ * Returns: Integer denoting success/failure
+ * HTTP Response: 200(OK) if successful else a http error code
+ ***************************************************************************** 
+*/
+static int GetMoveStatus(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+    if (param_valuep == NULL) {
+        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+            "vm-id param not given");
+        return HA_CALLBACK_CONTINUE;
+    }
+    std::string vmid(param_valuep);
+	
+	json_t *flush_params = json_object();
+	json_object_set(flush_params, "move_running", json_boolean(false));
+	json_object_set(flush_params, "moved_blks_cnt", json_integer(0));
+	json_object_set(flush_params, "remaining_blks_cnt", json_integer(0));
+
+	std::string flush_params_str = json_dumps(flush_params, JSON_ENCODE_ANY);
+	json_object_clear(flush_params);
+	json_decref(flush_params);
+	
+	ha_set_response_body(resp, HTTP_STATUS_OK, flush_params_str.c_str(),
+	strlen(flush_params_str.c_str()));
+
+    return HA_CALLBACK_CONTINUE;
+}
+
+/************************************************************************ 
+ 		REST APIs to serve RTO/RPO HA workflow -- END 
+ ************************************************************************
+*/
+
 using RestHandlers = std::unique_ptr<ha_handlers, void(*)(void*)>;
 RestHandlers GetRestCallHandlers() {
 	struct RestEndPoint {
@@ -1509,7 +1747,7 @@ RestHandlers GetRestCallHandlers() {
 		void* datap;
 	};
 
-	static constexpr std::array<RestEndPoint, 20> kHaEndPointHandlers = {{
+	static constexpr std::array<RestEndPoint, 24> kHaEndPointHandlers = {{
 		{POST, "new_vm", NewVm, nullptr},
 		{POST, "vm_delete", RemoveVm, nullptr},
 		{POST, "new_vmdk", NewVmdk, nullptr},
@@ -1530,6 +1768,14 @@ RestHandlers GetRestCallHandlers() {
 		{POST, "prepare_ckpt", NewPrepareCkpt, nullptr},
 		{POST, "commit_ckpt", NewCommitCkpt, nullptr},
 		{POST, "set_bitmap", NewSetCkptBitMapReq, nullptr},
+
+		{GET, "get_unflushed_checkpoints", GetUnflushedCheckpoints, nullptr},
+		{POST, "prepare_flush", PrepareFlush, nullptr},
+		{POST, "async_start_flush", AsyncStartFlush, nullptr},
+		{POST, "serialize_checkpoints", SerializeCheckpoints, nullptr},
+		{POST, "async_start_move_stage", AsyncStartMoveStage, nullptr},
+		{POST, "delete_snapshots", DeleteSnapshots, nullptr},
+		{GET, "move_status", GetMoveStatus, nullptr}
 	}};
 
 	constexpr auto size = sizeof(ha_handlers) +
