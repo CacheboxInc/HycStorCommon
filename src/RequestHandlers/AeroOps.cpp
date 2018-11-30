@@ -132,8 +132,8 @@ static void WriteListener(as_error *errp, void *datap, as_event_loop* loopp) {
 	if (pio_unlikely(errp)) {
 		wrp->status_ = errp->code;
 		as_monitor_notify(&batchp->aero_conn_->as_mon_);
-		LOG(ERROR) << __func__ << "::error msg::"
-			<< errp->message << "::err code::" << errp->code;
+		LOG(ERROR) << __func__ << "::error msg:"
+			<< errp->message << ", err code:" << errp->code;
 	}
 
 #ifdef INJECT_AERO_WRITE_ERROR
@@ -311,8 +311,8 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 			WriteListener,
 			reinterpret_cast<void*>(wrp), lp, fnp);
 	if (pio_unlikely(s != AEROSPIKE_OK)) {
-		LOG(ERROR) << __func__ << "::request submit failed, err code:-"
-			<< err.code << "msg:" << err.message;
+		LOG(ERROR) << __func__ << "::request submit failed, err code:"
+			<< err.code << ", err msg:" << err.message;
 
 		batchp->batch.nsent_--;
 		wrp->status_ = s;
@@ -546,8 +546,8 @@ static void ReadListener(as_error *errp, as_batch_read_records *records,
 	if (pio_unlikely(errp)) {
 		batchp->as_result_ = errp->code;
 		if (errp->code != AEROSPIKE_ERR_RECORD_NOT_FOUND) {
-			LOG(ERROR) << __func__ << "error msg:-" <<
-				errp->message << "err code:-" << errp->code;
+			LOG(ERROR) << __func__ << " error msg:" <<
+				errp->message << ", err code:" << errp->code;
 			rc = 1;
 		}
 	}
@@ -601,6 +601,7 @@ folly::Future<int> AeroSpike::ReadBatchSubmit(ReadBatch *batchp) {
 			case AEROSPIKE_OK:
 			case AEROSPIKE_ERR_RECORD_NOT_FOUND:
 				break;
+			case AEROSPIKE_ERR_ASYNC_CONNECTION:
 			case AEROSPIKE_ERR_NO_MORE_CONNECTIONS:
 			case AEROSPIKE_ERR_TIMEOUT:
 			case AEROSPIKE_ERR_RECORD_BUSY:
@@ -608,13 +609,13 @@ folly::Future<int> AeroSpike::ReadBatchSubmit(ReadBatch *batchp) {
 			case AEROSPIKE_ERR_SERVER:
 			case AEROSPIKE_ERR_CLUSTER:
 				LOG(ERROR) << __func__ << "Retyring for failed aerospike_batch_read_async"
-					<<  ", err code::-" << batchp->as_result_;
+					<<  ", err code:" << batchp->as_result_;
 				batchp->retry_ = true;
 				batchp->failed_ = true;
 				break;
 			default:
 				LOG(ERROR) << __func__ << "Unretryable error for failed aerospike_batch_read_async"
-					<<  ", err code::-" << batchp->as_result_;
+					<<  ", err code:" << batchp->as_result_;
 				batchp->failed_ = true;
 				batchp->retry_ = false;
 				break;
@@ -858,8 +859,8 @@ static void DelListener(as_error *errp, void *datap, as_event_loop* loopp) {
 		drp->status_ = errp->code;
 		as_monitor_notify(&batchp->aero_conn_->as_mon_);
 		#if 0
-		LOG(ERROR) << __func__ << "::error msg:-" <<
-			errp->message << ",err code:-" << errp->code;
+		LOG(ERROR) << __func__ << "::error msg:" <<
+			errp->message << ", err code:" << errp->code;
 		#endif
 	}
 
@@ -933,8 +934,8 @@ static void DelPipeListener(void *udatap, as_event_loop *lp) {
 	if (pio_unlikely(s != AEROSPIKE_OK)) {
 
 		/* Sending failed */
-		LOG(ERROR) << __func__ << "::Submit failed, err code::"
-			<< err.code << "err msg::" << err.message;
+		LOG(ERROR) << __func__ << "::Submit failed, err code:"
+			<< err.code << ", err msg:" << err.message;
 
 		std::unique_lock<std::mutex> b_lock(batchp->batch.lock_);
 
@@ -1399,8 +1400,8 @@ static void ReadListenerSingle(as_error *errp, as_record *record,
 
 	if (pio_unlikely(errp) && errp->code != AEROSPIKE_ERR_RECORD_NOT_FOUND) {
 		batchp->as_result_ = errp->code;
-		LOG(ERROR) << __func__ << "error msg:-" <<
-			errp->message << "err code:-" << errp->code;
+		LOG(ERROR) << __func__ << "error msg:" <<
+			errp->message << ", err code:" << errp->code;
 		rc = 1;
 	} else if (!errp && record) {
 		as_bytes *bp = as_record_get_bytes(record, kAsCacheBin.c_str());
@@ -1477,7 +1478,7 @@ folly::Future<int> AeroSpike::ReadSingleSubmit(ReadSingle *batchp) {
 			case AEROSPIKE_ERR_SERVER:
 			case AEROSPIKE_ERR_CLUSTER:
 				LOG(ERROR) << __func__ << "retyring for failed Aerospike_batch_read_async"
-					<<  ", err code::-" << batchp->as_result_;
+					<<  ", err code:" << batchp->as_result_;
 				batchp->retry_ = true;
 				batchp->failed_ = true;
 				break;
