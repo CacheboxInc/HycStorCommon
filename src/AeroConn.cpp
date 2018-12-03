@@ -21,6 +21,16 @@ config::AeroConfig* AeroSpikeConn::GetJsonConfig() const noexcept {
 	return config_.get();
 }
 
+int GetFileLimit()
+{
+	struct rlimit limit;
+	if (getrlimit(RLIMIT_NOFILE, &limit) != 0) {
+		LOG(ERROR) << "getrlimit() failed with errno:" << errno;
+		return -1;
+	}
+	return limit.rlim_cur;
+}
+
 int AeroSpikeConn::Connect() {
 
 	log_assert(as_started_ == false);
@@ -65,7 +75,21 @@ int AeroSpikeConn::Connect() {
 		}
 	}
 
-	cfg.async_max_conns_per_node = 400;
+	/*
+	 * If the current soft limit is high enough then
+	 * increase the number of outstanding commands
+	 */
+
+	if (pio_likely(GetFileLimit() >= 16 * 1024)) {
+		cfg.max_conns_per_node = 2048;
+		cfg.async_max_conns_per_node = 2048;
+		cfg.pipe_max_conns_per_node = 2048;
+	} else {
+		cfg.async_max_conns_per_node = 400;
+	}
+
+	LOG(ERROR) << __func__ << "Max async commands limit:"
+		<< cfg.async_max_conns_per_node;
 	/* Setting this policy so that key get stored in records */
 	cfg.policies.write.key = AS_POLICY_KEY_SEND;
 	cfg.policies.read.key = AS_POLICY_KEY_SEND;

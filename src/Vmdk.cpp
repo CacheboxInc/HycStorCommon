@@ -29,7 +29,7 @@ using namespace ::ondisk;
 namespace pio {
 
 const std::string CheckPoint::kCheckPoint = "CheckPoint";
-uint32_t kFlushPendingLimit = 32;
+uint32_t kFlushPendingLimit = 8;
 #define MAX_FLUSH_SIZE_IO 1024 * 1024
 
 Vmdk::Vmdk(VmdkHandle handle, VmdkID&& id) : handle_(handle), id_(std::move(id)) {
