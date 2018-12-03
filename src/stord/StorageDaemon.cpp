@@ -1599,7 +1599,7 @@ static int AsyncStartFlush(const _ha_request *reqp, _ha_response *resp, void *us
 
 	int rc = 0;
 	const auto res = std::to_string(rc);
-	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+	ha_set_response_body(resp, HTTP_STATUS_ACCEPTED, res.c_str(), res.size());
 
     return HA_CALLBACK_CONTINUE;
 }
@@ -1659,7 +1659,7 @@ static int AsyncStartMoveStage(const _ha_request *reqp, _ha_response *resp, void
     std::string vmid(param_valuep);
 	int rc = 0;
 	const auto res = std::to_string(rc);
-	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+	ha_set_response_body(resp, HTTP_STATUS_ACCEPTED, res.c_str(), res.size());
 
     return HA_CALLBACK_CONTINUE;
 }
