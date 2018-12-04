@@ -81,9 +81,9 @@ int AeroSpikeConn::Connect() {
 	 */
 
 	if (pio_likely(GetFileLimit() >= 16 * 1024)) {
-		cfg.max_conns_per_node = 2048;
-		cfg.async_max_conns_per_node = 2048;
-		cfg.pipe_max_conns_per_node = 2048;
+		cfg.max_conns_per_node = 3000;
+		cfg.async_max_conns_per_node = 3000;
+		cfg.pipe_max_conns_per_node = 3000;
 	} else {
 		cfg.async_max_conns_per_node = 400;
 	}
