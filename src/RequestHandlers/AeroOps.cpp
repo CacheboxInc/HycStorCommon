@@ -369,8 +369,8 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 		if (pio_unlikely(batchp->failed_ && batchp->retry_ && batchp->retry_cnt_)) {
 			--batchp->retry_cnt_;
 			ResetWriteBatchState(batchp);
-			/* Wait for 5ms before retry */
-			add_delay(5);
+			/* Wait for 50ms before retry */
+			add_delay(50);
 			return WriteBatchSubmit(batchp);
 		}
 
@@ -624,8 +624,8 @@ folly::Future<int> AeroSpike::ReadBatchSubmit(ReadBatch *batchp) {
 		if (pio_unlikely(batchp->failed_ && batchp->retry_ && batchp->retry_cnt_)) {
 			--batchp->retry_cnt_;
 			this->ResetReadBatchState(batchp);
-			/* Wait for 5ms before retry */
-			add_delay(5);
+			/* Wait for 50ms before retry */
+			add_delay(50);
 			return this->ReadBatchSubmit(batchp);
 		}
 
@@ -1064,8 +1064,8 @@ folly::Future<int> AeroSpike::DelBatchSubmit(DelBatch *batchp) {
 		if (pio_unlikely(batchp->failed_ && batchp->retry_ && batchp->retry_cnt_)) {
 			--batchp->retry_cnt_;
 			ResetDelBatchState(batchp);
-			/* Wait for 5ms before retry */
-			add_delay(5);
+			/* Wait for 50ms before retry */
+			add_delay(50);
 			return DelBatchSubmit(batchp);
 		}
 		return folly::makeFuture(int(batchp->failed_));
@@ -1491,8 +1491,8 @@ folly::Future<int> AeroSpike::ReadSingleSubmit(ReadSingle *batchp) {
 		if (pio_unlikely(batchp->failed_ && batchp->retry_ && batchp->retry_cnt_)) {
 			--batchp->retry_cnt_;
 			this->ResetReadSingleState(batchp);
-			/* Wait for 5ms before retry */
-			add_delay(5);
+			/* Wait for 50ms before retry */
+			add_delay(50);
 			return this->ReadSingleSubmit(batchp);
 		}
 		return folly::makeFuture(int(batchp->failed_));

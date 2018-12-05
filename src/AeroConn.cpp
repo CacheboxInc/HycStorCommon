@@ -104,11 +104,11 @@ int AeroSpikeConn::Connect() {
 	cfg.policies.write.base.sleep_between_retries = 300; // 300ms 
 
 	cfg.policies.read.base.total_timeout = 5000; // 5secs
-	cfg.policies.read.base.max_retries = 0;
+	cfg.policies.read.base.max_retries = 10;
 	cfg.policies.read.base.sleep_between_retries = 300; // 300ms 
 
 	cfg.policies.operate.base.total_timeout = 5000; // 5secs
-	cfg.policies.operate.base.max_retries = 0;
+	cfg.policies.operate.base.max_retries = 10;
 	cfg.policies.operate.base.sleep_between_retries = 300; // 300ms 
 
 	cfg.policies.remove.base.total_timeout = 5000; // 5secs
@@ -116,7 +116,7 @@ int AeroSpikeConn::Connect() {
 	cfg.policies.remove.base.sleep_between_retries = 300; // 300ms 
 
 	cfg.policies.batch.base.total_timeout = 5000; // 5secs
-	cfg.policies.batch.base.max_retries = 0;
+	cfg.policies.batch.base.max_retries = 10;
 	cfg.policies.batch.base.sleep_between_retries = 300; // 300ms 
 
 	cfg.policies.apply.base.total_timeout = 5000; // 5secs
