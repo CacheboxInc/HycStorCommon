@@ -9,6 +9,9 @@
 #include "RequestHandler.h"
 #include "FileTargetHandler.h"
 #include "VmdkConfig.h"
+#if 0
+#include "cksum.h"
+#endif
 
 #ifdef FILETARGET_ASYNC
 #define MAX_IOs 8192
@@ -377,7 +380,6 @@ retry:
 folly::Future<int> FileTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
-	int ret = 0;
 	if (pio_unlikely(not failed.empty() || process.empty())) {
 		LOG(ERROR) << __func__ << "Process list is empty, count::" << process.size();
 		return -EINVAL;
@@ -415,6 +417,14 @@ folly::Future<int> FileTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		#endif
 		io_prep_pwrite(iocb, fd_, reqblock->destp_->Payload(),
 			reqblock->destp_->Size(), blockp->GetAlignedOffset());
+
+		#if 0
+		LOG(ERROR) << __func__ << "FlushWrite [Cksum]" << blockp->GetAlignedOffset() <<
+				":" << reqblock->destp_->Size() <<
+				":" << crc_t10dif((unsigned char *) reqblock->destp_->Payload(),
+					reqblock->destp_->Size());
+		#endif
+
 		io_set_eventfd(iocb, afd_);
 		iocb->data = (void *) reqblock.get();
 		idx++;
@@ -458,31 +468,6 @@ retry:
 		pending_io_ -= process.size();
 		return rc;
 	});
-
-	for (auto blockp : process) {
-		auto srcp = blockp->GetRequestBufferAtBack();
-		log_assert(srcp->Size() == vmdkp->BlockSize());
-
-		// copy data to a mem-aligned buffer needed for directIO
-		auto bufp = NewAlignedRequestBuffer(vmdkp->BlockSize());
-		::memcpy(bufp->Payload(), srcp->Payload(), srcp->Size());
-
-		ssize_t nwrite = 0;
-		while ((nwrite = ::pwrite(fd_, bufp->Payload(), srcp->Size(),
-				blockp->GetAlignedOffset())) < 0) {
-			if (nwrite == -1) {
-				if (errno == EINTR) {
-					continue;
-				}
-				ret = -1;
-				break;
-			}
-		}
-		if (pio_unlikely(ret != 0)) {
-			return ret;
-		}
-	}
-	return ret;
 }
 
 #else

@@ -156,7 +156,7 @@ folly::Future<int> NetworkTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
 		if (pio_unlikely(rc != 0)) {
 			failed.reserve(process.size());
 			std::copy(process.begin(), process.end(), std::back_inserter(failed));
-			return -EIO;
+			return rc < 0 ? rc : -rc;
 		}
 		vmdkp->IncrNwWriteBytes(curr_bytes_write);
 		return 0;
@@ -270,7 +270,7 @@ folly::Future<int> NetworkTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		if (rc != 0) {
 			failed.reserve(process.size());
 			std::copy(process.begin(), process.end(), std::back_inserter(failed));
-			return -EIO;
+			return rc < 0 ? rc : -rc;
 		}
 		vmdkp->IncrNwWriteBytes(curr_bytes_write);
 		return 0;

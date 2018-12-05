@@ -74,3 +74,57 @@ TEST(UtilsTest, MoveErasesElemetsFromSource) {
 		}
 	}
 }
+
+TEST(RangeTest, PositiveDefaultStep) {
+		auto r = pio::iter::Range(1, 10);
+		std::vector<int> v1(std::begin(r), std::end(r));
+		std::vector<int> v2(9);
+		std::iota(v2.begin(), v2.end(), 1);
+		EXPECT_EQ(v1, v2);
+}
+
+TEST(RangeTest, PositiveMultipleStep) {
+	auto r = pio::iter::Range(0, 6, 2);
+	std::vector<int> v1(r.begin(), r.end());
+	std::vector<int> v2{0, 2, 4};
+	EXPECT_EQ(v1, v2);
+}
+
+TEST(RangeTest, PositiveMultipleStepOddEnd) {
+	auto r = pio::iter::Range(0, 7, 2);
+	std::vector<int> v1(r.begin(), r.end());
+	std::vector<int> v2{0, 2, 4, 6};
+	EXPECT_EQ(v1, v2);
+}
+
+TEST(RangeTest, PositiveMultipleOddStep) {
+	auto r = pio::iter::Range(1, 10, 3);
+	std::vector<int> v1(r.begin(), r.end());
+	std::vector<int> v2{1, 4, 7};
+	EXPECT_EQ(v1, v2);
+}
+
+TEST(RangeTest, EmptyRange1) {
+	auto r = pio::iter::Range(0, 0);
+	EXPECT_EQ(r.begin(), r.end());
+}
+
+TEST(RangeTest, EmptyRange2) {
+	auto r = pio::iter::Range(5, 0);
+	std::vector<int> v(r.begin(), r.end());
+	EXPECT_TRUE(v.empty());
+}
+
+TEST(RangeTest, NegativeSteps) {
+	auto r = pio::iter::Range(0, -3, -1);
+	std::vector<int> v1(r.begin(), r.end());
+	std::vector<int> v2{0, -1, -2};
+	EXPECT_EQ(v1, v2);
+}
+
+TEST(RangeTest, PositiveToNegative) {
+	auto r = pio::iter::Range(5, -5, -3);
+	std::vector<int> v1(r.begin(), r.end());
+	std::vector<int> v2{5, 2, -1, -4};
+	EXPECT_EQ(v1, v2);
+}

@@ -24,6 +24,7 @@ class ActiveVmdk;
 class SnapshotVmdk;
 using per_disk_flush_stat = std::pair<uint64_t, uint64_t>;
 using FlushStats = std::map<::ondisk::VmID, per_disk_flush_stat>;
+using PreloadOffset = std::pair<Offset, uint32_t>;
 
 struct AeroStats {
 	uint64_t dirty_cnt_{0};
@@ -90,4 +91,8 @@ static constexpr size_t kSectorShift = 9;
 static constexpr size_t kSectorSize  = 1 << kSectorShift;
 static constexpr size_t kPageShift   = 12;
 static constexpr size_t kPageSize    = 1u << kPageShift;
+
+static constexpr size_t kBulkReadMaxSize = 256 * 1024;
+static constexpr size_t kBulkWriteMaxSize = 256 * 1024;
+static constexpr size_t kPreloadMaxIODepth = 32;
 }

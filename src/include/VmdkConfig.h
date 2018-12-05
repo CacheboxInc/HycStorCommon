@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <cassert>
 
 #include "gen-cpp2/MetaData_types.h"
 #include "IDs.h"
@@ -93,6 +94,66 @@ public:
 
 	void SetRamMetaDataKV();
 	bool IsRamMetaDataKV();
+
+	template <typename T, typename V>
+	void GetPreloadBlocks(std::vector<std::pair<T, V>>& offsets) const {
+		std::string key = kPreload + '.' + kOffset;
+		try {
+			const auto& child = tree_.get_child(key);
+			(void) child;
+		} catch (const boost::property_tree::ptree_bad_path& e) {
+			LOG(INFO) << "No blocks to prefetch";
+			return;
+		}
+
+		try {
+			for (const auto& e : tree_.get_child(key)) {
+				const auto& child = e.second.get_child("");
+				auto it = child.begin();
+				auto eit = child.end();
+				(void) eit;
+				auto o = it->second.get_value<T>();
+				++it;
+				auto s = it->second.get_value<V>();
+				++it;
+				assert(it == eit);
+				offsets.emplace_back(o, s);
+			}
+		} catch (const boost::property_tree::ptree_error& e) {
+			LOG(ERROR) << "Failed to parse preload blocks";
+			assert(false);
+		}
+	}
+
+	template <typename T, typename V>
+	void SetPreloadBlocks(std::vector<std::pair<T, V>>& offsets) {
+		/*
+		 * Unfortunately, boost::property_tree does not support JSON arrays
+		 * A workaround is to create two levels.
+		 */
+		if (offsets.empty()) {
+			return;
+		}
+		std::stringstream ss;
+		bool first = true;
+		for (const auto& n : offsets) {
+			if (first) {
+				first = false;
+				ss << "{ \"" << kOffset << "\" : ["
+					<< "[" << n.first << "," << n.second << "]";
+			} else {
+				ss << ", [" << n.first << "," << n.second << "]";
+			}
+		}
+		ss << "]}";
+
+
+		boost::property_tree::ptree child;
+		boost::property_tree::json_parser::read_json(ss, child);
+
+		tree_.add_child(kPreload, child);
+	}
+
 public:
 	static const std::string kEnabled;
 	static const std::string kVmdkID;
@@ -143,6 +204,9 @@ public:
 	static const std::string kParentDiskVmdkID;
 	static const std::string kCleanupOnWrite;
 	static const std::string kReadAhead;
+
+	static const std::string kPreload;
+	static const std::string kOffset;
 };
 
 std::ostream& operator <<(std::ostream& os, const VmdkConfig::ErrorType& type);

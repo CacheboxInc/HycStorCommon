@@ -35,7 +35,8 @@ public:
 	void SetKey(const std::string& key, const V& value) {
 		tree_.put(key, value);
 	}
-private:
+
+protected:
 	boost::property_tree::ptree tree_;
 };
 }

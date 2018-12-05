@@ -18,6 +18,11 @@ struct CheckPointOnDisk {
 	6: bool flushed;
 }
 
+struct Preload {
+	1: BlockID block;
+	2: i16 count;
+}
+
 struct ActiveVmdkOnDisk {
 	1: VmID vm_id;
 	2: VmdkID vmdk_id;
@@ -25,6 +30,7 @@ struct ActiveVmdkOnDisk {
 	4: i32 block_size_in_sectors;
 	5: CheckPointID unflushed_begin;
 	6: CheckPointID unflushed_end;
+	7: list<Preload> preload_blocks;
 }
 
 struct SnapshotVmdkOnDisk {

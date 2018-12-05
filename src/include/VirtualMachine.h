@@ -44,7 +44,7 @@ public:
 	VirtualMachine(VmdkHandle handle, ::ondisk::VmID vm_id, const std::string& config);
 	~VirtualMachine();
 
-	void AddVmdk(ActiveVmdk* vmdkp);
+	void NewVmdk(ActiveVmdk* vmdkp);
 	int RemoveVmdk(ActiveVmdk* vmdkp);
 	int VmdkCount();
 	RequestID NextRequestID();
@@ -71,7 +71,13 @@ public:
 	folly::Future<std::unique_ptr<ReadResultVec>>
 	BulkRead(ActiveVmdk* vmdkp,
 		std::unique_ptr<std::vector<::hyc_thrift::ReadRequest>> in_reqs);
+
+	folly::Future<std::unique_ptr<ReadResultVec>> BulkRead(ActiveVmdk* vmdkp,
+		std::vector<ReadRequest>::const_iterator it,
+		std::vector<ReadRequest>::const_iterator eit);
 public:
+	void AddVmdk(ActiveVmdk* vmdkp);
+	folly::Future<int> StartPreload(ActiveVmdk* vmdkp);
 	const ::ondisk::VmID& GetID() const noexcept;
 	VmdkHandle GetHandle() const noexcept;
 	const config::VmConfig* GetJsonConfig() const noexcept;

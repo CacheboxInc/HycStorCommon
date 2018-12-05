@@ -33,13 +33,6 @@
 #include "AeroOps.h"
 #include "TgtInterfaceImpl.h"
 
-#include "BlockTraceHandler.h"
-#include "LockHandler.h"
-#include "UnalignedHandler.h"
-#include "CompressHandler.h"
-#include "EncryptHandler.h"
-#include "MultiTargetHandler.h"
-
 #ifdef USE_NEP
 #include <NetworkTargetHandler.h>
 #include "halib.h"
@@ -536,23 +529,7 @@ VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 		if (pio_unlikely(vmdkp == nullptr)) {
 			throw std::runtime_error("Fatal error");
 		}
-		auto configp = vmdkp->GetJsonConfig();
-
-		auto blktrace = std::make_unique<BlockTraceHandler>();
-		auto lock = std::make_unique<LockHandler>();
-		auto unalingned = std::make_unique<UnalignedHandler>();
-		auto compress = std::make_unique<CompressHandler>(configp);
-		auto encrypt = std::make_unique<EncryptHandler>(configp);
-		auto multi_target = std::make_unique<MultiTargetHandler>(vmdkp, configp);
-
-		vmdkp->RegisterRequestHandler(std::move(blktrace));
-		vmdkp->RegisterRequestHandler(std::move(lock));
-		vmdkp->RegisterRequestHandler(std::move(unalingned));
-		vmdkp->RegisterRequestHandler(std::move(compress));
-		vmdkp->RegisterRequestHandler(std::move(encrypt));
-		vmdkp->RegisterRequestHandler(std::move(multi_target));
-
-		vmp->AddVmdk(vmdkp);
+		vmp->NewVmdk(vmdkp);
 	} catch (const std::exception& e) {
 		managerp->FreeVmdkInstance(handle);
 		LOG(ERROR) << "Failed to add VMDK";

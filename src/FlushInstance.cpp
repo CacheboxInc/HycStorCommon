@@ -46,6 +46,7 @@ int FlushInstance::StartFlush(const VmID& vmid) {
 		return rc;
 	}
 
+	LOG(ERROR) << __func__ << "Flush Checkpoint ID is:" << ckpt_id;
 	bool perform_move;
 	if (not GetJsonConfig()->GetMoveAllowedStatus(perform_move)) {
 		perform_move = true;

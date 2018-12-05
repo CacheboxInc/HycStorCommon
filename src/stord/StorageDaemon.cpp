@@ -58,25 +58,7 @@ using namespace ::hyc_thrift;
 using namespace pio;
 
 static constexpr int32_t kServerPort = 9876;
-static const std::string kServerIp = "0.0.0.0";
-static const std::string kNewVm = "new_vm";
-static const std::string kNewVmdk = "new_vmdk";
-static const std::string kNewAero = "new_aero";
-static const std::string kDelAero = "del_aero";
-static const std::string kFlushReq = "flush_req";
-static const std::string kScanReq = "scan_del_req";
-static const std::string kFlushStatus = "flush_status";
-static const std::string kScanStatus = "scan_status";
-static const std::string kAeroSetCleanup = "aero_set_cleanup";
-static const std::string kRemoveVmdk = "vmdk_delete";
-static const std::string kRemoveVm = "vm_delete";
-static const std::string kAeroCacheStat = "aero_stat";
-static const std::string kPrepareCkpt = "prepare_ckpt";
-static const std::string kSetCkptBitMap = "set_bitmap";
-static const std::string kCommitCkpt = "commit_ckpt";
-static const uint32_t kBulkWriteMaxSize = 256 * 1024;
-static const std::string kVmdkStats = "vmdk_stats";
-static const std::string kFlushHistory = "flush_history";
+static constexpr char kServerIp[] = "0.0.0.0";
 
 class StorRpcSvImpl : public virtual StorRpcSvIf {
 public:
@@ -1518,6 +1500,311 @@ static int NewFlushHistoryReq(const _ha_request *reqp, _ha_response *resp, void 
 	return HA_CALLBACK_CONTINUE;
 }
 
+/************************************************************************ 
+ 		REST APIs to serve RTO/RPO HA workflow -- START 
+ ************************************************************************
+*/
+
+/************************************************************************
+ * Returns all unflushed checkpoints for the given VmId, if no checkpoint 
+ * exists then create a new one and return that
+ * Input Param: VmID 
+ * Output Param: Json array of unflushed checkpoints for the given VmID
+ * Returns: Integer denoting success/failure
+ * HTTP Response: 200(OK) if successful else a http error code
+ ************************************************************************ 
+*/
+static int GetUnflushedCheckpoints(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+    if (param_valuep == NULL) {
+        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+            "vm-id param not given");
+        return HA_CALLBACK_CONTINUE;
+    }
+    std::string vmid(param_valuep);
+	
+	json_t *json_params = json_object();
+	json_t *array = json_array();
+	// Dummy data
+	json_array_append_new(array, json_integer(42));
+	json_array_append_new(array, json_integer(43));
+	json_array_append_new(array, json_integer(44));
+	
+	json_object_set(json_params, "unflushed_checkpoints", array);
+	std::string json_params_str = json_dumps(json_params, JSON_ENCODE_ANY);
+    json_object_clear(json_params);
+    json_decref(json_params);
+    json_object_clear(array);
+    json_decref(array);
+    
+	ha_set_response_body(resp, HTTP_STATUS_OK, json_params_str.c_str(), strlen(json_params_str.c_str()));
+
+    return HA_CALLBACK_CONTINUE;
+}
+
+/*****************************************************************************
+ * Prepare for flush by going through the recovery protocol if any previous 
+ * flush has not completed gracefully
+ * Input Param: VmID 
+ * Output Param: None
+ * Returns: Integer denoting success/failure
+ * HTTP Response: 200(OK) if successful else a http error code
+ ***************************************************************************** 
+*/
+static int PrepareFlush(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+    if (param_valuep == NULL) {
+        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+            "vm-id param not given");
+        return HA_CALLBACK_CONTINUE;
+    }
+    std::string vmid(param_valuep);
+	int rc = 0;
+	const auto res = std::to_string(rc);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+
+    return HA_CALLBACK_CONTINUE;
+}
+
+/*****************************************************************************
+ * Start writing to top most delta on prem, this API is async and hence the
+ * status will be returned via another REST call which will be polled by HA
+ * Input Param: VmID, Array of checkpoint Ids
+ * Output Param: None
+ * Returns: Integer denoting success/failure
+ * HTTP Response: 202(Accepted) if successful else a http error code
+ ***************************************************************************** 
+*/
+static int AsyncStartFlush(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+    if (param_valuep == NULL) {
+        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+            "vm-id param not given");
+        return HA_CALLBACK_CONTINUE;
+    }
+    std::string vmid(param_valuep);
+	
+	char *data = ha_get_data(reqp);
+	if (data == nullptr) {
+		SetErrMsg(resp, STORD_ERR_INVALID_NO_DATA,
+			"Checkpoint IDs invalid");
+		return HA_CALLBACK_CONTINUE;
+	}
+	assert(data);
+
+    //A json_array of checkpoint ids, need to be converted to c++ array/list of CheckPointIDs
+	//e.g; {"checkpoint-ids": "[41, 42, 43]"}
+	std::string ckpt_ids(data);
+	::free(data);
+
+	int rc = 0;
+	const auto res = std::to_string(rc);
+	ha_set_response_body(resp, HTTP_STATUS_ACCEPTED, res.c_str(), res.size());
+
+    return HA_CALLBACK_CONTINUE;
+}
+
+/*****************************************************************************
+ * Serialize "checkpoints to snapshot mapping" and persist in Aerospike
+ * Input Param: VmID, SnapshotID, Array of checkpointIds 
+ * Output Param: None
+ * Returns: Integer denoting success/failure
+ * HTTP Response: 200(OK) if successful else a http error code
+ ***************************************************************************** 
+*/
+static int SerializeCheckpoints(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+    if (param_valuep == NULL) {
+        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+            "vm-id param not given");
+        return HA_CALLBACK_CONTINUE;
+    }
+    std::string vmid(param_valuep);
+	
+	char *data = ha_get_data(reqp);
+	if (data == nullptr) {
+		SetErrMsg(resp, STORD_ERR_INVALID_NO_DATA,
+			"Checkpoint IDs invalid");
+		return HA_CALLBACK_CONTINUE;
+	}
+	assert(data);
+
+    //A json_array of checkpoint ids, need to be converted to c++ array/list of CheckPointIDs
+	//e.g; {"checkpoint-ids": "[41, 42, 43]"}
+	std::string ckpt_ids(data);
+	::free(data);
+    
+	int rc = 0;
+	const auto res = std::to_string(rc);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+
+    return HA_CALLBACK_CONTINUE;
+}
+
+/*****************************************************************************
+ * Start internal move stage for the given VmId
+ * Input Param: VmID 
+ * Output Param: None
+ * Returns: Integer denoting success/failure
+ * HTTP Response: 202(Accepted) if successful else a http error code
+ ***************************************************************************** 
+*/
+static int AsyncStartMoveStage(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+    if (param_valuep == NULL) {
+        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+            "vm-id param not given");
+        return HA_CALLBACK_CONTINUE;
+    }
+    std::string vmid(param_valuep);
+	int rc = 0;
+	const auto res = std::to_string(rc);
+	ha_set_response_body(resp, HTTP_STATUS_ACCEPTED, res.c_str(), res.size());
+
+    return HA_CALLBACK_CONTINUE;
+}
+
+/*****************************************************************************
+ * Delete the given snapshots for the given VmId
+ * Input Param: VmID, Array of checkpoint Ids
+ * Output Param: None
+ * Returns: Integer denoting success/failure
+ * HTTP Response: 200(OK) if successful else a http error code
+ ***************************************************************************** 
+*/
+static int DeleteSnapshots(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+    if (param_valuep == NULL) {
+        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+            "vm-id param not given");
+        return HA_CALLBACK_CONTINUE;
+    }
+    std::string vmid(param_valuep);
+	
+	char *data = ha_get_data(reqp);
+	if (data == nullptr) {
+		SetErrMsg(resp, STORD_ERR_INVALID_NO_DATA,
+			"Snapshot IDs invalid");
+		return HA_CALLBACK_CONTINUE;
+	}
+	assert(data);
+
+    //A json_array of checkpoint ids, need to be converted to c++ array/list of CheckPointIDs
+	//e.g; {"snapshot-ids": "[41, 42, 43]"}
+	std::string snapshot_ids(data);
+	::free(data);
+	
+	int rc = 0;
+	const auto res = std::to_string(rc);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+
+    return HA_CALLBACK_CONTINUE;
+}
+
+/*****************************************************************************
+ * Start internal move stage which will move data from dirty to clean
+ * Input Param: VmID
+ * Output Param: move running status, count of moved blocks, remaining blocks
+ * Returns: Integer denoting success/failure
+ * HTTP Response: 200(OK) if successful else a http error code
+ ***************************************************************************** 
+*/
+static int GetMoveStatus(const _ha_request *reqp, _ha_response *resp, void *userp) {
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+    if (param_valuep == NULL) {
+        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+            "vm-id param not given");
+        return HA_CALLBACK_CONTINUE;
+    }
+    std::string vmid(param_valuep);
+	
+	json_t *flush_params = json_object();
+	json_object_set(flush_params, "move_running", json_boolean(false));
+	json_object_set(flush_params, "moved_blks_cnt", json_integer(0));
+	json_object_set(flush_params, "remaining_blks_cnt", json_integer(0));
+
+	std::string flush_params_str = json_dumps(flush_params, JSON_ENCODE_ANY);
+	json_object_clear(flush_params);
+	json_decref(flush_params);
+	
+	ha_set_response_body(resp, HTTP_STATUS_OK, flush_params_str.c_str(),
+	strlen(flush_params_str.c_str()));
+
+    return HA_CALLBACK_CONTINUE;
+}
+
+/************************************************************************ 
+ 		REST APIs to serve RTO/RPO HA workflow -- END 
+ ************************************************************************
+*/
+
+using RestHandlers = std::unique_ptr<ha_handlers, void(*)(void*)>;
+RestHandlers GetRestCallHandlers() {
+	struct RestEndPoint {
+		int method;
+		const char* namep;
+		int (*funcp) (const _ha_request* reqp, _ha_response* resp, void* datap);
+		void* datap;
+	};
+
+	static constexpr std::array<RestEndPoint, 24> kHaEndPointHandlers = {{
+		{POST, "new_vm", NewVm, nullptr},
+		{POST, "vm_delete", RemoveVm, nullptr},
+		{POST, "new_vmdk", NewVmdk, nullptr},
+		{POST, "vmdk_delete", RemoveVmdk, nullptr},
+		{GET, "vmdk_stats", NewVmdkStatsReq, nullptr},
+
+		{POST, "new_aero", NewAeroCluster, nullptr},
+		{POST, "del_aero", DelAeroCluster, nullptr},
+		{GET, "aero_stat", NewAeroCacheStatReq, nullptr},
+		{POST, "scan_del_req", NewScanReq, nullptr},
+		{POST, "scan_status", NewScanStatusReq, nullptr},
+		{POST, "aero_set_cleanup", AeroSetCleanup, nullptr},
+
+		{POST, "flush_req", NewFlushReq, nullptr},
+		{GET, "flush_status", NewFlushStatusReq, nullptr},
+		{GET, "flush_history", NewFlushHistoryReq, nullptr},
+
+		{POST, "prepare_ckpt", NewPrepareCkpt, nullptr},
+		{POST, "commit_ckpt", NewCommitCkpt, nullptr},
+		{POST, "set_bitmap", NewSetCkptBitMapReq, nullptr},
+
+		{GET, "get_unflushed_checkpoints", GetUnflushedCheckpoints, nullptr},
+		{POST, "prepare_flush", PrepareFlush, nullptr},
+		{POST, "async_start_flush", AsyncStartFlush, nullptr},
+		{POST, "serialize_checkpoints", SerializeCheckpoints, nullptr},
+		{POST, "async_start_move_stage", AsyncStartMoveStage, nullptr},
+		{POST, "delete_snapshots", DeleteSnapshots, nullptr},
+		{GET, "move_status", GetMoveStatus, nullptr}
+	}};
+
+	constexpr auto size = sizeof(ha_handlers) +
+			kHaEndPointHandlers.size() * sizeof(ha_endpoint_handlers);
+	auto handlers =
+		RestHandlers(reinterpret_cast<ha_handlers*>(::malloc(size)), ::free);
+	if (not handlers) {
+		LOG(ERROR) << "Memory allocation for ha handlers failed";
+		return handlers;
+	}
+	auto hp = handlers.get();
+	std::memset(hp, 0, size);
+
+	int count = 0;
+	ha_endpoint_handlers* ep = hp->ha_endpoints;
+	for (const auto& handler : kHaEndPointHandlers) {
+		if (not handler.namep) {
+			continue;
+		}
+		ep->ha_http_method = handler.method;
+		std::strncpy(ep->ha_url_endpoint, handler.namep, sizeof(ep->ha_url_endpoint));
+		ep->callback_function = handler.funcp;
+		ep->ha_user_data = handler.datap;
+		++ep;
+		++count;
+	}
+	hp->ha_count = count;
+	return handlers;
+}
 
 int main(int argc, char* argv[])
 {
@@ -1559,160 +1846,15 @@ int main(int argc, char* argv[])
 	std::signal(SIGUSR1, Usr1SignalHandler);
 	std::signal(SIGQUIT, Usr1SignalHandler);
 #endif
-	auto size = sizeof(struct ha_handlers) + 17 * sizeof(struct ha_endpoint_handlers);
-	auto handlers =
-		std::unique_ptr<struct ha_handlers,
-		void(*)(void *)>(reinterpret_cast<struct ha_handlers*>(::malloc(size)),
-			::free);
-	if (not handlers) {
-		LOG(ERROR) << "Memory allocation for ha handlers failed";
-		return -ENOMEM;
-	}
 
-	handlers->ha_count = 0;
-
-	/* new_vm handler */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kNewVm.c_str(),
-		kNewVm.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = NewVm;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* new_vmdk handler */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kNewVmdk.c_str(),
-		kNewVmdk.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = NewVmdk;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* new_aero Cluster */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kNewAero.c_str(),
-			kNewAero.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = NewAeroCluster;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* del_aero cluster */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kDelAero.c_str(),
-			kDelAero.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = DelAeroCluster;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* Flush Request */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kFlushReq.c_str(),
-			kFlushReq.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = NewFlushReq;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* Scan Request */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kScanReq.c_str(),
-			kScanReq.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = NewScanReq;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* Flush Status Request */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = GET;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kFlushStatus.c_str(),
-			kFlushStatus.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = NewFlushStatusReq;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* Scan Status Request */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kScanStatus.c_str(),
-			kScanStatus.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = NewScanStatusReq;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* Aero Stat Request */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = GET;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kAeroCacheStat.c_str(),
-			kAeroCacheStat.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = NewAeroCacheStatReq;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* Vmdk Stats Request */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = GET;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kVmdkStats.c_str(),
-			kVmdkStats.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = NewVmdkStatsReq;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* Aerospike Set Cleanup Request */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kAeroSetCleanup.c_str(),
-			kAeroSetCleanup.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = AeroSetCleanup;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* Vmdk Delete Request */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kRemoveVmdk.c_str(),
-		kRemoveVmdk.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = RemoveVmdk;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* remove_vm handler */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kRemoveVm.c_str(),
-		kRemoveVm.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = RemoveVm;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* Prepare ckpt Request */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kPrepareCkpt.c_str(),
-			kPrepareCkpt.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = NewPrepareCkpt;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* Set bitmap Request */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kSetCkptBitMap.c_str(),
-			kSetCkptBitMap.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = NewSetCkptBitMapReq;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* Commit ckpt */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = POST;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kCommitCkpt.c_str(),
-			kCommitCkpt.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = NewCommitCkpt;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
-
-	/* Flush History Request */
-	handlers->ha_endpoints[handlers->ha_count].ha_http_method = GET;
-	strncpy(handlers->ha_endpoints[handlers->ha_count].ha_url_endpoint, kFlushHistory.c_str(),
-			kFlushHistory.size() + 1);
-	handlers->ha_endpoints[handlers->ha_count].callback_function = NewFlushHistoryReq;
-	handlers->ha_endpoints[handlers->ha_count].ha_user_data = NULL;
-	handlers->ha_count += 1;
+	auto handlers = GetRestCallHandlers();
+	log_assert(handlers);
 
 	g_thread_.ha_instance_ = ::ha_initialize(FLAGS_ha_svc_port,
 			FLAGS_etcd_ip.c_str(), FLAGS_svc_label.c_str(),
 			FLAGS_stord_version.c_str(), 120,
 			const_cast<const struct ha_handlers *> (handlers.get()),
 			StordHaStartCallback, StordHaStopCallback, 0, NULL);
-	handlers->ha_count += 1;
 
 	if (g_thread_.ha_instance_ == nullptr) {
 		LOG(ERROR) << "ha_initialize failed";

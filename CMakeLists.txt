@@ -105,6 +105,8 @@ add_compile_options(
   -fdata-sections
   -ffunction-sections
   -DAS_USE_LIBUV
+  -g
+  -ggdb
 )
 
 set(CMAKE_EXE_LINKER_FLAGS

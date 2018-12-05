@@ -69,6 +69,8 @@ const std::string VmdkConfig::kParentDiskName = "ParentDiskName";
 const std::string VmdkConfig::kParentDiskVmdkID = "ParentDiskVmdkID";
 const std::string VmdkConfig::kCleanupOnWrite = "CleanupOnWrite";
 const std::string VmdkConfig::kReadAhead = "ReadAhead";
+const std::string VmdkConfig::kPreload = "Preload";
+const std::string VmdkConfig::kOffset = "Offsets";
 
 VmdkConfig::VmdkConfig(const std::string& config) : JsonConfig(config) {
 }
@@ -668,4 +670,6 @@ bool VmdkConfig::IsReadAheadEnabled() const {
 	auto rc = JsonConfig::GetKey(key, enabled);
 	return rc and enabled;
 }
+
+
 }}

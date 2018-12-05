@@ -29,7 +29,7 @@ using namespace ::ondisk;
 namespace pio {
 
 const std::string CheckPoint::kCheckPoint = "CheckPoint";
-uint32_t kFlushPendingLimit = 32;
+uint32_t kFlushPendingLimit = 8;
 #define MAX_FLUSH_SIZE_IO 1024 * 1024
 
 Vmdk::Vmdk(VmdkHandle handle, VmdkID&& id) : handle_(handle), id_(std::move(id)) {
@@ -80,6 +80,8 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	if (!config_->GetParentDiskVmdkId(parentdisk_vmdkid_)) {
 		parentdisk_vmdkid_.clear();
 	}
+
+	ComputePreloadBlocks();
 
 	// Let this always be the last code block, pulling it up does not harm anything
 	// but just for the sake of rule, let this be the last code block
@@ -167,6 +169,37 @@ int ActiveVmdk::Cleanup() {
 	return headp_->Cleanup(this);
 }
 
+const std::vector<PreloadBlock>& ActiveVmdk::GetPreloadBlocks() const noexcept {
+	return preload_blocks_;
+}
+
+void ActiveVmdk::ComputePreloadBlocks() {
+	std::vector<std::pair<Offset, uint32_t>> pl;
+	config_->GetPreloadBlocks(pl);
+	if (pl.empty()) {
+		return;
+	}
+
+	std::vector<BlockID> blocks;
+	for (const auto& p : pl) {
+		auto ids = pio::GetBlockIDs(p.first, p.second, BlockShift());
+		for (const auto v : pio::iter::Range(ids.first, ids.second+1)) {
+			blocks.emplace_back(v);
+		}
+	}
+	preload_blocks_ = MergeConsecutive(blocks, kBulkReadMaxSize >> BlockShift());
+	if (VLOG_IS_ON(2)) {
+		if (not preload_blocks_.empty()) {
+			LOG(INFO) << "List of blocks to preload ";
+			for (const auto& b : preload_blocks_) {
+				LOG(INFO) << "start block " << b.first << " nblocks = " << b.second;
+			}
+		} else {
+			LOG(INFO) << "no blocks to preload";
+		}
+	}
+}
+
 void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
 	vmdk_stats->total_reads_    = cache_stats_.total_reads_;
 	vmdk_stats->total_writes_   = cache_stats_.total_writes_;
@@ -232,54 +265,15 @@ CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
 		}
 	}
 
-	auto cur_max = MetaData_constants::kInvalidCheckPointID();
-	size_t it_index;
-
-	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
-	auto eit = checkpoints_.unflushed_.end();
-	for (auto it = checkpoints_.unflushed_.begin(); it != eit;) {
-		if (it->get()->ID() > max || it->get()->ID() < min) {
-			++it;
+	for (auto ckpt = max; min <= ckpt; --ckpt) {
+		auto ckptp = GetCheckPoint(ckpt);
+		if (not ckptp) {
+			log_assert(ckpt == min_max.second);
 			continue;
 		}
-
-		if (it->get()->ID() > cur_max) {
-			cur_max = it->get()->ID();
-			it_index = it - checkpoints_.unflushed_.begin();
-		}
-
-		++it;
-	}
-
-	if (cur_max != MetaData_constants::kInvalidCheckPointID()) {
-		auto it = checkpoints_.unflushed_.begin() + it_index;
-		const auto& bitmap = it->get()->GetRoaringBitMap();
+		const auto& bitmap = ckptp->GetRoaringBitMap();
 		if (bitmap.contains(block)) {
-			return it->get()->ID();
-		}
-	}
-
-	cur_max = MetaData_constants::kInvalidCheckPointID();
-	eit = checkpoints_.flushed_.end();
-	for (auto it = checkpoints_.flushed_.begin(); it != eit; ) {
-		if (it->get()->ID() > max || it->get()->ID() < min) {
-			++it;
-			continue;
-		}
-
-		if (it->get()->ID() > cur_max) {
-			cur_max = it->get()->ID();
-			it_index = it - checkpoints_.flushed_.begin();
-		}
-
-		++it;
-	}
-
-	if (cur_max != MetaData_constants::kInvalidCheckPointID()) {
-		auto it = checkpoints_.flushed_.begin() + it_index;
-		const auto& bitmap = it->get()->GetRoaringBitMap();
-		if (bitmap.contains(block)) {
-			return it->get()->ID();
+			return ckptp->ID();
 		}
 	}
 
