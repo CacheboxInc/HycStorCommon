@@ -340,6 +340,7 @@ int StordConnection::Connect() {
 
 void StordConnection::SetThreadAffinity(uint16_t cpu, std::thread* threadp) {
 	auto handle = threadp->native_handle();
+#if 0
 	cpu_set_t set;
 	CPU_ZERO(&set);
 	CPU_SET(cpu, &set);
@@ -349,10 +350,11 @@ void StordConnection::SetThreadAffinity(uint16_t cpu, std::thread* threadp) {
 	} else {
 		LOG(ERROR) << "Thread " << handle << " bound to CPU " << cpu;
 	}
+#endif
 
 	std::string name("StordClient");
 	name += std::to_string(cpu);
-	rc = pthread_setname_np(handle, name.c_str());
+	auto rc = pthread_setname_np(handle, name.c_str());
 	if (hyc_unlikely(rc < 0)) {
 		LOG(ERROR) << "Setting thread name failed";
 	}
@@ -1161,7 +1163,7 @@ Stord::~Stord() {
 }
 
 int32_t Stord::Connect(uint32_t ping_secs) {
-	auto cores = std::max(os::NumberOfCpus()/2, 1u);
+	auto cores = std::min(os::NumberOfCpus()/2, 1u);
 	auto rpc = std::make_unique<StordRpc>(StordIp, StordPort, cores,
 		StordRpc::SchedulePolicy::kRoundRobin);
 	if (hyc_unlikely(not rpc)) {
