@@ -1808,7 +1808,6 @@ RestHandlers GetRestCallHandlers() {
 
 int main(int argc, char* argv[])
 {
-	FLAGS_v = 2;
 	folly::init(&argc, &argv, true);
 
 #if 0
