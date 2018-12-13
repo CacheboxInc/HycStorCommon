@@ -32,7 +32,8 @@ int GetFileLimit()
 }
 
 int AeroSpikeConn::Connect() {
-
+	static constexpr uint16_t kAeroEventLoops = 4;
+	static constexpr uint16_t kMaxCommandsInProgress = 800 / kAeroEventLoops;
 	log_assert(as_started_ == false);
 
 	auto aeroconf = this->GetJsonConfig();
@@ -55,15 +56,18 @@ int AeroSpikeConn::Connect() {
 		return -EINVAL;
 	}
 
-	ret = as_event_create_loops(8);
-	if (pio_unlikely(!ret)) {
+	as_error err;
+	as_policy_event policy;
+	as_policy_event_init(&policy);
+	policy.max_commands_in_process = kMaxCommandsInProgress;
+	auto status = as_create_event_loops(&err, &policy, kAeroEventLoops, nullptr);
+	if (pio_unlikely(status != AEROSPIKE_OK)) {
 		LOG (ERROR) << "Aerospike event loop creation failed.";
 		return -EINVAL;
 	}
 
 	as_config cfg;
 	as_config_init(&cfg);
-
 	if (pio_unlikely(host_count  == 1)) {
 		as_config_add_host(&cfg, clusterips.c_str(), port);
 	} else {
@@ -131,7 +135,6 @@ int AeroSpikeConn::Connect() {
 	cfg.policies.query.base.max_retries = 0;
 	cfg.policies.query.base.sleep_between_retries = 300; // 300ms 
 
-	as_error err;
 	aerospike_init(&this->as_, &cfg);
 	if (aerospike_connect(&this->as_, &err) != AEROSPIKE_OK) {
 		VLOG(1) << "Connection with aerospike server failed.";

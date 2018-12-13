@@ -1880,15 +1880,15 @@ int main(int argc, char* argv[])
 				->CreateInstance(g_thread_.ha_instance_);
 	log_assert(rc == 0);
 
-	auto si = std::make_shared<StorRpcSvImpl>();
-	thrift_server = std::make_shared<ThriftServer>();
-
-	thrift_server->setInterface(si);
-	thrift_server->setAddress(kServerIp, kServerPort);
 	LOG(INFO) << "Starting Thrift Server";
 	google::FlushLogFiles(google::INFO);
 	google::FlushLogFiles(google::ERROR);
 
+	auto si = std::make_shared<StorRpcSvImpl>();
+	thrift_server = std::make_shared<ThriftServer>();
+	thrift_server->setInterface(si);
+	thrift_server->setAddress(kServerIp, kServerPort);
+	thrift_server->setNumIOWorkerThreads(3);
 	thrift_server->serve();
 
 	SingletonHolder<FlushManager>::GetInstance()->DestroyInstance();
