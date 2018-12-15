@@ -569,6 +569,21 @@ int RemoveActiveVmdk(VmHandle vm_handle, VmdkID vmdkid) {
 	return 0;
 }
 
+int StartPreload(const ::ondisk::VmID& vmid, const ::ondisk::VmdkID& vmdkid) {
+	auto managerp = SingletonHolder<pio::VmManager>::GetInstance();
+	if (not managerp) {
+		LOG(ERROR) << "Fatal error: VmManager not available";
+		return -ENOMEM;
+	}
+	auto vmp = managerp->GetInstance(vmid);
+	if (not vmp) {
+		LOG(ERROR) << "VM (" << vmid << ") not found";
+		return -EINVAL;
+	}
+	(void) vmp->StartPreload(vmdkid);
+	return 0;
+}
+
 int PrepareCkpt(VmHandle vm_handle) {
 
 	LOG(ERROR) << __func__ << "Start";

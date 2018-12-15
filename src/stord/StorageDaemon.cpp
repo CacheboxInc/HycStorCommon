@@ -487,6 +487,7 @@ enum StordSvcErr {
 	STORD_ERR_COMMIT_CKPT,
 	STORD_ERR_CKPT_BMAP_SET,
 	STORD_ERR_INVALID_PREPARE_CKPTID,
+	STORD_ERR_FAILED_TO_START_PRELOAD,
 };
 
 void HaHeartbeat(void *userp) {
@@ -854,6 +855,37 @@ static int RemoveVmdk(const _ha_request *reqp, _ha_response *resp, void *userp )
 	const auto res = std::to_string(ret);
 	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
 
+	return HA_CALLBACK_CONTINUE;
+}
+
+static int VmdkStartPreload(const _ha_request *reqp, _ha_response *resp, void *userp ) {
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT, "Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto valuep = ha_parameter_get(reqp, "vm-id");
+	if (not valuep) {
+		SetErrMsg(resp, STORD_ERR_INVALID_VMDK, "vm-id not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(valuep);
+
+	valuep = ha_parameter_get(reqp, "vmdk-id");
+	if (not valuep) {
+		SetErrMsg(resp, STORD_ERR_INVALID_VMDK, "vmdk-id not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmdkid(valuep);
+
+	auto rc = pio::StartPreload(vmid, vmdkid);
+	if (rc < 0) {
+		SetErrMsg(resp, STORD_ERR_FAILED_TO_START_PRELOAD, "preload failed");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	const auto res = std::to_string(rc);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
 	return HA_CALLBACK_CONTINUE;
 }
 
@@ -1747,12 +1779,14 @@ RestHandlers GetRestCallHandlers() {
 		void* datap;
 	};
 
-	static constexpr std::array<RestEndPoint, 24> kHaEndPointHandlers = {{
+	static constexpr std::array<RestEndPoint, 25> kHaEndPointHandlers = {{
 		{POST, "new_vm", NewVm, nullptr},
 		{POST, "vm_delete", RemoveVm, nullptr},
 		{POST, "new_vmdk", NewVmdk, nullptr},
 		{POST, "vmdk_delete", RemoveVmdk, nullptr},
 		{GET, "vmdk_stats", NewVmdkStatsReq, nullptr},
+
+		{POST, "start_preload", VmdkStartPreload, nullptr},
 
 		{POST, "new_aero", NewAeroCluster, nullptr},
 		{POST, "del_aero", DelAeroCluster, nullptr},

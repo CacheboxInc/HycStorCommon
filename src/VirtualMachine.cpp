@@ -701,6 +701,17 @@ VirtualMachine::BulkRead(ActiveVmdk* vmdkp,
 	});
 }
 
+folly::Future<int> VirtualMachine::StartPreload(const ::ondisk::VmdkID& id) {
+	auto vmdkp = FindVmdk(id);
+	if (not vmdkp) {
+		LOG(ERROR) << "VMDK (" << id << ") not attached to VM ("
+			<< GetID() << ")";
+		return -EINVAL;
+	}
+
+	return StartPreload(vmdkp);
+}
+
 folly::Future<int> VirtualMachine::StartPreload(ActiveVmdk* vmdkp) {
 	auto IssueBulkRead = [this, vmdkp] (const auto& start, const auto& end) {
 		return this->BulkRead(vmdkp, start, end)

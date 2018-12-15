@@ -77,7 +77,7 @@ public:
 		std::vector<ReadRequest>::const_iterator eit);
 public:
 	void AddVmdk(ActiveVmdk* vmdkp);
-	folly::Future<int> StartPreload(ActiveVmdk* vmdkp);
+	folly::Future<int> StartPreload(const ::ondisk::VmdkID& id);
 	const ::ondisk::VmID& GetID() const noexcept;
 	VmdkHandle GetHandle() const noexcept;
 	const config::VmConfig* GetJsonConfig() const noexcept;
@@ -90,6 +90,7 @@ private:
 	ActiveVmdk* FindVmdk(VmdkHandle vmdk_handle) const;
 
 private:
+	folly::Future<int> StartPreload(ActiveVmdk* vmdkp);
 	void WriteComplete(::ondisk::CheckPointID ckpt_id);
 	void CheckPointComplete(::ondisk::CheckPointID ckpt_id);
 	void FlushComplete(::ondisk::CheckPointID ckpt_id);
