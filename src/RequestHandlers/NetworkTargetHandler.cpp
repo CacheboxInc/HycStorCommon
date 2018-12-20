@@ -100,8 +100,9 @@ folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 			return rc;
 		}
 
+		auto it = req_blocks->begin();
+		auto eit = req_blocks->end();
 		for (auto blockp : process) {
-			auto it = req_blocks->begin();
 			#if 0
 			RequestBuffer *bufferp = it->get();
 			LOG(ERROR) << "Response Offset :" << blockp->GetAlignedOffset();
@@ -109,12 +110,12 @@ folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
                                 ":" << bufferp->Size() <<
                                 ":" << crc_t10dif((unsigned char *) bufferp->Payload(), bufferp->Size());
 			#endif
+			log_assert(it != eit);
 			vmdkp->IncrNwReadBytes((*it)->PayloadSize());
-
 			blockp->PushRequestBuffer(std::move(*it));
 			blockp->SetResult(0, RequestStatus::kSuccess);
 
-			req_blocks->erase(it);
+			++it;
 		}
 
 		log_assert(req_blocks->size() == 0);
