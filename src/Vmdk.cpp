@@ -28,9 +28,6 @@ using namespace ::ondisk;
 
 namespace pio {
 
-const std::string CheckPoint::kCheckPoint = "CheckPoint";
-uint32_t kFlushPendingLimit = 8;
-#define MAX_FLUSH_SIZE_IO 1024 * 1024
 
 Vmdk::Vmdk(VmdkHandle handle, VmdkID&& id) : handle_(handle), id_(std::move(id)) {
 }
@@ -622,9 +619,10 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 	});
 }
 
-int ActiveVmdk::FlushStages(CheckPointID ckpt_id, bool perform_move) {
+int ActiveVmdk::FlushStages(CheckPointID ckpt_id, bool perform_move,
+		uint32_t max_req_size, uint32_t max_pending_reqs) {
 
-	auto rc = FlushStage(ckpt_id);
+	auto rc = FlushStage(ckpt_id, max_req_size, max_pending_reqs);
 	if (rc) {
 		return rc;
 	}
@@ -642,7 +640,7 @@ int ActiveVmdk::FlushStages(CheckPointID ckpt_id, bool perform_move) {
 	 */
 
 	if (pio_likely(perform_move)) {
-		rc = MoveStage(ckpt_id);
+		rc = MoveStage(ckpt_id, max_pending_reqs);
 		if (rc) {
 			return rc;
 		}
@@ -655,7 +653,7 @@ int ActiveVmdk::FlushStages(CheckPointID ckpt_id, bool perform_move) {
 	return 0;
 }
 
-int ActiveVmdk::MoveStage(CheckPointID ckpt_id) {
+int ActiveVmdk::MoveStage(CheckPointID ckpt_id, uint32_t max_pending_reqs) {
 
 	/*
 	 * TBD :- Since a fix number of requests can under process
@@ -681,7 +679,7 @@ int ActiveVmdk::MoveStage(CheckPointID ckpt_id) {
 			break;
 		}
 
-		if(aux_info_->pending_cnt_ >= kFlushPendingLimit) {
+		if(aux_info_->pending_cnt_ >= max_pending_reqs) {
 			/* Already submitted too much, wait for completion */
 			aux_info_->sleeping_ = true;
 			aux_info_->rendez_.TaskSleep(&aux_info_->lock_);
@@ -761,7 +759,8 @@ int ActiveVmdk::MoveStage(CheckPointID ckpt_id) {
 	return aux_info_->failed_;
 }
 
-int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
+int ActiveVmdk::FlushStage(CheckPointID ckpt_id,
+	uint32_t max_req_size, uint32_t max_pending_reqs) {
 
 	/*
 	 * TBD :- Since a fix number of requests can under process
@@ -803,7 +802,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 			continue;
 		} else if (prev_block + 1 == cur_block) {
 			/* Sequential, can we accomadate it */
-			if (BlockSize() * (block_cnt + 1) <= MAX_FLUSH_SIZE_IO) {
+			if (BlockSize() * (block_cnt + 1) <= max_req_size) {
 				prev_block = cur_block;
 				block_cnt++;
 				continue;
@@ -816,7 +815,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id) {
 			break;
 		}
 
-		if (aux_info_->pending_cnt_ >= kFlushPendingLimit) {
+		if (aux_info_->pending_cnt_ >= max_pending_reqs) {
 			/* Already submitted too much, wait for a completion */
 			aux_info_->sleeping_ = true;
 			aux_info_->rendez_.TaskSleep(&aux_info_->lock_);
@@ -1117,7 +1116,7 @@ uint64_t ActiveVmdk::FlushesInProgress() const noexcept {
 uint64_t ActiveVmdk::MovesInProgress() const noexcept {
 	return stats_.moves_in_progress_;
 }
-	
+
 uint64_t ActiveVmdk::FlushedCheckpoints() const noexcept {
 	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
     return checkpoints_.flushed_.size();
