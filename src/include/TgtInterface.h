@@ -23,6 +23,7 @@ RequestID HycScheduleWrite(VmdkHandle handle, const void* privatep,
 		char* bufferp, int32_t buf_sz, int64_t offset);
 RequestID HycScheduleWriteSame(VmdkHandle handle, const void* privatep,
 		char* bufferp, int32_t buf_sz, int32_t write_sz, int64_t offset);
+void HycDumpVmdk(VmdkHandle handle);
 
 #ifdef __cplusplus
 }

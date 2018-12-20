@@ -1378,3 +1378,13 @@ RequestID HycScheduleWriteSame(VmdkHandle handle, const void* privatep,
 		return kInvalidRequestID;
 	}
 }
+
+void HycDumpVmdk(VmdkHandle handle) {
+	try {
+		auto vmdkp = reinterpret_cast<::hyc::StordVmdk*>(handle);
+		LOG(ERROR) << *vmdkp;
+	} catch (std::exception& e) {
+		LOG(ERROR) << "Invalid VMDK " << handle;
+	}
+
+}
