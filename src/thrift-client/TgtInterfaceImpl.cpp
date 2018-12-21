@@ -91,6 +91,7 @@ struct Request {
 	int32_t xfer_sz;
 	int64_t offset;
 	int32_t result;
+	bool force_fail{false};
 
 	TimePoint timer;
 };
@@ -505,6 +506,9 @@ public:
 
 	uint32_t GetCompleteRequests(RequestResult* resultsp, uint32_t nresults,
 		bool *has_morep);
+	uint32_t GetFailedRequests(RequestResult* resultsp, uint32_t nresults,
+		bool *has_morep);
+	size_t FailAllRequests();
 
 	::hyc_thrift::VmdkHandle GetHandle() const noexcept;
 	const std::string& GetVmdkId() const noexcept;
@@ -555,6 +559,7 @@ private:
 		std::unordered_map<RequestID, std::unique_ptr<Request>> scheduled_;
 		std::vector<Request*> pending_;
 		std::vector<std::unique_ptr<Request>> complete_;
+		std::vector<Request*> failed_;
 	} requests_;
 
 	VmdkStats stats_;
@@ -785,7 +790,9 @@ void StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	UpdateStats(reqp);
 
 	requests_.scheduled_.erase(it);
-	requests_.complete_.emplace_back(std::move(req));
+	if (hyc_likely(not reqp->force_fail)) {
+		requests_.complete_.emplace_back(std::move(req));
+	}
 }
 
 template <>
@@ -836,6 +843,21 @@ int StordVmdk::PostRequestCompletion() const {
 	return 0;
 }
 
+size_t StordVmdk::FailAllRequests() {
+	std::lock_guard<std::mutex> lock(requests_.mutex_);
+	size_t size = requests_.scheduled_.size();
+	auto it = requests_.scheduled_.begin();
+	auto eit = requests_.scheduled_.end();
+	for (; it != eit; ++it) {
+		auto reqp = it->second.get();
+		reqp->force_fail = true;
+		reqp->bufferp = nullptr;
+		reqp->buf_sz = 0;
+		requests_.failed_.emplace_back(reqp);
+	}
+	return size;
+}
+
 uint32_t StordVmdk::GetCompleteRequests(RequestResult* resultsp,
 		uint32_t nresults, bool *has_morep) {
 	*has_morep = false;
@@ -854,6 +876,28 @@ uint32_t StordVmdk::GetCompleteRequests(RequestResult* resultsp,
 	}
 	requests_.complete_.erase(std::prev(eit, tocopy), eit);
 	*has_morep = not requests_.complete_.empty();
+	return tocopy;
+}
+
+uint32_t StordVmdk::GetFailedRequests(RequestResult* resultsp,
+		uint32_t nresults, bool *has_morep) {
+	*has_morep = false;
+	std::lock_guard<std::mutex> lock(requests_.mutex_);
+	auto tocopy = std::min(requests_.failed_.size(),
+			static_cast<size_t>(nresults));
+	if (not tocopy) {
+		return 0;
+	}
+
+	auto eit = requests_.failed_.end();
+	auto sit = std::prev(eit, tocopy);
+	for (auto resultp = resultsp; sit != eit; ++sit, ++resultp) {
+		resultp->privatep   = (*sit)->privatep;
+		resultp->request_id = (*sit)->id;
+		resultp->result     = (*sit)->result;
+	}
+	requests_.failed_.erase(std::prev(eit, tocopy), eit);
+	*has_morep = not requests_.failed_.empty();
 	return tocopy;
 }
 
@@ -944,7 +988,7 @@ void StordVmdk::ScheduleRead(folly::EventBase* basep,
 	clientp->future_Read(vmdk_handle_, reqp->id, reqp->buf_sz, reqp->offset)
 	.then([this, reqp] (const ReadResult& result) mutable {
 		reqp->result = result.get_result();
-		if (hyc_likely(reqp->result == 0)) {
+		if (hyc_likely(reqp->result == 0 and not reqp->force_fail)) {
 			ReadDataCopy(reqp, result);
 		}
 		RequestComplete(reqp);
@@ -1136,10 +1180,13 @@ public:
 		int32_t buf_sz, int64_t offset);
 	uint32_t VmdkGetCompleteRequest(StordVmdk* vmdkp, RequestResult* resultsp,
 		uint32_t nresults, bool *has_morep);
+	uint32_t GetFailedRequests(StordVmdk* vmdkp, RequestResult* resultsp,
+		uint32_t nresults, bool *has_morep);
 	RequestID VmdkWrite(StordVmdk* vmdkp, const void* privatep, char* bufferp,
 		int32_t buf_sz, int64_t offset);
 	RequestID VmdkWriteSame(StordVmdk* vmdkp, const void* privatep,
 		char* bufferp, int32_t buf_sz, int32_t write_sz, int64_t offset);
+	size_t VmdkFailAllRequests(StordVmdk* vmdkp);
 private:
 	StordVmdk* FindVmdk(::hyc_thrift::VmdkHandle handle);
 	StordVmdk* FindVmdk(const std::string& vmdkid);
@@ -1259,6 +1306,11 @@ uint32_t Stord::VmdkGetCompleteRequest(StordVmdk* vmdkp,
 	return vmdkp->GetCompleteRequests(resultsp, nresults, has_morep);
 }
 
+uint32_t Stord::GetFailedRequests(StordVmdk* vmdkp, RequestResult* resultsp,
+		uint32_t nresults, bool *has_morep) {
+	return vmdkp->GetFailedRequests(resultsp, nresults, has_morep);		
+}
+
 RequestID Stord::VmdkWrite(StordVmdk* vmdkp, const void* privatep,
 		char* bufferp, int32_t buf_sz, int64_t offset) {
 	return vmdkp->ScheduleWrite(privatep, bufferp, buf_sz, offset);
@@ -1267,6 +1319,10 @@ RequestID Stord::VmdkWrite(StordVmdk* vmdkp, const void* privatep,
 RequestID Stord::VmdkWriteSame(StordVmdk* vmdkp, const void* privatep,
 		char* bufferp, int32_t buf_sz, int32_t write_sz, int64_t offset) {
 	return vmdkp->ScheduleWriteSame(privatep, bufferp, buf_sz, write_sz, offset);
+}
+
+size_t Stord::VmdkFailAllRequests(StordVmdk* vmdkp) {
+	return vmdkp->FailAllRequests();
 }
 
 } // namespace hyc
@@ -1386,5 +1442,25 @@ void HycDumpVmdk(VmdkHandle handle) {
 	} catch (std::exception& e) {
 		LOG(ERROR) << "Invalid VMDK " << handle;
 	}
+}
 
+size_t HycFailAllRequests(VmdkHandle handle) {
+	try {
+		auto vmdkp = reinterpret_cast<::hyc::StordVmdk*>(handle);
+		LOG(ERROR) << *vmdkp;
+		return g_stord.VmdkFailAllRequests(vmdkp);
+	} catch (std::exception& e) {
+		LOG(ERROR) << "Invalid VMDK " << handle;
+	}
+	return 0;
+}
+
+uint32_t HycGetFailedRequests(VmdkHandle handle, RequestResult *resultsp,
+		uint32_t nresults, bool *has_morep) {
+	try {
+		auto vmdkp = reinterpret_cast<::hyc::StordVmdk*>(handle);
+		return g_stord.GetFailedRequests(vmdkp, resultsp, nresults, has_morep);
+	} catch (std::exception& e) {
+	}
+	return 0;
 }
