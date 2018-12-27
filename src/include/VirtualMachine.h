@@ -15,6 +15,9 @@
 #include "gen-cpp2/StorRpc_types.h"
 #include "DaemonCommon.h"
 #include "AeroConn.h"
+#include "RecurringTimer.h"
+#include "Analyzer.h"
+#include "Rest.h"
 
 using namespace ::hyc_thrift;
 
@@ -75,12 +78,20 @@ public:
 	folly::Future<std::unique_ptr<ReadResultVec>> BulkRead(ActiveVmdk* vmdkp,
 		std::vector<ReadRequest>::const_iterator it,
 		std::vector<ReadRequest>::const_iterator eit);
+
+	friend std::ostream& operator << (std::ostream& os, const VirtualMachine& vm);
 public:
 	void AddVmdk(ActiveVmdk* vmdkp);
 	folly::Future<int> StartPreload(const ::ondisk::VmdkID& id);
 	const ::ondisk::VmID& GetID() const noexcept;
 	VmdkHandle GetHandle() const noexcept;
 	const config::VmConfig* GetJsonConfig() const noexcept;
+
+	Analyzer* GetAnalyzer() noexcept;
+	folly::Future<RestResponse> RestCall(_ha_instance* instancep,
+		std::string ep, std::string body);
+	int StartTimer(struct _ha_instance *instancep, folly::EventBase* basep);
+
 	const std::string GetSetName() const {
 		return setname_;
 	};
@@ -94,6 +105,9 @@ private:
 	void WriteComplete(::ondisk::CheckPointID ckpt_id);
 	void CheckPointComplete(::ondisk::CheckPointID ckpt_id);
 	void FlushComplete(::ondisk::CheckPointID ckpt_id);
+	void PostIOStats(_ha_instance* instancep);
+	void PostFingerPrintStats(_ha_instance* instancep);
+
 	folly::Future<ReadResultVec> BulkRead(ActiveVmdk* vmdkp,
 		std::unique_ptr<ReqVec> requests, std::unique_ptr<ReqBlockVec> process,
 		std::unique_ptr<IOBufPtrVec> iobufs, size_t read_size);
@@ -104,6 +118,9 @@ private:
 	::ondisk::VmID vm_id_;
 	std::atomic<RequestID> request_id_{0};
 	std::unique_ptr<config::VmConfig> config_;
+
+	RecurringTimer timer_;
+	Analyzer analyzer_;
 
 	struct {
 		std::atomic_flag in_progress_ = ATOMIC_FLAG_INIT;

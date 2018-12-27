@@ -35,6 +35,8 @@ target_link_libraries(StorageLayerTests
 	${COMPRESS_LIBS}
 	${LIBRARY_LIST}
 	${AEROSPIKE_LIBS}
+	${IOA_LIB_LIST}
+	${HA_LIBS}
 	-Wl,--end-group
 )
 

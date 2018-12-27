@@ -3,6 +3,7 @@
 #include <chrono>
 #include <thread>
 #include <memory>
+#include <chrono>
 #include <unistd.h>
 #include <csignal>
 
@@ -10,16 +11,11 @@
 
 #include <folly/init/Init.h>
 #include <thrift/lib/cpp2/server/ThriftServer.h>
-#include <thrift/lib/cpp2/util/ScopedServerInterfaceThread.h>
-#include <chrono>
 
 #include "gen-cpp2/StorRpc.h"
 #include "gen-cpp2/StorRpc_constants.h"
 #include "DaemonTgtInterface.h"
-#include "Request.h"
 #include "Vmdk.h"
-#include "VmConfig.h"
-#include "VmdkConfig.h"
 #include "halib.h"
 #include "VmdkFactory.h"
 #include "Singleton.h"
@@ -28,8 +24,6 @@
 #include "TgtInterfaceImpl.h"
 #include "ScanManager.h"
 #include "VmManager.h"
-#include <boost/format.hpp>
-#include <boost/property_tree/ini_parser.hpp>
 
 #ifdef USE_NEP
 #include <TargetManager.hpp>
@@ -602,6 +596,13 @@ static int NewVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
 		return HA_CALLBACK_CONTINUE;
 	}
+
+	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
+	log_assert(vmp);
+
+	auto basep = thrift_server->getServeEventBase();
+	log_assert(basep);
+	vmp->StartTimer(g_thread_.ha_instance_, basep);
 
 	LOG(INFO) << "Added successfully VmID " << vmid << ", VmHandle is " << vm_handle;
 	const auto res = std::to_string(vm_handle);
@@ -1893,7 +1894,7 @@ int main(int argc, char* argv[])
 			FLAGS_etcd_ip.c_str(), FLAGS_svc_label.c_str(),
 			FLAGS_stord_version.c_str(), 120,
 			const_cast<const struct ha_handlers *> (handlers.get()),
-			StordHaStartCallback, StordHaStopCallback, 0, NULL);
+			StordHaStartCallback, StordHaStopCallback, 1, NULL);
 
 	if (g_thread_.ha_instance_ == nullptr) {
 		LOG(ERROR) << "ha_initialize failed";

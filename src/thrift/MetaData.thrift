@@ -5,6 +5,7 @@ typedef string VmdkID
 typedef string VmID
 typedef i64 SnapshotID
 typedef i64 BlockID
+typedef binary (cpp.type = "std::unique_ptr<folly::IOBuf>") IOBufPtr
 
 const CheckPointID kInvalidCheckPointID = 0;
 const SnapshotID kInvalidSnapshotID = 0;
@@ -45,4 +46,28 @@ struct VirtualMachineOnDisk {
 	2: list<VmdkID> vmdks;
 	3: i64 checkpoint_id;
 	4: i64 snapshot_id;
+}
+
+struct IOAVmdkStats {
+	1: VmdkID vmdk_id;
+	2: VmID vm_id;
+	3: string read_iostats;
+	4: string write_iostats;
+	5: i64 tag;
+}
+
+struct IOAVmStats {
+	1: map<string, IOAVmdkStats> data;
+}
+
+struct IOAVmdkFingerPrint {
+	1: VmdkID vmdk_id;
+	2: VmID vm_id;
+	3: string read_fprints;
+	4: string write_fprints;
+	5: i64 tag;
+}
+
+struct IOAVmFPrintStats {
+	1:  map<string, IOAVmdkFingerPrint> data;
 }

@@ -245,8 +245,6 @@ folly::Future<int> RamCacheHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
 
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
-		//log_assert(srcp->Size() == vmdkp->BlockSize());
-
 		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(),
 			srcp->PayloadSize());
 	}

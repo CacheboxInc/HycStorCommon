@@ -1,7 +1,13 @@
+#include <chrono>
 #include <algorithm>
+#include <type_traits>
+
 #include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/predicate.hpp>
 
 #include <folly/futures/Future.h>
+#include <folly/io/async/EventBase.h>
+
 #include <aerospike/aerospike_info.h>
 
 #include "gen-cpp2/MetaData_types.h"
@@ -19,19 +25,35 @@
 #include "EncryptHandler.h"
 #include "MultiTargetHandler.h"
 
-
 using namespace ::hyc_thrift;
 using namespace ::ondisk;
 
 namespace pio {
 
-VirtualMachine::VirtualMachine(VmHandle handle, VmID vm_id,
-		const std::string& config) : handle_(handle), vm_id_(std::move(vm_id)),
-		config_(std::make_unique<config::VmConfig>(config)) {
-		setname_ = config_->GetTargetName();
+using namespace std::chrono_literals;
+constexpr auto kTickSeconds = 10s;
+constexpr auto kL1Ticks = 10s / kTickSeconds;
+constexpr auto kL2Ticks = 2min / kTickSeconds;
+constexpr auto kL3Ticks = 2h / kTickSeconds;
+
+std::ostream& operator << (std::ostream& os, const VirtualMachine& vm) {
+	os << "VirtualMachine "
+		<< "Handle " << vm.handle_
+		<< "VmID " << vm.vm_id_
+		<< "Analyzer " << vm.analyzer_
+		<< std::endl;
+	return os;
 }
 
-VirtualMachine::~VirtualMachine() = default;
+VirtualMachine::VirtualMachine(VmHandle handle, VmID vm_id,
+		const std::string& config) : handle_(handle), vm_id_(std::move(vm_id)),
+		config_(std::make_unique<config::VmConfig>(config)),
+		timer_(kTickSeconds), analyzer_(vm_id_, kL1Ticks, kL2Ticks, kL3Ticks) {
+	setname_ = config_->GetTargetName();
+}
+
+VirtualMachine::~VirtualMachine() {
+}
 
 const VmID& VirtualMachine::GetID() const noexcept {
 	return vm_id_;
@@ -45,8 +67,61 @@ const config::VmConfig* VirtualMachine::GetJsonConfig() const noexcept {
 	return config_.get();
 }
 
+Analyzer* VirtualMachine::GetAnalyzer() noexcept {
+	return &analyzer_;
+}
+
 RequestID VirtualMachine::NextRequestID() {
 	return ++request_id_;
+}
+
+folly::Future<RestResponse> VirtualMachine::RestCall(_ha_instance* instancep,
+		std::string endpoint, std::string body) {
+	auto ep = endpoint.c_str();
+	auto bodyp = body.c_str();
+	class RestCall rest(instancep);
+	return rest.Post(ep, bodyp )
+	.then([endpoint = std::move(endpoint), body = std::move(body)]
+			(RestResponse& resp) mutable {
+		if (pio_unlikely(resp.post_failed)) {
+			return resp;
+		} else if (pio_unlikely(resp.status != 200)) {
+			LOG(ERROR) << "Posting analyzer stats to " << endpoint
+				<< " failed with error " << resp.status;
+			return resp;
+		}
+		VLOG(2) << "Posted rest call to " << endpoint;
+		return resp;
+	});
+}
+
+void VirtualMachine::PostIOStats(_ha_instance* instancep) {
+	auto body = analyzer_.GetIOStats();
+	if (not body) {
+		return;
+	}
+	std::string endpoint = EndPoint::kStats + GetID();
+	this->RestCall(instancep, std::move(endpoint), std::move(body.value()));
+}
+
+void VirtualMachine::PostFingerPrintStats(_ha_instance* instancep) {
+	auto body = analyzer_.GetFingerPrintStats();
+	if (not body) {
+		return;
+	}
+	std::string endpoint = EndPoint::kFingerPrint + GetID();
+	this->RestCall(instancep, std::move(endpoint), std::move(body.value()));
+}
+
+int VirtualMachine::StartTimer(_ha_instance *instancep, folly::EventBase* basep) {
+	timer_.AttachToEventBase(basep);
+	timer_.ScheduleTimeout([this, instancep] () {
+		analyzer_.SetTimerTicked();
+		this->PostIOStats(instancep);
+		this->PostFingerPrintStats(instancep);
+		return true;
+	});
+	return 0;
 }
 
 ActiveVmdk* VirtualMachine::FindVmdk(const VmdkID& vmdk_id) const {
@@ -93,7 +168,7 @@ void VirtualMachine::AddVmdk(ActiveVmdk* vmdkp) {
 void VirtualMachine::NewVmdk(ActiveVmdk* vmdkp) {
 	auto configp = vmdkp->GetJsonConfig();
 
-	auto blktrace = std::make_unique<BlockTraceHandler>();
+	auto blktrace = std::make_unique<BlockTraceHandler>(vmdkp);
 	auto lock = std::make_unique<LockHandler>();
 	auto unalingned = std::make_unique<UnalignedHandler>();
 	auto compress = std::make_unique<CompressHandler>(configp);

@@ -10,17 +10,6 @@ add_executable(stord
 	StorageDaemon.cpp
 )
 
-set(HA_LIBS
-	ha
-	base64
-	curl
-	jansson
-	microhttpd
-	orcania
-	ulfius
-	yder
-)
-
 target_link_libraries(stord
 	-Wl,--start-group
 	lzma
@@ -36,6 +25,7 @@ target_link_libraries(stord
 	${COMPRESS_LIBS}
 	${LIBRARY_LIST}
 	${AEROSPIKE_LIBS}
+	${IOA_LIB_LIST}
 	-Wl,--end-group
 )
 

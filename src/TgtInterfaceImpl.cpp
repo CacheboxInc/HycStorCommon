@@ -6,6 +6,8 @@
 
 #include <folly/fibers/Fiber.h>
 #include <folly/futures/Future.h>
+#include <folly/io/async/EventBase.h>
+
 #include <glog/logging.h>
 #include <chrono>
 #include <algorithm>
