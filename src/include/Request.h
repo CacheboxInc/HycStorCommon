@@ -8,10 +8,10 @@
 
 #include "IDs.h"
 #include "DaemonCommon.h"
-#include "TimePoint.h"
 #include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_constants.h"
 #include "gen-cpp2/StorRpc_types.h"
+#include "TimePoint.h"
 
 namespace pio {
 
@@ -53,7 +53,6 @@ public:
 	bool IsSuccess() const noexcept;
 	bool IsFailed() const noexcept;
 	int GetResult() const noexcept;
-
 	Offset GetOffset() const noexcept;
 	int64_t GetLatency() const noexcept;
 	size_t GetTransferLength() const noexcept;
@@ -96,7 +95,6 @@ public:
 			}
 		}
 	}
-	::hyc::TimePoint start_time_;
 
 private:
 	void InitWriteSameBuffer();
@@ -127,6 +125,8 @@ private:
 		::ondisk::BlockID  end_{0};
 		uint32_t nblocks_{0};
 	} block_;
+
+	::hyc::TimePoint start_time_;
 
 	struct {
 		RequestStatus status_{RequestStatus::kSuccess};

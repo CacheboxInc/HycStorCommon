@@ -14,7 +14,6 @@ add_executable(StorageLayerTests
 	CompressHandlerTest.cpp
 	EncryptHandlerTest.cpp
 	ReadAheadTests.cpp
-	PreloadTest.cpp
 )
 
 if(USE_NEP)
@@ -36,6 +35,8 @@ target_link_libraries(StorageLayerTests
 	${COMPRESS_LIBS}
 	${LIBRARY_LIST}
 	${AEROSPIKE_LIBS}
+	${IOA_LIB_LIST}
+	${HA_LIBS}
 	-Wl,--end-group
 )
 

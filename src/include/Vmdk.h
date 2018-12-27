@@ -161,9 +161,9 @@ public:
 	folly::Future<int> WriteSame(Request* reqp, ::ondisk::CheckPointID ckpt_id);
 	folly::Future<int> TakeCheckPoint(::ondisk::CheckPointID check_point);
 	folly::Future<int> CommitCheckPoint(::ondisk::CheckPointID check_point);
-	int FlushStages(::ondisk::CheckPointID check_point, bool perform_move);
-	int FlushStage(::ondisk::CheckPointID check_point);
-	int MoveStage(::ondisk::CheckPointID check_point);
+	int FlushStages(::ondisk::CheckPointID check_point, bool perform_move, uint32_t, uint32_t);
+	int FlushStage(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
+	int MoveStage(::ondisk::CheckPointID check_point, uint32_t);
 	CheckPoint* GetCheckPoint(::ondisk::CheckPointID ckpt_id) const;
 
 	/* Functions to gathering Vmdk statistics at this point in time */
@@ -192,7 +192,6 @@ public:
 	folly::Future<int> BulkWrite(::ondisk::CheckPointID ckpt_id,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process);
-
 	folly::Future<int> BulkRead(const CheckPoints& min_max,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process);

@@ -21,8 +21,19 @@ config::AeroConfig* AeroSpikeConn::GetJsonConfig() const noexcept {
 	return config_.get();
 }
 
-int AeroSpikeConn::Connect() {
+int GetFileLimit()
+{
+	struct rlimit limit;
+	if (getrlimit(RLIMIT_NOFILE, &limit) != 0) {
+		LOG(ERROR) << "getrlimit() failed with errno:" << errno;
+		return -1;
+	}
+	return limit.rlim_cur;
+}
 
+int AeroSpikeConn::Connect() {
+	static constexpr uint16_t kAeroEventLoops = 4;
+	static constexpr uint16_t kMaxCommandsInProgress = 800 / kAeroEventLoops;
 	log_assert(as_started_ == false);
 
 	auto aeroconf = this->GetJsonConfig();
@@ -45,15 +56,18 @@ int AeroSpikeConn::Connect() {
 		return -EINVAL;
 	}
 
-	ret = as_event_create_loops(8);
-	if (pio_unlikely(!ret)) {
+	as_error err;
+	as_policy_event policy;
+	as_policy_event_init(&policy);
+	policy.max_commands_in_process = kMaxCommandsInProgress;
+	auto status = as_create_event_loops(&err, &policy, kAeroEventLoops, nullptr);
+	if (pio_unlikely(status != AEROSPIKE_OK)) {
 		LOG (ERROR) << "Aerospike event loop creation failed.";
 		return -EINVAL;
 	}
 
 	as_config cfg;
 	as_config_init(&cfg);
-
 	if (pio_unlikely(host_count  == 1)) {
 		as_config_add_host(&cfg, clusterips.c_str(), port);
 	} else {
@@ -65,7 +79,21 @@ int AeroSpikeConn::Connect() {
 		}
 	}
 
-	cfg.async_max_conns_per_node = 400;
+	/*
+	 * If the current soft limit is high enough then
+	 * increase the number of outstanding commands
+	 */
+
+	if (pio_likely(GetFileLimit() >= 16 * 1024)) {
+		cfg.max_conns_per_node = 3000;
+		cfg.async_max_conns_per_node = 3000;
+		cfg.pipe_max_conns_per_node = 3000;
+	} else {
+		cfg.async_max_conns_per_node = 400;
+	}
+
+	LOG(ERROR) << __func__ << "Max async commands limit:"
+		<< cfg.async_max_conns_per_node;
 	/* Setting this policy so that key get stored in records */
 	cfg.policies.write.key = AS_POLICY_KEY_SEND;
 	cfg.policies.read.key = AS_POLICY_KEY_SEND;
@@ -80,11 +108,11 @@ int AeroSpikeConn::Connect() {
 	cfg.policies.write.base.sleep_between_retries = 300; // 300ms 
 
 	cfg.policies.read.base.total_timeout = 5000; // 5secs
-	cfg.policies.read.base.max_retries = 0;
+	cfg.policies.read.base.max_retries = 10;
 	cfg.policies.read.base.sleep_between_retries = 300; // 300ms 
 
 	cfg.policies.operate.base.total_timeout = 5000; // 5secs
-	cfg.policies.operate.base.max_retries = 0;
+	cfg.policies.operate.base.max_retries = 10;
 	cfg.policies.operate.base.sleep_between_retries = 300; // 300ms 
 
 	cfg.policies.remove.base.total_timeout = 5000; // 5secs
@@ -92,7 +120,7 @@ int AeroSpikeConn::Connect() {
 	cfg.policies.remove.base.sleep_between_retries = 300; // 300ms 
 
 	cfg.policies.batch.base.total_timeout = 5000; // 5secs
-	cfg.policies.batch.base.max_retries = 0;
+	cfg.policies.batch.base.max_retries = 10;
 	cfg.policies.batch.base.sleep_between_retries = 300; // 300ms 
 
 	cfg.policies.apply.base.total_timeout = 5000; // 5secs
@@ -107,7 +135,6 @@ int AeroSpikeConn::Connect() {
 	cfg.policies.query.base.max_retries = 0;
 	cfg.policies.query.base.sleep_between_retries = 300; // 300ms 
 
-	as_error err;
 	aerospike_init(&this->as_, &cfg);
 	if (aerospike_connect(&this->as_, &err) != AEROSPIKE_OK) {
 		VLOG(1) << "Connection with aerospike server failed.";

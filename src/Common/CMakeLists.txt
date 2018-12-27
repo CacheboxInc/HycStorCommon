@@ -9,6 +9,7 @@ set(CommonLibFiles
 	Rendez.cpp
 	TimePoint.cpp
 	BackGroundWorker.cpp
+	RecurringTimer.cpp
 )
 
 add_library(CommonLib STATIC

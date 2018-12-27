@@ -3,6 +3,7 @@
 #include <chrono>
 #include <thread>
 #include <memory>
+#include <chrono>
 #include <unistd.h>
 #include <csignal>
 
@@ -10,16 +11,11 @@
 
 #include <folly/init/Init.h>
 #include <thrift/lib/cpp2/server/ThriftServer.h>
-#include <thrift/lib/cpp2/util/ScopedServerInterfaceThread.h>
-#include <chrono>
 
 #include "gen-cpp2/StorRpc.h"
 #include "gen-cpp2/StorRpc_constants.h"
 #include "DaemonTgtInterface.h"
-#include "Request.h"
 #include "Vmdk.h"
-#include "VmConfig.h"
-#include "VmdkConfig.h"
 #include "halib.h"
 #include "VmdkFactory.h"
 #include "Singleton.h"
@@ -28,8 +24,6 @@
 #include "TgtInterfaceImpl.h"
 #include "ScanManager.h"
 #include "VmManager.h"
-#include <boost/format.hpp>
-#include <boost/property_tree/ini_parser.hpp>
 
 #ifdef USE_NEP
 #include <TargetManager.hpp>
@@ -487,6 +481,7 @@ enum StordSvcErr {
 	STORD_ERR_COMMIT_CKPT,
 	STORD_ERR_CKPT_BMAP_SET,
 	STORD_ERR_INVALID_PREPARE_CKPTID,
+	STORD_ERR_FAILED_TO_START_PRELOAD,
 };
 
 void HaHeartbeat(void *userp) {
@@ -601,6 +596,13 @@ static int NewVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
 		return HA_CALLBACK_CONTINUE;
 	}
+
+	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
+	log_assert(vmp);
+
+	auto basep = thrift_server->getServeEventBase();
+	log_assert(basep);
+	vmp->StartTimer(g_thread_.ha_instance_, basep);
 
 	LOG(INFO) << "Added successfully VmID " << vmid << ", VmHandle is " << vm_handle;
 	const auto res = std::to_string(vm_handle);
@@ -857,6 +859,37 @@ static int RemoveVmdk(const _ha_request *reqp, _ha_response *resp, void *userp )
 	return HA_CALLBACK_CONTINUE;
 }
 
+static int VmdkStartPreload(const _ha_request *reqp, _ha_response *resp, void *userp ) {
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT, "Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto valuep = ha_parameter_get(reqp, "vm-id");
+	if (not valuep) {
+		SetErrMsg(resp, STORD_ERR_INVALID_VMDK, "vm-id not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(valuep);
+
+	valuep = ha_parameter_get(reqp, "vmdk-id");
+	if (not valuep) {
+		SetErrMsg(resp, STORD_ERR_INVALID_VMDK, "vmdk-id not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmdkid(valuep);
+
+	auto rc = pio::StartPreload(vmid, vmdkid);
+	if (rc < 0) {
+		SetErrMsg(resp, STORD_ERR_FAILED_TO_START_PRELOAD, "preload failed");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	const auto res = std::to_string(rc);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+	return HA_CALLBACK_CONTINUE;
+}
+
 static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
 
 	LOG(ERROR) << "NewScanReq start";
@@ -948,17 +981,18 @@ static int NewScanStatusReq(const _ha_request *reqp, _ha_response *resp, void *u
 
 	json_t *scan_params = json_object();
 	if (pio_likely(scan_stat.progress_pct != 100)) {
-		json_object_set(scan_params, "scan_running", json_boolean(true));
+		json_object_set_new(scan_params, "scan_running", json_boolean(true));
 	} else {
-		json_object_set(scan_params, "scan_running", json_boolean(false));
+		json_object_set_new(scan_params, "scan_running", json_boolean(false));
 	}
-	json_object_set(scan_params, "progress_pct", json_integer(scan_stat.progress_pct));
-	json_object_set(scan_params, "records_scanned", json_integer(scan_stat.records_scanned));
-	std::string scan_params_str = json_dumps(scan_params, JSON_ENCODE_ANY);
+	json_object_set_new(scan_params, "progress_pct", json_integer(scan_stat.progress_pct));
+	json_object_set_new(scan_params, "records_scanned", json_integer(scan_stat.records_scanned));
+	auto *scan_params_str = json_dumps(scan_params, JSON_ENCODE_ANY);
 	json_object_clear(scan_params);
 	json_decref(scan_params);
-	ha_set_response_body(resp, HTTP_STATUS_OK, scan_params_str.c_str(),
-			strlen(scan_params_str.c_str()));
+	ha_set_response_body(resp, HTTP_STATUS_OK, scan_params_str,
+			strlen(scan_params_str));
+	::free(scan_params_str);
 
 	return HA_CALLBACK_CONTINUE;
 }
@@ -1239,10 +1273,10 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 
 	json_t *flush_params = json_object();
 
-	json_object_set(flush_params, "flush_running", json_boolean(true));
-	json_object_set(flush_params, "flushed_blks_cnt", json_integer(total_flushed_blks));
-	json_object_set(flush_params, "moved_blks_cnt", json_integer(total_moved_blks));
-	json_object_set(flush_params, "remaining_blks_cnt", json_integer(remaining_blks));
+	json_object_set_new(flush_params, "flush_running", json_boolean(true));
+	json_object_set_new(flush_params, "flushed_blks_cnt", json_integer(total_flushed_blks));
+	json_object_set_new(flush_params, "moved_blks_cnt", json_integer(total_moved_blks));
+	json_object_set_new(flush_params, "remaining_blks_cnt", json_integer(remaining_blks));
 
 	param_valuep = ha_parameter_get(reqp, "get_history");
 	if (param_valuep) {
@@ -1252,19 +1286,20 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 			LOG(INFO) << "History unavailable for vmid " << vmid;
 		}
 		const auto st = fh.str();
-		json_object_set(flush_params, "history", json_string(st.c_str()));
+		json_object_set_new(flush_params, "history", json_string(st.c_str()));
 
 	} else {
 		LOG(INFO) << "History not queried";
 	}
 
-	std::string flush_params_str = json_dumps(flush_params, JSON_ENCODE_ANY);
+	auto *flush_params_str = json_dumps(flush_params, JSON_ENCODE_ANY);
 
 	json_object_clear(flush_params);
 	json_decref(flush_params);
 
-	ha_set_response_body(resp, HTTP_STATUS_OK, flush_params_str.c_str(),
-			strlen(flush_params_str.c_str()));
+	ha_set_response_body(resp, HTTP_STATUS_OK, flush_params_str,
+			strlen(flush_params_str));
+	::free(flush_params_str);
 
 	return HA_CALLBACK_CONTINUE;
 }
@@ -1307,17 +1342,19 @@ static int NewAeroCacheStatReq(const _ha_request *reqp, _ha_response *resp, void
 
 	json_t *aero_params = json_object();
 	const auto res = std::to_string(ret);
-	json_object_set(aero_params, "ret", json_string((char *) res.c_str()));
-	json_object_set(aero_params, "dirty_blks_cnt", json_integer(aero_stats_p->dirty_cnt_));
-	json_object_set(aero_params, "clean_blks_cnt", json_integer(aero_stats_p->clean_cnt_));
-	json_object_set(aero_params, "parent_blks_cnt", json_integer(aero_stats_p->parent_cnt_));
-	std::string aero_params_str = json_dumps(aero_params, JSON_ENCODE_ANY);
+	json_object_set_new(aero_params, "ret", json_string((char *) res.c_str()));
+	json_object_set_new(aero_params, "dirty_blks_cnt", json_integer(aero_stats_p->dirty_cnt_));
+	json_object_set_new(aero_params, "clean_blks_cnt", json_integer(aero_stats_p->clean_cnt_));
+	json_object_set_new(aero_params, "parent_blks_cnt", json_integer(aero_stats_p->parent_cnt_));
+	auto *aero_params_str = json_dumps(aero_params, JSON_ENCODE_ANY);
 
 	json_object_clear(aero_params);
 	json_decref(aero_params);
 
-	ha_set_response_body(resp, HTTP_STATUS_OK, aero_params_str.c_str(),
-			strlen(aero_params_str.c_str()));
+	ha_set_response_body(resp, HTTP_STATUS_OK, aero_params_str,
+			strlen(aero_params_str));
+	::free(aero_params_str);
+
 	return HA_CALLBACK_CONTINUE;
 }
 
@@ -1401,50 +1438,51 @@ static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *us
 	}
 
 	json_t *stat_params = json_object();
-	json_object_set(stat_params, "total_reads", json_integer(vmdk_stats_p->total_reads_));
-	json_object_set(stat_params, "total_writes", json_integer(vmdk_stats_p->total_writes_));
-	json_object_set(stat_params, "total_bytes_reads", json_integer(vmdk_stats_p->total_bytes_reads_));
-	json_object_set(stat_params, "total_bytes_writes", json_integer(vmdk_stats_p->total_bytes_writes_));
-	json_object_set(stat_params, "parent_blks", json_integer(vmdk_stats_p->parent_blks_));
-	json_object_set(stat_params, "read_populates", json_integer(vmdk_stats_p->read_populates_));
-	json_object_set(stat_params, "cache_writes", json_integer(vmdk_stats_p->cache_writes_));
-	json_object_set(stat_params, "read_hits", json_integer(vmdk_stats_p->read_hits_));
-	json_object_set(stat_params, "read_miss", json_integer(vmdk_stats_p->read_miss_));
-	json_object_set(stat_params, "read_failed", json_integer(vmdk_stats_p->read_failed_));
-	json_object_set(stat_params, "write_failed", json_integer(vmdk_stats_p->write_failed_));
+	json_object_set_new(stat_params, "total_reads", json_integer(vmdk_stats_p->total_reads_));
+	json_object_set_new(stat_params, "total_writes", json_integer(vmdk_stats_p->total_writes_));
+	json_object_set_new(stat_params, "total_bytes_reads", json_integer(vmdk_stats_p->total_bytes_reads_));
+	json_object_set_new(stat_params, "total_bytes_writes", json_integer(vmdk_stats_p->total_bytes_writes_));
+	json_object_set_new(stat_params, "parent_blks", json_integer(vmdk_stats_p->parent_blks_));
+	json_object_set_new(stat_params, "read_populates", json_integer(vmdk_stats_p->read_populates_));
+	json_object_set_new(stat_params, "cache_writes", json_integer(vmdk_stats_p->cache_writes_));
+	json_object_set_new(stat_params, "read_hits", json_integer(vmdk_stats_p->read_hits_));
+	json_object_set_new(stat_params, "read_miss", json_integer(vmdk_stats_p->read_miss_));
+	json_object_set_new(stat_params, "read_failed", json_integer(vmdk_stats_p->read_failed_));
+	json_object_set_new(stat_params, "write_failed", json_integer(vmdk_stats_p->write_failed_));
 
-	json_object_set(stat_params, "reads_in_progress", json_integer(vmdk_stats_p->reads_in_progress_));
-	json_object_set(stat_params, "writes_in_progress", json_integer(vmdk_stats_p->writes_in_progress_));
+	json_object_set_new(stat_params, "reads_in_progress", json_integer(vmdk_stats_p->reads_in_progress_));
+	json_object_set_new(stat_params, "writes_in_progress", json_integer(vmdk_stats_p->writes_in_progress_));
 
-	json_object_set(stat_params, "read_ahead_blks", json_integer(vmdk_stats_p->read_ahead_blks_));
-	json_object_set(stat_params, "flushes_in_progress", json_integer(vmdk_stats_p->flushes_in_progress_));
-	json_object_set(stat_params, "moves_in_progress", json_integer(vmdk_stats_p->moves_in_progress_));
-	json_object_set(stat_params, "block_size", json_integer(vmdk_stats_p->block_size_));
-	json_object_set(stat_params, "flushed_chkpnts", json_integer(vmdk_stats_p->flushed_chkpnts_));
-	json_object_set(stat_params, "unflushed_chkpnts", json_integer(vmdk_stats_p->unflushed_chkpnts_));
-	json_object_set(stat_params, "flushed_blocks", json_integer(vmdk_stats_p->flushed_blocks_));
-	json_object_set(stat_params, "moved_blocks", json_integer(vmdk_stats_p->moved_blocks_));
-	json_object_set(stat_params, "pending_blocks", json_integer(vmdk_stats_p->pending_blocks_));
-	json_object_set(stat_params, "dirty_blocks", json_integer(vmdk_stats_p->dirty_blocks_));
-	json_object_set(stat_params, "clean_blocks", json_integer(vmdk_stats_p->clean_blocks_));
+	json_object_set_new(stat_params, "read_ahead_blks", json_integer(vmdk_stats_p->read_ahead_blks_));
+	json_object_set_new(stat_params, "flushes_in_progress", json_integer(vmdk_stats_p->flushes_in_progress_));
+	json_object_set_new(stat_params, "moves_in_progress", json_integer(vmdk_stats_p->moves_in_progress_));
+	json_object_set_new(stat_params, "block_size", json_integer(vmdk_stats_p->block_size_));
+	json_object_set_new(stat_params, "flushed_chkpnts", json_integer(vmdk_stats_p->flushed_chkpnts_));
+	json_object_set_new(stat_params, "unflushed_chkpnts", json_integer(vmdk_stats_p->unflushed_chkpnts_));
+	json_object_set_new(stat_params, "flushed_blocks", json_integer(vmdk_stats_p->flushed_blocks_));
+	json_object_set_new(stat_params, "moved_blocks", json_integer(vmdk_stats_p->moved_blocks_));
+	json_object_set_new(stat_params, "pending_blocks", json_integer(vmdk_stats_p->pending_blocks_));
+	json_object_set_new(stat_params, "dirty_blocks", json_integer(vmdk_stats_p->dirty_blocks_));
+	json_object_set_new(stat_params, "clean_blocks", json_integer(vmdk_stats_p->clean_blocks_));
 
-	json_object_set(stat_params, "nw_bytes_write", json_integer(vmdk_stats_p->nw_bytes_write_));
-	json_object_set(stat_params, "nw_bytes_read", json_integer(vmdk_stats_p->nw_bytes_read_));
-	json_object_set(stat_params, "aero_bytes_write", json_integer(vmdk_stats_p->aero_bytes_write_));
-	json_object_set(stat_params, "aero_bytes_read", json_integer(vmdk_stats_p->aero_bytes_read_));
+	json_object_set_new(stat_params, "nw_bytes_write", json_integer(vmdk_stats_p->nw_bytes_write_));
+	json_object_set_new(stat_params, "nw_bytes_read", json_integer(vmdk_stats_p->nw_bytes_read_));
+	json_object_set_new(stat_params, "aero_bytes_write", json_integer(vmdk_stats_p->aero_bytes_write_));
+	json_object_set_new(stat_params, "aero_bytes_read", json_integer(vmdk_stats_p->aero_bytes_read_));
 
-	json_object_set(stat_params, "bufsz_before_compress", json_integer(vmdk_stats->bufsz_before_compress));
-	json_object_set(stat_params, "bufsz_after_compress", json_integer(vmdk_stats->bufsz_after_compress));
-	json_object_set(stat_params, "bufsz_before_uncompress", json_integer(vmdk_stats->bufsz_before_uncompress));
-	json_object_set(stat_params, "bufsz_after_uncompress", json_integer(vmdk_stats->bufsz_after_uncompress));
+	json_object_set_new(stat_params, "bufsz_before_compress", json_integer(vmdk_stats->bufsz_before_compress));
+	json_object_set_new(stat_params, "bufsz_after_compress", json_integer(vmdk_stats->bufsz_after_compress));
+	json_object_set_new(stat_params, "bufsz_before_uncompress", json_integer(vmdk_stats->bufsz_before_uncompress));
+	json_object_set_new(stat_params, "bufsz_after_uncompress", json_integer(vmdk_stats->bufsz_after_uncompress));
 
-	std::string stat_params_str = json_dumps(stat_params, JSON_ENCODE_ANY);
+	auto *stat_params_str = json_dumps(stat_params, JSON_ENCODE_ANY);
 
 	json_object_clear(stat_params);
 	json_decref(stat_params);
 
-	ha_set_response_body(resp, HTTP_STATUS_OK, stat_params_str.c_str(),
-			strlen(stat_params_str.c_str()));
+	ha_set_response_body(resp, HTTP_STATUS_OK, stat_params_str,
+			strlen(stat_params_str));
+	::free(stat_params_str);
 
 	return HA_CALLBACK_CONTINUE;
 }
@@ -1487,15 +1525,16 @@ static int NewFlushHistoryReq(const _ha_request *reqp, _ha_response *resp, void 
 			<< ". First flush not triggered or still in progress";
 	}
 	const auto st = fh.str();
-	json_object_set(flush_params, "history", json_string(st.c_str()));
+	json_object_set_new(flush_params, "history", json_string(st.c_str()));
 
-	std::string flush_params_str = json_dumps(flush_params, JSON_ENCODE_ANY);
+	auto *flush_params_str = json_dumps(flush_params, JSON_ENCODE_ANY);
 
 	json_object_clear(flush_params);
 	json_decref(flush_params);
 
-	ha_set_response_body(resp, HTTP_STATUS_OK, flush_params_str.c_str(),
-			strlen(flush_params_str.c_str()));
+	ha_set_response_body(resp, HTTP_STATUS_OK, flush_params_str,
+			strlen(flush_params_str));
+	::free(flush_params_str);
 
 	return HA_CALLBACK_CONTINUE;
 }
@@ -1530,7 +1569,7 @@ static int GetUnflushedCheckpoints(const _ha_request *reqp, _ha_response *resp, 
 	json_array_append_new(array, json_integer(43));
 	json_array_append_new(array, json_integer(44));
 	
-	json_object_set(json_params, "unflushed_checkpoints", array);
+	json_object_set_new(json_params, "unflushed_checkpoints", array);
 	std::string json_params_str = json_dumps(json_params, JSON_ENCODE_ANY);
     json_object_clear(json_params);
     json_decref(json_params);
@@ -1718,9 +1757,9 @@ static int GetMoveStatus(const _ha_request *reqp, _ha_response *resp, void *user
     std::string vmid(param_valuep);
 	
 	json_t *flush_params = json_object();
-	json_object_set(flush_params, "move_running", json_boolean(false));
-	json_object_set(flush_params, "moved_blks_cnt", json_integer(0));
-	json_object_set(flush_params, "remaining_blks_cnt", json_integer(0));
+	json_object_set_new(flush_params, "move_running", json_boolean(false));
+	json_object_set_new(flush_params, "moved_blks_cnt", json_integer(0));
+	json_object_set_new(flush_params, "remaining_blks_cnt", json_integer(0));
 
 	std::string flush_params_str = json_dumps(flush_params, JSON_ENCODE_ANY);
 	json_object_clear(flush_params);
@@ -1746,12 +1785,14 @@ RestHandlers GetRestCallHandlers() {
 		void* datap;
 	};
 
-	static constexpr std::array<RestEndPoint, 24> kHaEndPointHandlers = {{
+	static constexpr std::array<RestEndPoint, 25> kHaEndPointHandlers = {{
 		{POST, "new_vm", NewVm, nullptr},
 		{POST, "vm_delete", RemoveVm, nullptr},
 		{POST, "new_vmdk", NewVmdk, nullptr},
 		{POST, "vmdk_delete", RemoveVmdk, nullptr},
 		{GET, "vmdk_stats", NewVmdkStatsReq, nullptr},
+
+		{POST, "start_preload", VmdkStartPreload, nullptr},
 
 		{POST, "new_aero", NewAeroCluster, nullptr},
 		{POST, "del_aero", DelAeroCluster, nullptr},
@@ -1807,7 +1848,6 @@ RestHandlers GetRestCallHandlers() {
 
 int main(int argc, char* argv[])
 {
-	FLAGS_v = 2;
 	folly::init(&argc, &argv, true);
 
 #if 0
@@ -1853,7 +1893,7 @@ int main(int argc, char* argv[])
 			FLAGS_etcd_ip.c_str(), FLAGS_svc_label.c_str(),
 			FLAGS_stord_version.c_str(), 120,
 			const_cast<const struct ha_handlers *> (handlers.get()),
-			StordHaStartCallback, StordHaStopCallback, 0, NULL);
+			StordHaStartCallback, StordHaStopCallback, 1, NULL);
 
 	if (g_thread_.ha_instance_ == nullptr) {
 		LOG(ERROR) << "ha_initialize failed";
@@ -1880,15 +1920,15 @@ int main(int argc, char* argv[])
 				->CreateInstance(g_thread_.ha_instance_);
 	log_assert(rc == 0);
 
-	auto si = std::make_shared<StorRpcSvImpl>();
-	thrift_server = std::make_shared<ThriftServer>();
-
-	thrift_server->setInterface(si);
-	thrift_server->setAddress(kServerIp, kServerPort);
 	LOG(INFO) << "Starting Thrift Server";
 	google::FlushLogFiles(google::INFO);
 	google::FlushLogFiles(google::ERROR);
 
+	auto si = std::make_shared<StorRpcSvImpl>();
+	thrift_server = std::make_shared<ThriftServer>();
+	thrift_server->setInterface(si);
+	thrift_server->setAddress(kServerIp, kServerPort);
+	thrift_server->setNumIOWorkerThreads(3);
 	thrift_server->serve();
 
 	SingletonHolder<FlushManager>::GetInstance()->DestroyInstance();

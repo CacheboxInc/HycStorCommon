@@ -1,12 +1,14 @@
 #pragma once
 
 #include "RequestHandler.h"
+#include "iostats.h"
 
 namespace pio {
+class Analyzer;
 
 class BlockTraceHandler : public RequestHandler {
 public:
-	BlockTraceHandler();
+	BlockTraceHandler(ActiveVmdk* vmdkp);
 	~BlockTraceHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
@@ -33,6 +35,14 @@ public:
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) override;
+
+private:
+	Analyzer* analyzerp_;
+	::io_vmdk_handle_t handle_;
+	struct {
+		std::atomic<uint32_t> read_{0};
+		std::atomic<uint32_t> write_{0};
+	} pending_;
 };
 
 }

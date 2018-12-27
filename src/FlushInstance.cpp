@@ -18,6 +18,10 @@ using namespace ::ondisk;
 
 namespace pio {
 
+const std::string CheckPoint::kCheckPoint = "CheckPoint";
+const uint32_t kMaxPendingFlushReqs = 16;
+const uint32_t kMaxFlushIoSize = 1024 * 1024;
+
 FlushInstance::FlushInstance(VmID vmid, const std::string& config):
 	vmid_(std::move(vmid)),
 	config_(std::make_unique<config::FlushConfig>(config)) {
@@ -46,13 +50,31 @@ int FlushInstance::StartFlush(const VmID& vmid) {
 		return rc;
 	}
 
-	LOG(ERROR) << __func__ << "Flush Checkpoint ID is:" << ckpt_id;
+	LOG(ERROR) << __func__ << " Checkpoint ID to flush:" << ckpt_id;
 	bool perform_move;
 	if (not GetJsonConfig()->GetMoveAllowedStatus(perform_move)) {
 		perform_move = true;
 	}
 
-	rc = vmp->FlushStart(ckpt_id, perform_move);
+	uint32_t max_pending_reqs = 0;
+	if (not GetJsonConfig()->GetMaxPendingReqsCnt(max_pending_reqs)) {
+		max_pending_reqs = kMaxPendingFlushReqs;
+	}
+
+	uint32_t max_req_size = 0;
+	if (not GetJsonConfig()->GetMaxReqSize(max_req_size)) {
+		max_req_size = kMaxFlushIoSize;
+	}
+
+	if (max_req_size > kMaxFlushIoSize) {
+		max_req_size = kMaxFlushIoSize;
+	}
+
+	LOG(ERROR) << __func__ << " max_req_size:" << max_req_size  <<
+			", max_pending_reqs:" << max_pending_reqs;
+
+	rc = vmp->FlushStart(ckpt_id, perform_move,
+		max_req_size, max_pending_reqs);
 	if (pio_unlikely(rc)) {
 		return rc;
 	}

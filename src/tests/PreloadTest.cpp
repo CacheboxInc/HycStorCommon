@@ -122,7 +122,7 @@ TEST_P(PreloadTest, EnsurePreload) {
 	EXPECT_GT(rp, 0);
 	EXPECT_EQ(rp, rm);
 
-	auto f = vmp->StartPreload(vmdkp);
+	auto f = vmp->StartPreload(kVmdkid);
 	f.wait(1s);
 	EXPECT_TRUE(f.isReady());
 	EXPECT_EQ(f.value(), 0);

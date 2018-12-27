@@ -13,8 +13,11 @@ public:
 
 	void SetMoveAllowedStatus(bool status);
 	bool GetMoveAllowedStatus(bool& status);
-
+	bool GetMaxPendingReqsCnt(uint32_t& val);
+	bool GetMaxReqSize(uint32_t& val);
 public:
 	static const std::string kMoveAllowed;
+	static const std::string kMaxPendingReqCnt;
+	static const std::string kMaxReqSize;
 };
 }}

@@ -54,12 +54,10 @@ include_directories(src/include)
 include_directories(src/)
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/install/include)
-include_directories(${PROJECT_SOURCE_DIR}/thirdparty/restbed/distribution/include/)
 
 link_directories(${PROJECT_SOURCE_DIR}/lib)
 link_directories("/usr/local/lib")
 link_directories(${PROJECT_SOURCE_DIR}/install/lib)
-link_directories(${PROJECT_SOURCE_DIR}/thirdparty/restbed/distribution/library/)
 link_directories(${PROJECT_SOURCE_DIR}/thirdparty/ha-lib/build/src/)
 link_directories(${PROJECT_SOURCE_DIR}/thirdparty/ha-lib/third-party/lib/)
 link_directories(${PROJECT_SOURCE_DIR}/src/prefetch/third_party/murmur3-master/)
@@ -106,6 +104,7 @@ add_compile_options(
   -ffunction-sections
   -DAS_USE_LIBUV
   -g
+  -ggdb
 )
 
 set(CMAKE_EXE_LINKER_FLAGS
