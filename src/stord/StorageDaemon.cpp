@@ -1534,7 +1534,6 @@ static int GetUnflushedCheckpoints(const _ha_request *reqp, _ha_response *resp, 
 	std::string json_params_str = json_dumps(json_params, JSON_ENCODE_ANY);
     json_object_clear(json_params);
     json_decref(json_params);
-    json_object_clear(array);
     json_decref(array);
     
 	ha_set_response_body(resp, HTTP_STATUS_OK, json_params_str.c_str(), strlen(json_params_str.c_str()));
