@@ -45,3 +45,27 @@ target_link_libraries(SimpleDataVerification
 	${LIBRARY_LIST}
 	-Wl,--end-group
 )
+
+add_executable(AeroBench
+	AeroBench.cpp
+)
+
+target_link_libraries(AeroBench
+	-Wl,--start-group
+	CommonLib
+	${AEROSPIKE_LIBS}
+	gflags
+	glog
+	folly
+	pthread
+	dl
+	event
+	double-conversion
+	atomic
+	ssl
+	z
+	iberty
+	boost_system
+	boost_context
+	-Wl,--end-group
+)
