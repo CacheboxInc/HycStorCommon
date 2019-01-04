@@ -33,7 +33,7 @@ int GetFileLimit()
 
 int AeroSpikeConn::Connect() {
 	static constexpr uint16_t kAeroEventLoops = 4;
-	static constexpr uint16_t kMaxCommandsInProgress = 800 / kAeroEventLoops;
+	static constexpr uint16_t kMaxCommandsInProgress = 128 / kAeroEventLoops;
 	log_assert(as_started_ == false);
 
 	auto aeroconf = this->GetJsonConfig();
