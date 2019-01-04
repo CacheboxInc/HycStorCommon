@@ -233,6 +233,7 @@ struct WriteRecord {
 		auto s = as_record_set_raw(&as_.record_, kAsBin,
 			(const uint8_t*) buffer_->Payload(), buffer_->PayloadSize());
 		if (s == false) {
+			LOG(ERROR) << "WriteRecord initialization failed";
 			return -ENOMEM;
 		}
 		return 0;
@@ -240,6 +241,7 @@ struct WriteRecord {
 	int WriteComplete() const noexcept {
 		switch (result_.status_) {
 		default:
+			LOG(ERROR) << "Key write failed " << result_.status_;
 			return -EIO;
 		case AEROSPIKE_OK:
 			return 0;
@@ -249,6 +251,7 @@ struct WriteRecord {
 		case AEROSPIKE_ERR_DEVICE_OVERLOAD:
 		case AEROSPIKE_ERR_CLUSTER:
 		case AEROSPIKE_ERR_SERVER:
+			LOG(ERROR) << "key write failed. Retrying.";
 			return -EAGAIN;
 		}
 	}
@@ -480,6 +483,7 @@ WriteBatchPtr NewWriteBatch(AeroSpikeConnection* cp, const std::string& ns,
 	size_t size = sizeof(WriteBatch) + records * sizeof(WriteRecord);
 	void* datap = std::malloc(size);
 	if (pio_unlikely(not datap)) {
+		LOG(ERROR) << "memory allocation failed";
 		return WriteBatchPtr(nullptr, DestroyWriteBatch);
 	}
 	WriteBatch* batchp = new (datap) WriteBatch(cp, ns, set, prefix,
@@ -511,7 +515,7 @@ struct ReadRecord {
 	}
 
 	~ReadRecord() {
-	
+
 	}
 
 	int Initialize(as_batch_read_record* recordp) {
@@ -520,6 +524,7 @@ struct ReadRecord {
 		auto kp = as_key_init(&recordp->key, ns_.c_str(), set_.c_str(),
 			key_.c_str());
 		if (pio_unlikely(not kp)) {
+			LOG(ERROR) << "memory allocation failed";
 			return -ENOMEM;
 		}
 		log_assert(kp == &recordp->key);
@@ -530,12 +535,14 @@ struct ReadRecord {
 	int CopyData() noexcept {
 		as_bytes* bp = as_record_get_bytes(&as_.recordp_->record, kAsBin);
 		if (pio_unlikely(not bp)) {
+			LOG(ERROR) << "failed to get bin";
 			return -ENOMEM;
 		}
 
 		auto rc = as_bytes_copy(bp, 0, (uint8_t *) buffer_->Payload(),
 			(uint32_t) buffer_->PayloadSize());
 		if (pio_unlikely(rc != buffer_->PayloadSize())) {
+			LOG(ERROR) << "failed to copy data after read";
 			return -ENOMEM;
 		}
 		return 0;
@@ -544,8 +551,10 @@ struct ReadRecord {
 	int ReadComplete() noexcept {
 		switch (result_.status_) {
 		default:
+			LOG(ERROR) << "Read failed with error" << result_.status_;
 			return -EIO;
 		case AEROSPIKE_ERR_RECORD_NOT_FOUND:
+			LOG(ERROR) << "Record not found";
 			log_assert(0);
 			return 0;
 		case AEROSPIKE_OK:
@@ -667,6 +676,7 @@ public:
 		.then([this, &ReinitializeBatch] (int rc) mutable -> folly::Future<int> {
 			if (pio_unlikely(rc < 0)) {
 				if (pio_likely(rc == -EAGAIN and ++result_.retry_count_ < 5)) {
+					LOG(ERROR) << "Read failed. Retrying";
 					ReinitializeBatch();
 					return Submit();
 				}
@@ -716,6 +726,7 @@ ReadBatchPtr NewReadBatch(AeroSpikeConnection* cp, const std::string& ns,
 	size_t size = sizeof(ReadBatch) + records * sizeof(ReadRecord);
 	void* datap = std::malloc(size);
 	if (pio_unlikely(not datap)) {
+		LOG(ERROR) << "memory allocation failed";
 		return ReadBatchPtr(nullptr, DestroyReadBatch);
 	}
 	ReadBatch* batchp = new (datap) ReadBatch(cp, ns, set, prefix, record_size,
