@@ -21,6 +21,12 @@ using ReadRequestVec = std::vector<::hyc_thrift::ReadRequest>;
 class ReadAhead {
 
 public:
+	typedef struct __ReadAheadStats__ {
+		std::atomic<uint64_t>	stats_rh_blocks_size_{0};
+		std::atomic<uint64_t>	stats_rh_read_misses_{0};
+		std::atomic<uint64_t>	stats_rh_ghb_lib_calls_{0};
+	}ReadAheadStats;
+	
 	// Methods
 	ReadAhead(ActiveVmdk* vmdkp, int prefetch_depth, int start_index, 
 		int loopback, int n_history);
@@ -30,7 +36,21 @@ public:
 	Run(ReqBlockVec& offsets);
 	
 	uint64_t StatsTotalReadAheadBlocks() const {
-		return stats_rh_blocks_size_;
+		return st_read_ahead_stats_.stats_rh_blocks_size_;
+	}
+	
+	uint64_t StatsTotalReadMissBlocks() const {
+		return st_read_ahead_stats_.stats_rh_read_misses_;
+	}
+	
+	uint64_t StatsTotalGhbLibCalls() const {
+		return st_read_ahead_stats_.stats_rh_ghb_lib_calls_;
+	}
+	
+	void GetReadAheadStats(ReadAheadStats& st_rh_stats) const {
+		st_rh_stats.stats_rh_blocks_size_ = st_read_ahead_stats_.stats_rh_blocks_size_.load(std::memory_order_relaxed);
+		st_rh_stats.stats_rh_read_misses_ = st_read_ahead_stats_.stats_rh_read_misses_.load(std::memory_order_relaxed);
+		st_rh_stats.stats_rh_ghb_lib_calls_ = st_read_ahead_stats_.stats_rh_ghb_lib_calls_.load(std::memory_order_relaxed);
 	}
 
 private:
@@ -46,10 +66,10 @@ private:
 	std::mutex 				pending_ios_mutex_; 
 	static std::mutex		prediction_mutex_;
 	static bool				initialized_;
-	std::atomic<uint64_t>	stats_rh_blocks_size_{0};
 	static ghb_params_t		ghb_params_;
 	static ghb_t     		ghb_;
-	
+	ReadAheadStats 			st_read_ahead_stats_{0};
+
 	// Methods
 	void InitializeGHB();
 	void RefreshGHB();

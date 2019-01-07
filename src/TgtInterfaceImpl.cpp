@@ -484,6 +484,19 @@ int NewVmdkStatsReq(const std::string& vmdkid, VmdkCacheStats* vmdk_stats) {
 	return 0;
 }
 
+int ReadAheadStatsReq(const std::string& vmdkid, pio::ReadAhead::ReadAheadStats& rh_stats) {
+	auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdkid);
+	if (pio_unlikely(not p)) {
+		LOG(ERROR) << "Given VmdkId is not present";
+		return -EINVAL;
+	}
+	auto vmdkp = dynamic_cast<ActiveVmdk*>(p);
+	assert(vmdkp);
+	vmdkp->read_aheadp_->GetReadAheadStats(rh_stats);
+
+	return 0;
+}
+
 std::shared_ptr<AeroSpikeConn> GetAeroConn(const ActiveVmdk *vmdkp) {
 	auto vmp = vmdkp->GetVM();
 	if (pio_unlikely(vmp == nullptr)) {

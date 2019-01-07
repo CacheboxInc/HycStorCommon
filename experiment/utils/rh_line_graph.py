@@ -13,6 +13,9 @@ import urllib3
 from urllib.parse import urlencode
 stord_ip = '127.0.0.1:9000'
 
+json_vmdk_list = []
+json_rh_list = []
+
 def print_progress_bar(iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█'):
     percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
     filledLength = int(length * iteration // total)
@@ -22,24 +25,25 @@ def print_progress_bar(iteration, total, prefix = '', suffix = '', decimals = 1,
     if iteration == total:
         print()
 
-def get_vmdk_stats(vmdk_id, num_samples, time_interval):
+def run_stord_stats(vmdk_id, num_samples, time_interval):
     h = "http"
     cert = None
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     headers = {'Content-type': 'application/json'}
     data = { "service_type": "test_server", "service_instance" : 0, "etcd_ips" : ["3213213", "213213"]}
-    json_list = []
     # Get vmdk stats
     print("Getting vmdk stats from StorD for %s seconds" % (num_samples * time_interval))
     print_progress_bar(0, num_samples, prefix = 'Progress:', suffix = 'Complete', length = 50)
     for x in range(0, num_samples) :
         r = requests.get("%s://%s/stord_svc/v1.0/vmdk_stats/?vmdk-id=%s" % (h, stord_ip, vmdk_id), data=json.dumps(data), headers=headers, cert=cert, verify=False)
         assert (r.status_code == 200)
-        json_list.append(r.json())
+        json_vmdk_list.append(r.json())
+        r = requests.get("%s://%s/stord_svc/v1.0/read_ahead_stats/?vmdk-id=%s" % (h, stord_ip, vmdk_id), data=json.dumps(data), headers=headers, cert=cert, verify=False)
+        assert (r.status_code == 200)
+        json_rh_list.append(r.json())
         progress = (100 / num_samples)*(x+1)
         print_progress_bar(x+1, num_samples, prefix = 'Progress:', suffix = 'Complete', length = 50)
         time.sleep(time_interval)
-    return json_list
 
 def plot_line_graph(time, read_misses, read_hits, rh_blocks):
     plt.plot(time, read_misses, color='red')
@@ -57,7 +61,7 @@ def get_samples(opt, json_list):
     if opt == 'r':
         key = 'read_ahead_blks'
     elif opt == 'm':
-        key = 'read_miss'
+        key = 'read_ahead_misses'
     elif opt == 'h':
         key = 'read_hits'
     for an_item in json_list:
@@ -93,16 +97,16 @@ def main(argv):
     num_samples = int(argv[1])
     time_interval = int(argv[2])
 
-    json_list = get_vmdk_stats(vmdk_id, num_samples, time_interval)
+    run_stord_stats(vmdk_id, num_samples, time_interval)
     time = get_time_samples(num_samples, time_interval)
-    read_misses = get_read_misses(json_list)
-    read_hits = get_read_hits(json_list)
-    rh_blocks = get_rh_blocks(json_list)
-	#print("Data Set for plotting")
-	#print("time = %s" % time)
-	#print("Read Misses = %s" % read_misses)
-	#print("Read Hits = %s" % read_hits)
-	#print("Read Ahead = %s" % rh_blocks)
+    read_hits = get_read_hits(json_vmdk_list)
+    rh_blocks = get_rh_blocks(json_rh_list)
+    read_misses = get_read_misses(json_rh_list)
+    print("Data Set for plotting")
+    print("time = %s" % time)
+    print("Read Misses = %s" % read_misses)
+    print("Read Hits = %s" % read_hits)
+    print("Read Ahead = %s" % rh_blocks)
     # Plot the graph
     print('Plotting graph...')
     plot_line_graph(time, read_misses, read_hits, rh_blocks)
