@@ -1539,6 +1539,54 @@ static int NewFlushHistoryReq(const _ha_request *reqp, _ha_response *resp, void 
 	return HA_CALLBACK_CONTINUE;
 }
 
+static int ReadAheadStatsReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+
+	auto param_valuep = ha_parameter_get(reqp, "vmdk-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+				"vmdk-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::string vmdkid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+				"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+	
+	pio::ReadAhead::ReadAheadStats st_rh_stats = {0};
+	auto rc = pio::ReadAheadStatsReq(vmdkid, st_rh_stats);
+	if (rc == -EINVAL) {
+		std::ostringstream es;
+		LOG(ERROR) << "Vmdk Stats request for VmdkID " << vmdkid
+		<< "failed. VmdkID invalid";
+		es << "Invalid VmdkID: " << vmdkid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	json_t *stat_params = json_object();
+	json_object_set_new(stat_params, "read_ahead_blks", json_integer(st_rh_stats.stats_rh_blocks_size_));
+	json_object_set_new(stat_params, "read_ahead_misses", json_integer(st_rh_stats.stats_rh_read_misses_));
+	json_object_set_new(stat_params, "read_ahead_ghb_calls", json_integer(st_rh_stats.stats_rh_ghb_lib_calls_));
+
+	auto *stat_params_str = json_dumps(stat_params, JSON_ENCODE_ANY);
+
+	json_object_clear(stat_params);
+	json_decref(stat_params);
+
+	ha_set_response_body(resp, HTTP_STATUS_OK, stat_params_str,
+			strlen(stat_params_str));
+	::free(stat_params_str);
+
+	return HA_CALLBACK_CONTINUE;
+}
+
 /************************************************************************ 
  		REST APIs to serve RTO/RPO HA workflow -- START 
  ************************************************************************
@@ -1785,7 +1833,7 @@ RestHandlers GetRestCallHandlers() {
 		void* datap;
 	};
 
-	static constexpr std::array<RestEndPoint, 25> kHaEndPointHandlers = {{
+	static constexpr std::array<RestEndPoint, 26> kHaEndPointHandlers = {{
 		{POST, "new_vm", NewVm, nullptr},
 		{POST, "vm_delete", RemoveVm, nullptr},
 		{POST, "new_vmdk", NewVmdk, nullptr},
@@ -1815,7 +1863,8 @@ RestHandlers GetRestCallHandlers() {
 		{POST, "serialize_checkpoints", SerializeCheckpoints, nullptr},
 		{POST, "async_start_move_stage", AsyncStartMoveStage, nullptr},
 		{POST, "delete_snapshots", DeleteSnapshots, nullptr},
-		{GET, "move_status", GetMoveStatus, nullptr}
+		{GET, "move_status", GetMoveStatus, nullptr},
+		{GET, "read_ahead_stats", ReadAheadStatsReq, nullptr}
 	}};
 
 	constexpr auto size = sizeof(ha_handlers) +

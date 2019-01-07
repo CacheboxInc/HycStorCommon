@@ -63,6 +63,7 @@ ReadAhead::Run(ReqBlockVec& offsets) {
 	std::unique_lock<std::mutex> io_lock(pending_ios_mutex_);
 	if(pending_ios_.size() + offsets.size() >= MAX_PENDING_IOS_) {
 		// Should rarely occur
+		LOG(WARNING) << "ReadAhead queue is full cannot serve this time. Should be very rare though.";
 		return folly::makeFuture(std::move(results));
 	}
 	std::for_each(offsets.begin(), offsets.end(), [&](RequestBlock* blockp){
@@ -82,8 +83,21 @@ ReadAhead::Run(ReqBlockVec& offsets) {
 	
 	RefreshGHB();
 	
+	auto local_offsets_size = local_offsets.size();	
+	if(st_read_ahead_stats_.stats_rh_read_misses_ + local_offsets_size >= ULONG_MAX - 10) {
+		LOG(INFO) << "Resetting stats_rh_read_misses_ counter, current value = [" << st_read_ahead_stats_.stats_rh_read_misses_ << "].";
+		st_read_ahead_stats_.stats_rh_read_misses_ = 0;
+	}
+	st_read_ahead_stats_.stats_rh_read_misses_ += local_offsets_size;
+
 	uint64_t* prefetch_lbas = new uint64_t[prefetch_depth_];
 	for(auto it = local_offsets.begin(); it != local_offsets.end(); ++it) {
+		if(st_read_ahead_stats_.stats_rh_ghb_lib_calls_ + 1 >= ULONG_MAX - 10) {
+			LOG(INFO) << "Resetting stats_rh_ghb_lib_calls_ counter, current value = [" << st_read_ahead_stats_.stats_rh_ghb_lib_calls_ << "].";
+			st_read_ahead_stats_.stats_rh_ghb_lib_calls_ = 0;
+		}
+		++st_read_ahead_stats_.stats_rh_ghb_lib_calls_;
+		
 		int n_prefetch = ghb_update_and_query(&ghb_, 1, it->first, prefetch_lbas);
 		if(n_prefetch) {
 			for(int i = 0; i < n_prefetch; ++i) {
@@ -106,13 +120,13 @@ ReadAhead::Run(ReqBlockVec& offsets) {
 			}
 		}
 		auto pred_size = predictions.size();
-		auto stats_blocks = stats_rh_blocks_size_.load(std::memory_order_relaxed);
+		auto stats_blocks = st_read_ahead_stats_.stats_rh_blocks_size_.load(std::memory_order_relaxed);
 		if(stats_blocks + pred_size >= ULONG_MAX - 10) {
-			LOG(INFO) << "Resetting readahead stats counter, predicted so far [" << stats_blocks << "] blocks.";
-			stats_rh_blocks_size_.store(0, std::memory_order_relaxed);
+			LOG(INFO) << "Resetting stats_rh_blocks_size_ counter, current value = [" << st_read_ahead_stats_.stats_rh_blocks_size_ << "].";
+			st_read_ahead_stats_.stats_rh_blocks_size_ = 0;
 			stats_blocks = 0;
 		}
-		stats_rh_blocks_size_.store(stats_blocks + pred_size, std::memory_order_relaxed);
+		st_read_ahead_stats_.stats_rh_blocks_size_ = stats_blocks + pred_size;
 		return Read(predictions);
 	}
 	return folly::makeFuture(std::move(results));
@@ -127,6 +141,7 @@ ReadAhead::Read(std::map<int64_t, bool>& predictions) {
 	
 	auto vmp = vmdkp_->GetVM();
 	assert(vmp);
+	
 	return vmp->BulkRead(vmdkp_, std::make_unique<ReadRequestVec>(requests));
 }
 
