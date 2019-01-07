@@ -97,16 +97,16 @@ std::optional<IOAVmdkStats>
 Analyzer::GetIOStats(const VmdkID& id, const ::io_vmdk_handle_t& handle,
 		const ::io_level_t level) {
 	IOAVmdkStats stat;
-	stat.vmdk_id = id;
-	stat.vm_id = vm_id_;
-	stat.tag = ioa_tag_;
+	stat.set_vmdk_id(id);
+	stat.set_vm_id(vm_id_);
+	stat.set_tag(ioa_tag_);
 
-	stat.read_iostats = GetVmdkIOStat(handle, IOSTATS_READ, level);
+	stat.set_read_iostats(GetVmdkIOStat(handle, IOSTATS_READ, level));
 	if (pio_unlikely(stat.read_iostats.empty())) {
 		return {};
 	}
 
-	stat.write_iostats = GetVmdkIOStat(handle, IOSTATS_WRITE, level);
+	stat.set_write_iostats(GetVmdkIOStat(handle, IOSTATS_WRITE, level));
 	if (pio_unlikely(stat.write_iostats.empty())) {
 		return {};
 	}
@@ -118,7 +118,7 @@ std::string Analyzer::RemoveDataField(std::string&& body) {
 		"IOAVmStats must have data field");
 	static_assert(HasData<IOAVmFPrintStats>::value,
 		"IOAVmFPrintStats must have data field");
-	constexpr char datap[] = "{u'data':";
+	constexpr char datap[] = "{\"data\":";
 	log_assert(boost::starts_with(body, datap) and
 			boost::algorithm::ends_with(body, "}"));
 	body.erase(1, std::strlen(datap)-1);
@@ -148,6 +148,9 @@ std::optional<std::string> Analyzer::GetIOStats() {
 
 	using S2 = apache::thrift::SimpleJSONSerializer;
 	auto json_body = S2::serialize<std::string>(stats);
+	if (json_body.empty()) {
+		return {};
+	}
 	return RemoveDataField(std::move(json_body));
 }
 
@@ -174,16 +177,16 @@ std::optional<IOAVmdkFingerPrint> Analyzer::GetFingerPrintStats(
 		const VmdkID& vmdk_id, const ::io_vmdk_handle_t& handle,
 		const ::io_level_t level) {
 	IOAVmdkFingerPrint stat;
-	stat.vmdk_id = vmdk_id;
-	stat.vm_id = vm_id_;
-	stat.tag = ioa_tag_;
+	stat.set_vmdk_id(vmdk_id);
+	stat.set_vm_id(vm_id_);
+	stat.set_tag(ioa_tag_);
 
-	stat.read_fprints = GetVmdkFingerPrint(handle, IOSTATS_READ, level);
+	stat.set_read_fprints(GetVmdkFingerPrint(handle, IOSTATS_READ, level));
 	if (pio_unlikely(stat.read_fprints.empty())) {
 		return {};
 	}
 
-	stat.write_fprints = GetVmdkFingerPrint(handle, IOSTATS_WRITE, level);
+	stat.set_write_fprints(GetVmdkFingerPrint(handle, IOSTATS_WRITE, level));
 	if (pio_unlikely(stat.read_fprints.empty())) {
 		return {};
 	}
@@ -215,6 +218,9 @@ std::optional<std::string> Analyzer::GetFingerPrintStats() {
 
 	using S2 = apache::thrift::SimpleJSONSerializer;
 	auto json_body = S2::serialize<std::string>(stats);
+	if (json_body.empty()) {
+		return {};
+	}
 	return RemoveDataField(std::move(json_body));
 }
 
