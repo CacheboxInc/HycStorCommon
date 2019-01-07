@@ -28,7 +28,24 @@ using namespace std::chrono_literals;
 namespace bio = boost::iostreams;
 using ostring_buf = bio::stream_buffer<bio::back_insert_device<std::string>>;
 
-static constexpr char kAsBin[] = "bin";
+static constexpr size_t kMinBlockSize = 1ul << 12;
+static constexpr size_t kMaxRecordSize = 1ul << 20u;
+static constexpr size_t kMaxBins = kMaxRecordSize / kMinBlockSize;
+
+static char* kBinNames[kMaxBins];
+static void InitializeBinNames() {
+	for (size_t i = 0; i < kMaxBins; ++i) {
+		char name[8];
+		std::snprintf(name, sizeof(name), "%lu", i);
+		kBinNames[i] = strdup(name);
+	}
+}
+
+void DeinitializeBinNames() {
+	for (size_t i = 0; i < kMaxBins; ++i) {
+		std::free(kBinNames[i]);
+	}
+}
 
 struct RequestBuffer {
 public:
@@ -87,13 +104,13 @@ public:
 		return {start_, end_};
 	}
 private:
-	int64_t start_{};
-	int64_t end_{};
+	const int64_t start_{};
+	const int64_t end_{};
 	std::random_device rd_;
 	std::mt19937 eng_;
 	std::uniform_int_distribution<int64_t> distr_;
 
-	bool random_{false};
+	const bool random_{false};
 	struct {
 		std::mutex mutex_;
 		int64_t last_{0};
@@ -204,7 +221,9 @@ struct WriteRecord {
 	WriteBatch* batchp_{};
 	const std::string& ns_;
 	const std::string& set_;
-	std::string key_;
+	const std::string key_;
+	const size_t size_{};
+	const size_t nbins_{};
 	RequestBufferPtr buffer_;
 
 	struct {
@@ -217,9 +236,11 @@ struct WriteRecord {
 	} result_;
 
 	WriteRecord(WriteBatch* batchp, const std::string& ns,
-			const std::string& set, std::string&& key, RequestBufferPtr buffer)
-			: batchp_(batchp), ns_(ns), set_(set), key_(std::move(key)),
-			buffer_(std::move(buffer)) {
+			const std::string& set, std::string&& key, const size_t size,
+			const size_t nbins, RequestBufferPtr buffer) : batchp_(batchp),
+			ns_(ns), set_(set), key_(std::move(key)), size_(size),
+			nbins_(nbins), buffer_(std::move(buffer)) {
+		log_assert(buffer_->PayloadSize() == size_);
 	}
 
 	~WriteRecord() {
@@ -229,12 +250,20 @@ struct WriteRecord {
 
 	int Initialize() {
 		as_key_init(&as_.key_, ns_.c_str(), set_.c_str(), key_.c_str());
-		as_record_init(&as_.record_, 1);
-		auto s = as_record_set_raw(&as_.record_, kAsBin,
-			(const uint8_t*) buffer_->Payload(), buffer_->PayloadSize());
-		if (s == false) {
-			LOG(ERROR) << "WriteRecord initialization failed";
-			return -ENOMEM;
+		as_record_init(&as_.record_, nbins_);
+
+		const size_t bin_size = size_ / nbins_;
+		log_assert(size_ == buffer_->PayloadSize());
+		char* payloadp = buffer_->Payload();
+
+		for (size_t i = 0; i < nbins_; ++i) {
+			auto s = as_record_set_raw(&as_.record_, kBinNames[i],
+				(const uint8_t*) payloadp, bin_size);
+			if (s == false) {
+				LOG(ERROR) << "WriteRecord initialization failed";
+				return -ENOMEM;
+			}
+			payloadp += bin_size;
 		}
 		return 0;
 	}
@@ -260,9 +289,10 @@ struct WriteRecord {
 struct WriteBatch {
 	WriteBatch(AeroSpikeConnection* connectp, const std::string& ns,
 			const std::string& set, const std::string& key_prefix,
-			const size_t record_size, const size_t nrecords) :
-			connectp_(connectp), ns_(ns), set_(set), key_prefix_(key_prefix),
-			record_size_(record_size), nrecords_(nrecords) {
+			const size_t record_size, const size_t nbins,
+			const size_t nrecords) : connectp_(connectp), ns_(ns), set_(set),
+			key_prefix_(key_prefix), record_size_(record_size), nbins_(nbins),
+			nrecords_(nrecords) {
 	}
 
 	~WriteBatch() {
@@ -290,7 +320,7 @@ struct WriteBatch {
 			}
 			std::memset(buffer->Payload(), 0, buffer->PayloadSize());
 			WriteRecord* recp = new (recordp) WriteRecord(this, ns_, set_,
-				std::move(key), std::move(buffer));
+				std::move(key), record_size_, nbins_, std::move(buffer));
 			log_assert(recp == recordp);
 			auto rc = recp->Initialize();
 			if (pio_unlikely(rc < 0)) {
@@ -445,6 +475,7 @@ public:
 	const std::string& set_;
 	const std::string& key_prefix_;
 	const size_t record_size_{};
+	const size_t nbins_{};
 
 	struct {
 		mutable std::mutex mutex_;
@@ -477,7 +508,8 @@ void DestroyWriteBatch(WriteBatch* batchp) {
 
 WriteBatchPtr NewWriteBatch(AeroSpikeConnection* cp, const std::string& ns,
 		const std::string& set, const std::string& prefix,
-		const size_t record_size, std::vector<int64_t>::iterator& it,
+		const size_t record_size, const size_t nbins,
+		std::vector<int64_t>::iterator& it,
 		std::vector<int64_t>::iterator& eit) {
 	size_t records = std::distance(it, eit);
 	size_t size = sizeof(WriteBatch) + records * sizeof(WriteRecord);
@@ -487,7 +519,7 @@ WriteBatchPtr NewWriteBatch(AeroSpikeConnection* cp, const std::string& ns,
 		return WriteBatchPtr(nullptr, DestroyWriteBatch);
 	}
 	WriteBatch* batchp = new (datap) WriteBatch(cp, ns, set, prefix,
-		record_size, records);
+		record_size, nbins, records);
 	batchp->Initialize(it, eit);
 	return WriteBatchPtr(batchp, DestroyWriteBatch);
 }
@@ -498,6 +530,8 @@ struct ReadRecord {
 	const std::string& ns_;
 	const std::string& set_;
 	const std::string key_;
+	const size_t size_{};
+	const size_t nbins_{};
 	RequestBufferPtr buffer_;
 
 	struct {
@@ -509,9 +543,10 @@ struct ReadRecord {
 	} result_;
 
 	ReadRecord(ReadBatch* batchp, const std::string& ns,
-			const std::string& set, std::string&& key,
-			RequestBufferPtr buffer) : batchp_(batchp), ns_(ns), set_(set),
-			key_(std::forward<std::string>(key)), buffer_(std::move(buffer)) {
+			const std::string& set, std::string&& key, const size_t size,
+			const size_t nbins, RequestBufferPtr buffer) : batchp_(batchp),
+			ns_(ns), set_(set), key_(std::forward<std::string>(key)),
+			size_(size), nbins_(nbins), buffer_(std::move(buffer)) {
 	}
 
 	~ReadRecord() {
@@ -519,7 +554,9 @@ struct ReadRecord {
 	}
 
 	int Initialize(as_batch_read_record* recordp) {
-		recordp->read_all_bins = true;
+		recordp->read_all_bins = false;
+		recordp->bin_names = reinterpret_cast<char**>(kBinNames);
+		recordp->n_bin_names = nbins_;
 
 		auto kp = as_key_init(&recordp->key, ns_.c_str(), set_.c_str(),
 			key_.c_str());
@@ -533,17 +570,22 @@ struct ReadRecord {
 	}
 
 	int CopyData() noexcept {
-		as_bytes* bp = as_record_get_bytes(&as_.recordp_->record, kAsBin);
-		if (pio_unlikely(not bp)) {
-			LOG(ERROR) << "failed to get bin";
-			return -ENOMEM;
-		}
+		const size_t bin_size = size_ / nbins_;
+		log_assert(buffer_->PayloadSize() == size_);
+		char* payloadp = buffer_->Payload();
+		for (size_t i = 0; i < nbins_; ++i) {
+			as_bytes* bp = as_record_get_bytes(&as_.recordp_->record, kBinNames[i]);
+			if (pio_unlikely(not bp)) {
+				LOG(ERROR) << "failed to get bin";
+				return -ENOMEM;
+			}
 
-		auto rc = as_bytes_copy(bp, 0, (uint8_t *) buffer_->Payload(),
-			(uint32_t) buffer_->PayloadSize());
-		if (pio_unlikely(rc != buffer_->PayloadSize())) {
-			LOG(ERROR) << "failed to copy data after read";
-			return -ENOMEM;
+			auto rc = as_bytes_copy(bp, 0, (uint8_t *) payloadp, bin_size);
+			if (pio_unlikely(rc != bin_size)) {
+				LOG(ERROR) << "failed to copy data after read";
+				return -ENOMEM;
+			}
+			payloadp += bin_size;
 		}
 		return 0;
 	}
@@ -575,9 +617,9 @@ public:
 
 	ReadBatch(AeroSpikeConnection* cp, const std::string& ns,
 			const std::string& set, const std::string& prefix,
-			const size_t record_size, const size_t records) :
+			const size_t record_size, const size_t nbins, const size_t records):
 			connectp_(cp), ns_(ns), set_(set), key_prefix_(prefix),
-			record_size_(record_size), nrecords_(records) {
+			record_size_(record_size), nbins_(nbins), nrecords_(records) {
 	}
 
 	int Initialize(std::vector<int64_t>::iterator& it,
@@ -612,7 +654,7 @@ public:
 			}
 
 			auto recp = new (recordp) ReadRecord(this, ns_, set_,
-				std::move(key), std::move(buffer));
+				std::move(key), record_size_, nbins_, std::move(buffer));
 			log_assert(recp == recordp);
 			auto rc = recp->Initialize(as_recp);
 			if (pio_unlikely(rc < 0)) {
@@ -690,6 +732,7 @@ public:
 	const std::string& set_;
 	const std::string& key_prefix_;
 	const size_t record_size_{};
+	const size_t nbins_{};
 
 	struct {
 		as_batch_read_records* recordsp_{};
@@ -720,7 +763,8 @@ void DestroyReadBatch(ReadBatch* batchp) {
 
 ReadBatchPtr NewReadBatch(AeroSpikeConnection* cp, const std::string& ns,
 		const std::string& set, const std::string& prefix,
-		const size_t record_size, std::vector<int64_t>::iterator& it,
+		const size_t record_size, const size_t nbins,
+		std::vector<int64_t>::iterator& it,
 		std::vector<int64_t>::iterator& eit) {
 	const size_t records = std::distance(it, eit);
 	size_t size = sizeof(ReadBatch) + records * sizeof(ReadRecord);
@@ -730,7 +774,7 @@ ReadBatchPtr NewReadBatch(AeroSpikeConnection* cp, const std::string& ns,
 		return ReadBatchPtr(nullptr, DestroyReadBatch);
 	}
 	ReadBatch* batchp = new (datap) ReadBatch(cp, ns, set, prefix, record_size,
-		records);
+		nbins, records);
 	batchp->Initialize(it, eit);
 	return ReadBatchPtr(batchp, DestroyReadBatch);
 }
@@ -741,11 +785,11 @@ public:
 	}
 
 	folly::Future<int> Read(const std::string& ns, const std::string& set,
-			const std::string& key_prefix, size_t block_size,
+			const std::string& key_prefix, size_t block_size, size_t nbins,
 			std::vector<int64_t>::iterator it,
 			std::vector<int64_t>::iterator eit) {
 		auto batch = NewReadBatch(connectp_, ns, set, key_prefix, block_size,
-			it, eit);
+			nbins, it, eit);
 		auto batchp = batch.get();
 		return batchp->Submit()
 		.then([batch = std::move(batch)] (int rc) {
@@ -754,11 +798,11 @@ public:
 	}
 
 	folly::Future<int> Write(const std::string& ns, const std::string& set,
-			const std::string& key_prefix, size_t block_size,
+			const std::string& key_prefix, size_t block_size, size_t nbins,
 			std::vector<int64_t>::iterator it,
 			std::vector<int64_t>::iterator eit) {
 		auto batch = NewWriteBatch(connectp_, ns, set, key_prefix, block_size,
-			it, eit);
+			nbins, it, eit);
 		auto batchp = batch.get();
 		return batchp->Submit()
 		.then([batch = std::move(batch)] (int rc) mutable {
@@ -780,10 +824,10 @@ class Benchmark {
 public:
 	Benchmark(AeroSpike* asp, int64_t nobjects, int64_t run_time,
 			int32_t write_percent, int32_t block_size, int32_t iodepth,
-			int32_t batch_size, bool random) : asp_(asp), nobjects_(nobjects),
-			write_percent_(write_percent), iodepth_(iodepth),
-			bs_(block_size), nblocks_(batch_size), random_(random),
-			key_gen_(0, nobjects, random_) {
+			int32_t batch_size, int32_t bins, bool random) : asp_(asp),
+			nobjects_(nobjects), write_percent_(write_percent),
+			iodepth_(iodepth), bs_(block_size), nblocks_(batch_size),
+			nbins_(bins), random_(random), key_gen_(0, nobjects, random_) {
 		run_time_.seconds_ = run_time;
 	}
 
@@ -802,16 +846,21 @@ public:
 		return write;
 	}
 
-	folly::Future<int> SubmitWrite() {
-		++stats_.total_writes_;
-		++stats_.total_ios_;
-		++stats_.pending_ios_;
+	std::vector<int64_t> GenerateBlockNumbers() {
 		std::vector<int64_t> blocks;
 		blocks.reserve(nblocks_);
 		for (auto i = 0; i < nblocks_; ++i) {
 			blocks.emplace_back(key_gen_.Next());
 		}
-		return asp_->Write(kNameSpace, kSetName, kKeyPrefix, bs_,
+		return blocks;
+	}
+
+	folly::Future<int> SubmitWrite() {
+		++stats_.total_writes_;
+		++stats_.total_ios_;
+		++stats_.pending_ios_;
+		auto blocks = GenerateBlockNumbers();
+		return asp_->Write(kNameSpace, kSetName, kKeyPrefix, bs_, nbins_,
 			blocks.begin(), blocks.end())
 		.then([this, blocks = std::move(blocks)] (int rc) mutable {
 			--stats_.pending_ios_;
@@ -823,13 +872,9 @@ public:
 		++stats_.total_reads_;
 		++stats_.total_ios_;
 		++stats_.pending_ios_;
-		std::vector<int64_t> blocks;
-		blocks.reserve(nblocks_);
-		for (auto i = 0; i < nblocks_; ++i) {
-			blocks.emplace_back(key_gen_.Next());
-		}
-		return asp_->Read(kNameSpace, kSetName, kKeyPrefix, bs_, blocks.begin(),
-			blocks.end())
+		auto blocks = GenerateBlockNumbers();
+		return asp_->Read(kNameSpace, kSetName, kKeyPrefix, bs_, nbins_,
+			blocks.begin(), blocks.end())
 		.then([this, blocks = std::move(blocks)] (int rc)  mutable {
 			--stats_.pending_ios_;
 			return rc;
@@ -894,7 +939,7 @@ public:
 		std::vector<int64_t> blocks(kStep, 0);
 		for (int64_t start = 0, end = nobjects_; start <= end; start += blocks.size()) {
 			std::iota(blocks.begin(), blocks.end(), start);
-			auto f = asp_->Write(kNameSpace, kSetName, kKeyPrefix, bs_,
+			auto f = asp_->Write(kNameSpace, kSetName, kKeyPrefix, bs_, nbins_,
 				blocks.begin(), blocks.end())
 			.wait();
 			log_assert(f.value() == 0);
@@ -924,6 +969,7 @@ private:
 	const int32_t iodepth_{};
 	const int32_t bs_{};
 	const int32_t nblocks_{};
+	const int32_t nbins_{};
 	const bool random_{};
 
 	KeyGen key_gen_;
@@ -950,9 +996,12 @@ private:
 
 DEFINE_int32(block_size, 4096, "Block Size");
 DEFINE_int32(iodepth, 32, "IO Depth");
-DEFINE_int32(batch_size, 8, "Batch size");
 DEFINE_int64(objects, 1024 * 1024, "Number of objects");
 DEFINE_bool(random, true, "Random workload");
+
+DEFINE_int32(batch_size, 1, "Batch size");
+DEFINE_int32(bins, 1, "Sequential bins to Read/Write in single IO");
+
 DEFINE_int32(write_mix_percent, 100, "Percentage writes");
 DEFINE_int64(runtime, 300, "Runtime in seconds");
 DEFINE_string(ips, "127.0.0.1", "Comma Separated AeroSpike Cluster IPs");
@@ -970,6 +1019,7 @@ static void StartBenchmark(Benchmark& benchmark) {
 
 int main(int argc, char* argv[]) {
 	folly::init(&argc, &argv, true);
+	InitializeBinNames();
 
 	if (FLAGS_runtime < 60) {
 		LOG(ERROR) << "Too small runtime";
@@ -982,12 +1032,13 @@ int main(int argc, char* argv[]) {
 
 	Benchmark benchmark(&asp, FLAGS_objects, FLAGS_runtime,
 		FLAGS_write_mix_percent, FLAGS_block_size, FLAGS_iodepth,
-		FLAGS_batch_size, FLAGS_random);
+		FLAGS_batch_size, FLAGS_bins,  FLAGS_random);
 
 	std::thread thread([&benchmark] () {
 		LOG(INFO) << "Starting benchmark";
 		StartBenchmark(benchmark);
 	});
 	thread.join();
+	DeinitializeBinNames();
 	return 0;
 }

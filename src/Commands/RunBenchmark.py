@@ -7,6 +7,7 @@ OBJECTS = (2048*1024, )
 WRITE_MIX = (0, 30, 50, 70, 100)
 RUNTIME = 15*60
 RANDOM = ('false', 'true')
+BIN_SIZE = (1, 2, 4)
 IPS = "10.10.20.36"
 
 def RestartAeroSpike(aero_ip):
@@ -19,19 +20,21 @@ def RunBenchmark():
         for bs in BLOCK_SIZES:
             for depth in IODEPTH:
                 for nbatch in BATCH_SIZE:
-                    for writes in WRITE_MIX:
-                        for random in RANDOM:
-                            RestartAeroSpike(IPS);
-                            cmd = "./AeroBench "
-                            cmd += "-block_size=%d " % (bs)
-                            cmd += "-batch_size=%d " % (nbatch)
-                            cmd += "-objects=%d " % (nobjects)
-                            cmd += "-write_mix_percent=%d " % (writes)
-                            cmd += "-iodepth=%d " % (depth)
-                            cmd += "-runtime=%d " % (RUNTIME)
-                            cmd += "-random=%s " % (random)
-                            cmd += "-ips=%s " % (IPS)
-                            cmd += "-port=3000 "
-                            print(cmd)
+                    for nbins in BIN_SIZE:
+                        for writes in WRITE_MIX:
+                            for random in RANDOM:
+                                RestartAeroSpike(IPS);
+                                cmd = "./AeroBench "
+                                cmd += "-block_size=%d " % (bs)
+                                cmd += "-batch_size=%d " % (nbatch)
+                                cmd += "-objects=%d " % (nobjects)
+                                cmd += "-write_mix_percent=%d " % (writes)
+                                cmd += "-iodepth=%d " % (depth)
+                                cmd += "-runtime=%d " % (RUNTIME)
+                                cmd += "-random=%s " % (random)
+                                cmd += "-ips=%s " % (IPS)
+                                cmd += "-port=3000 "
+                                cmd += "-bins=%d " % (nbins)
+                                print(cmd)
 
 RunBenchmark()
