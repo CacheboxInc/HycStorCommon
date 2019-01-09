@@ -599,7 +599,8 @@ folly::Future<ReadResultVec> VirtualMachine::BulkRead(ActiveVmdk* vmdkp,
 folly::Future<std::unique_ptr<ReadResultVec>>
 VirtualMachine::BulkRead(ActiveVmdk* vmdkp,
 		std::vector<ReadRequest>::const_iterator it,
-		std::vector<ReadRequest>::const_iterator eit) {
+		std::vector<ReadRequest>::const_iterator eit,
+		bool trigger_read_ahead = true) {
 	static_assert(kBulkReadMaxSize >= 32*1024, "kBulkReadMaxSize too small");
 	using ReturnType = std::unique_ptr<ReadResultVec>;
 
@@ -632,10 +633,11 @@ VirtualMachine::BulkRead(ActiveVmdk* vmdkp,
 		return std::make_tuple(rd.get_reqid(), rd.get_size(), rd.get_offset());
 	};
 
-	auto NewRequest = [] (RequestID reqid, ActiveVmdk* vmdkp, folly::IOBuf* bufp,
+	auto NewRequest = [&trigger_read_ahead] (RequestID reqid, ActiveVmdk* vmdkp, folly::IOBuf* bufp,
 			size_t size, int64_t offset) {
 		auto req = std::make_unique<Request>(reqid, vmdkp, Request::Type::kRead,
 			bufp->writableData(), size, size, offset);
+		req->SetReadAheadRequired(trigger_read_ahead);
 		bufp->append(size);
 		return req;
 	};
@@ -698,6 +700,7 @@ VirtualMachine::BulkRead(ActiveVmdk* vmdkp,
 		log_assert(iobuf->computeChainDataLength() == static_cast<size_t>(size));
 
 		auto reqp = req.get();
+		req->SetReadAheadRequired(trigger_read_ahead);
 		--pending;
 
 		if (reqp->HasUnalignedIO()) {

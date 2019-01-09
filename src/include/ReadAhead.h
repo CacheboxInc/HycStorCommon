@@ -33,7 +33,7 @@ public:
 	ReadAhead(ActiveVmdk* vmdkp);
 	virtual ~ReadAhead();
 	folly::Future<std::unique_ptr<ReadResultVec>>
-	Run(ReqBlockVec& offsets);
+	Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>& requests);
 	
 	uint64_t StatsTotalReadAheadBlocks() const {
 		return st_read_ahead_stats_.stats_rh_blocks_size_;

@@ -55,19 +55,42 @@ void ReadAhead::InitializeGHB() {
 }
 
 folly::Future<std::unique_ptr<ReadResultVec>>
-ReadAhead::Run(ReqBlockVec& offsets) {
+ReadAhead::Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>& requests) {
 	auto block_size = vmdkp_->BlockSize();
 	std::map<int64_t, bool> predictions;
 	auto results = std::make_unique<ReadResultVec>();
+	std::vector<int64_t> rh_offsets;
 	
+	// Filter out read ahead missed blocks if any
+	for(const auto an_offset : offsets) {
+		for (const auto& req : requests) {
+			bool offset_matched = false;
+			if(not req->IsReadAheadRequired()) {
+				req->ForEachRequestBlock([&offset_matched, &an_offset] (RequestBlock* blockp) { 
+					if(blockp->GetOffset() == an_offset->GetOffset()) {
+						offset_matched = true;
+					}
+					return true;
+				});
+			}
+			if(not offset_matched) {
+				rh_offsets.push_back(an_offset->GetOffset());
+			}
+		}
+	}
+	if(rh_offsets.empty()) {
+		return folly::makeFuture(std::move(results));
+	}
+
 	std::unique_lock<std::mutex> io_lock(pending_ios_mutex_);
-	if(pending_ios_.size() + offsets.size() >= MAX_PENDING_IOS_) {
+	if(pending_ios_.size() + rh_offsets.size() >= MAX_PENDING_IOS_) {
 		// Should rarely occur
 		LOG(WARNING) << "ReadAhead queue is full cannot serve this time. Should be very rare though.";
 		return folly::makeFuture(std::move(results));
 	}
-	std::for_each(offsets.begin(), offsets.end(), [&](RequestBlock* blockp){
-		pending_ios_.insert(std::pair<int64_t, bool>(blockp->GetOffset(), true));
+
+	std::for_each(rh_offsets.begin(), rh_offsets.end(), [&](int64_t offset){
+		pending_ios_.insert(std::pair<int64_t, bool>(offset, true));
 	});
 	
 	std::unique_lock<std::mutex> prediction_lock(prediction_mutex_, std::defer_lock);
@@ -142,7 +165,7 @@ ReadAhead::Read(std::map<int64_t, bool>& predictions) {
 	auto vmp = vmdkp_->GetVM();
 	assert(vmp);
 	
-	return vmp->BulkRead(vmdkp_, std::make_unique<ReadRequestVec>(requests));
+	return vmp->BulkRead(vmdkp_, requests.begin(), requests.end(), false);
 }
 
 void ReadAhead::CoalesceRequests(/*[In]*/std::map<int64_t, bool>& predictions, 

@@ -120,7 +120,9 @@ folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 
 		/* Initiate ReadAhead and populate cache if ghb sees a pattern based on history */
 		if(pio_likely(vmdkp->read_aheadp_ != NULL)) {
-			vmdkp->read_aheadp_->Run(*read_missed);
+			std::vector<std::unique_ptr<Request>> requests;
+			requests.emplace_back(reqp);
+			vmdkp->read_aheadp_->Run(*read_missed, requests);
 		}
 
 		/* Read from next StorageLayer - probably Network or File */
@@ -263,6 +265,11 @@ folly::Future<int> MultiTargetHandler::BulkReadComplete(ActiveVmdk* vmdkp,
 		return -ENOMEM;
 	}
 	missed->swap(failed);
+	
+	/* Initiate ReadAhead and populate cache if ghb sees a pattern based on history */
+	if(pio_likely(vmdkp->read_aheadp_ != NULL)) {
+		vmdkp->read_aheadp_->Run(*missed, requests);
+	}
 
 	return targets_[1]->BulkRead(vmdkp, requests, *missed, failed)
 	.then([this, vmdkp, &requests, &failed, missed = std::move(missed)]

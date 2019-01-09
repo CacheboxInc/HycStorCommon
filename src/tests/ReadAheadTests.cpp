@@ -146,7 +146,7 @@ protected:
 			requests.emplace_back(std::move(req));
 		}
 	
-		auto future = vmdkp_->read_aheadp_->Run(*process);
+		auto future = vmdkp_->read_aheadp_->Run(*process, requests);
 		future.wait();
 		EXPECT_TRUE(future.isReady());
 	}

@@ -77,7 +77,8 @@ public:
 
 	folly::Future<std::unique_ptr<ReadResultVec>> BulkRead(ActiveVmdk* vmdkp,
 		std::vector<ReadRequest>::const_iterator it,
-		std::vector<ReadRequest>::const_iterator eit);
+		std::vector<ReadRequest>::const_iterator eit,
+		bool trigger_read_ahead);
 
 	friend std::ostream& operator << (std::ostream& os, const VirtualMachine& vm);
 public:
