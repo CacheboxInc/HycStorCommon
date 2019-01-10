@@ -26,8 +26,8 @@ ReadAhead::ReadAhead(ActiveVmdk* vmdkp, int prefetch_depth, int start_index, int
 }
 
 ReadAhead::ReadAhead(ActiveVmdk* vmdkp)
-		: vmdkp_(vmdkp),prefetch_depth_(64),start_index_(32),
-		loopback_(8), n_history_(1024) {
+		: vmdkp_(vmdkp),prefetch_depth_(256),start_index_(32),
+		loopback_(8), n_history_(2048) {
 	if(not vmdkp_) {
 		LOG(ERROR) <<  __func__  << "vmdkp is passed as nullptr, cannot construct ReadAhead object";
 		throw std::runtime_error("At __func__ vmdkp is passed as nullptr, cannot construct ReadAhead object");
@@ -79,7 +79,6 @@ ReadAhead::Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>
 			rh_offsets.push_back(an_offset->GetOffset());
 		}
 	}
-	LOG(ERROR) << "Read Ahead input offset size = " << rh_offsets.size();
 	if(rh_offsets.empty()) {
 		return folly::makeFuture(std::move(results));
 	}

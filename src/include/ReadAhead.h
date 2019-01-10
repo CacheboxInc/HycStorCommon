@@ -61,7 +61,7 @@ private:
 	int				n_history_;
 
 	static const int64_t 	MAX_PENDING_IOS_ = 1024;
-	static const int64_t 	PENDING_IOS_SERVE_SIZE = 32;
+	static const int64_t 	PENDING_IOS_SERVE_SIZE = 8;
 	std::map<int64_t, bool> pending_ios_;
 	std::mutex 				pending_ios_mutex_; 
 	static std::mutex		prediction_mutex_;
