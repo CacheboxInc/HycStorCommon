@@ -11,6 +11,9 @@
 #include "VmConfig.h"
 #include "DirtyHandler.h"
 
+#if 0
+#define INJECT_MOVE_FAILURE 1
+#endif
 using namespace ::ondisk;
 
 namespace pio {
@@ -219,11 +222,23 @@ folly::Future<int> DirtyHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 		return 0;
 	}
 
+#ifdef INJECT_MOVE_FAILURE
+	static std::atomic<uint32_t> count=0;
+#endif
+
 	/* Read record from DIRTY Namespace */
 	return aero_obj_->AeroReadCmdProcess(vmdkp, process, failed,
 		kAsNamespaceCacheDirty, aero_conn_)
 	.then([this, vmdkp, reqp, &process, &failed, connect = this->aero_conn_] (int rc) mutable
 			-> folly::Future<int> {
+
+#ifdef INJECT_MOVE_FAILURE
+		if (count++ > 3) {
+			LOG(ERROR) << __func__ << "Injecting Move ERROR, count::" << count;
+			count = 0;
+			return -EIO;
+		}
+#endif
 		if (pio_unlikely(rc)) {
 			LOG(ERROR) << __func__ << "Reading from DIRTY namespace failed, error code::" << rc;
 			return rc;
@@ -304,6 +319,14 @@ folly::Future<int> DirtyHandler::BulkWrite(ActiveVmdk* vmdkp,
 	.then([this, vmdkp, &process, &failed, ckpt, connect = this->aero_conn_] (int rc)
 			mutable -> folly::Future<int> {
 		if (pio_unlikely(rc != 0)) {
+			for (auto blockp : process) {
+				blockp->SetResult(-EIO, RequestStatus::kFailed);
+				failed.emplace_back(blockp);
+				LOG(ERROR) << __func__ << "Record failed ::"
+						<< vmdkp->GetID() << ":"
+						<< blockp->GetReadCheckPointId() << ":"
+						<< blockp->GetAlignedOffset();
+			}
 			return rc;
 		}
 

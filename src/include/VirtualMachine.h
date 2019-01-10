@@ -55,7 +55,7 @@ public:
 	folly::Future<int> Write(ActiveVmdk* vmdkp, Request* reqp);
 	folly::Future<int> WriteSame(ActiveVmdk* vmdkp, Request* reqp);
 	folly::Future<int> Read(ActiveVmdk* vmdkp, Request* reqp);
-	folly::Future<int> Flush(ActiveVmdk* vmdkp, Request* reqp, const CheckPoints& min_max);
+//	folly::Future<int> Flush(ActiveVmdk* vmdkp, Request* reqp, const CheckPoints& min_max);
 	folly::Future<CheckPointResult> TakeCheckPoint();
 	folly::Future<int> CommitCheckPoint(::ondisk::CheckPointID ckpt_id);
 	int FlushStart(::ondisk::CheckPointID ckpt_id, bool perform_move, uint32_t, uint32_t);

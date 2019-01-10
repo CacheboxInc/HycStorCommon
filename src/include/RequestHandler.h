@@ -38,6 +38,10 @@ public:
 	virtual folly::Future<int> Flush(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed);
+	virtual folly::Future<int> BulkFlush(ActiveVmdk *vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed);
 	virtual folly::Future<int> Move(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed);

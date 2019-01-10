@@ -173,6 +173,74 @@ folly::Future<int> MultiTargetHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *
 	return targets_[0]->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
+folly::Future<int> MultiTargetHandler::BulkFlush(ActiveVmdk *vmdkp,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed) {
+	log_assert(not targets_.empty());
+
+	/* Read from DIRTY NAMESPACE only */
+	return targets_[0]->BulkRead(vmdkp, requests, process, failed)
+	.then([this, vmdkp, &requests, &process, &failed] (int rc) mutable
+			-> folly::Future<int> {
+		/* Read from CacheLayer complete */
+		auto vmdkid = vmdkp->GetID();
+		if(pio_unlikely(rc != 0)) {
+			LOG(ERROR) << __func__ << "Reading from DIRTY namespace failed for vmdkid::"
+				<< vmdkid << ", error code::" << rc;
+			return rc;
+		}
+
+		/* We should not be seeing any Miss */
+		if(pio_unlikely(failed.size())) {
+			for (auto blockp : failed) {
+				if (pio_likely(blockp->IsReadMissed())) {
+					LOG(ERROR) << __func__ << "Record not found ::" << vmdkid << ":"
+					<< blockp->GetReadCheckPointId() << ":"
+					<< blockp->GetAlignedOffset();
+				}
+			}
+
+			/* TBD: - failure, do we need to move all Request
+			 * blocks in failed vector. Get the error code
+			 * from layers below
+			 */
+
+			return -EIO;
+		}
+
+		if (pio_unlikely(targets_.size() <= 1)) {
+			LOG(ERROR) << __func__ << "No Target handler registered";
+			failed.reserve(process.size());
+			std::copy(process.begin(), process.end(), std::back_inserter(failed));
+			return -ENODEV;
+		}
+
+		#if 0
+		for (auto& blockp : process) {
+			/* Get the cksum of blocks after read */
+			auto destp = blockp->GetRequestBufferAtBack();
+			LOG(ERROR) << __func__ << "FlushRead [Cksum]" << blockp->GetAlignedOffset() <<
+				":" << destp->Size() <<
+				":" << crc_t10dif((unsigned char *) destp->Payload(), destp->Size());
+		}
+		#endif
+
+		/* Write on prem, Next layer is target handler layer */
+		return targets_[1]->BulkWrite(vmdkp, 0, requests, process, failed)
+		.then([&failed] (int rc) mutable -> folly::Future<int> {
+			if (pio_unlikely(rc != 0)) {
+				LOG(ERROR) << __func__ << "In future context on prem write error";
+				//log_assert(not failed.empty());
+				return rc;
+			}
+
+			log_assert(failed.empty());
+			return 0;
+		});
+	});
+}
+
 folly::Future<int> MultiTargetHandler::Flush(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {

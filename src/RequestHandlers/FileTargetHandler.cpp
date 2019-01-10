@@ -23,6 +23,9 @@ int event_add(int fd, int ep_fd, int events, event_handler_t handler, void *data
 #endif
 
 using namespace ::ondisk;
+#if 0
+#define INJECT_WRITE_FAILURE 1
+#endif
 
 namespace pio {
 #ifdef FILETARGET_ASYNC
@@ -30,6 +33,7 @@ int event_add(int fd, int ep_fd, int events, event_handler_t handler, void *data
 {
 	struct epoll_event ev;
 	int err;
+	/* TBD : Need to free this */
 	struct event_data *data_ptr = new event_data;
 	if (!data_ptr) {
 		return -ENOMEM;
@@ -260,7 +264,7 @@ AIORequest::AIORequest(int cnt, ReqType type) {
 
 AIORequest::~AIORequest() {
 	if (iocbs_)
-		delete iocbs_;
+		delete [] iocbs_;
 }
 
 void FileTargetHandler::GatherEvents(void) {
@@ -380,6 +384,10 @@ retry:
 folly::Future<int> FileTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
+
+#ifdef INJECT_WRITE_FAILURE
+	static std::atomic<int> count = 0;
+#endif
 	if (pio_unlikely(not failed.empty() || process.empty())) {
 		LOG(ERROR) << __func__ << "Process list is empty, count::" << process.size();
 		return -EINVAL;
@@ -466,6 +474,15 @@ retry:
 	return aio_req->promise_->getFuture()
 	.then([this, aio_req, &process] (int rc) mutable {
 		pending_io_ -= process.size();
+
+#ifdef INJECT_WRITE_FAILURE
+		/* Fail every 3rd IO */
+		if (count++ > 3) {
+			LOG(ERROR) << __func__ << "Injecting Write error, count::" << count;
+			count = 0;
+			return -EIO;
+		}
+#endif
 		return rc;
 	});
 }

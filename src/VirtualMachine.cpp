@@ -854,6 +854,7 @@ folly::Future<int> VirtualMachine::StartPreload(ActiveVmdk* vmdkp) {
 	});
 }
 
+#if 0
 folly::Future<int> VirtualMachine::Flush(ActiveVmdk* vmdkp, Request* reqp, const CheckPoints& min_max) {
 	if (pio_unlikely(not FindVmdk(vmdkp->GetHandle()))) {
 		throw std::invalid_argument("VMDK not attached to VM");
@@ -866,6 +867,7 @@ folly::Future<int> VirtualMachine::Flush(ActiveVmdk* vmdkp, Request* reqp, const
 		return rc;
 	});
 }
+#endif
 
 
 folly::Future<int> VirtualMachine::WriteSame(ActiveVmdk* vmdkp, Request* reqp) {
