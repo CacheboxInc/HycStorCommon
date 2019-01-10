@@ -129,7 +129,9 @@ folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		return targets_[1]->Read(vmdkp, reqp, *read_missed, failed)
 		.then([this, vmdkp, reqp, read_missed = std::move(read_missed), &failed] (int rc)
 				mutable -> folly::Future<int> {
-			vmdkp->cache_stats_.read_miss_ += (*read_missed).size();
+			std::vector<std::unique_ptr<Request>> requests;
+			requests.emplace_back(reqp);
+			vmdkp->cache_stats_.read_miss_ += GetActualReadMisses(*read_missed, requests);
 			if (pio_unlikely(rc != 0)) {
 				vmdkp->cache_stats_.read_failed_ += failed.size();
 				LOG(ERROR) << __func__ << "Reading from TargetHandler layer for read populate failed";
@@ -274,7 +276,7 @@ folly::Future<int> MultiTargetHandler::BulkReadComplete(ActiveVmdk* vmdkp,
 	return targets_[1]->BulkRead(vmdkp, requests, *missed, failed)
 	.then([this, vmdkp, &requests, &failed, missed = std::move(missed)]
 			(int rc) mutable -> folly::Future<int> {
-		vmdkp->cache_stats_.read_miss_ += (*missed).size();
+		vmdkp->cache_stats_.read_miss_ += GetActualReadMisses(*missed, requests);
 		if (pio_unlikely(rc)) {
 			vmdkp->cache_stats_.read_failed_ += failed.size();
 			return rc < 0 ? rc : -rc;
@@ -321,6 +323,29 @@ folly::Future<int> MultiTargetHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 	return targets_[0]->BulkReadPopulate(vmdkp, requests, process, failed);
+}
+
+uint64_t MultiTargetHandler::GetActualReadMisses(const std::vector<RequestBlock*>& missed, 
+		const std::vector<std::unique_ptr<Request>>& requests) {
+	uint64_t read_misses = 0;
+	for(const auto an_offset : missed) {
+		bool offset_matched = false;
+		for(const auto& req : requests) {
+			if(not req->IsReadAheadRequired()) {
+				req->ForEachRequestBlock([&offset_matched, &an_offset] (RequestBlock* blockp) { 
+					if(blockp->GetOffset() == an_offset->GetOffset()) {
+						offset_matched = true;
+						return true;
+					}
+					return true;
+				});
+			}
+		}
+		if(not offset_matched) {
+			++read_misses;
+		}
+	}
+	return read_misses;
 }
 
 }

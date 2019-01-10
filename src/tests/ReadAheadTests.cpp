@@ -141,7 +141,7 @@ protected:
 						offset);
 			req->ForEachRequestBlock([&] (RequestBlock *blockp) mutable {
 				process->emplace_back(blockp);
-			return true;
+				return true;
 			});
 			requests.emplace_back(std::move(req));
 		}

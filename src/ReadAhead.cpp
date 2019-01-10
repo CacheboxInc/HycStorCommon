@@ -63,21 +63,23 @@ ReadAhead::Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>
 	
 	// Filter out read ahead missed blocks if any
 	for(const auto an_offset : offsets) {
-		for (const auto& req : requests) {
-			bool offset_matched = false;
+		bool offset_matched = false;
+		for(const auto& req : requests) {
 			if(not req->IsReadAheadRequired()) {
 				req->ForEachRequestBlock([&offset_matched, &an_offset] (RequestBlock* blockp) { 
 					if(blockp->GetOffset() == an_offset->GetOffset()) {
 						offset_matched = true;
+						return true;
 					}
 					return true;
 				});
 			}
-			if(not offset_matched) {
-				rh_offsets.push_back(an_offset->GetOffset());
-			}
+		}
+		if(not offset_matched) {
+			rh_offsets.push_back(an_offset->GetOffset());
 		}
 	}
+	LOG(ERROR) << "Read Ahead input offset size = " << rh_offsets.size();
 	if(rh_offsets.empty()) {
 		return folly::makeFuture(std::move(results));
 	}
