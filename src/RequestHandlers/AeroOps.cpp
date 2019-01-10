@@ -369,8 +369,8 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 		if (pio_unlikely(batchp->failed_ && batchp->retry_ && batchp->retry_cnt_)) {
 			--batchp->retry_cnt_;
 			ResetWriteBatchState(batchp);
-			/* Wait for 50ms before retry */
-			add_delay(50);
+			/* Wait for 100ms before retry */
+			add_delay(100);
 			return WriteBatchSubmit(batchp);
 		}
 
@@ -405,7 +405,7 @@ folly::Future<int> AeroSpike::AeroWrite(ActiveVmdk *vmdkp,
 	.then([vmdkp, batch = std::move(batch),
 			start_time = std::move(start_time)]
 			(int rc) mutable {
-		if (!rc) {
+		if (pio_likely(!rc)) {
 			auto end_time = std::chrono::high_resolution_clock::now();
 			auto duration = std::chrono::duration_cast
 						<std::chrono::microseconds>
@@ -436,6 +436,13 @@ folly::Future<int> AeroSpike::AeroWrite(ActiveVmdk *vmdkp,
 					<< vmdkp->w_aero_total_latency_ / vmdkp->w_aero_io_blks_count_;
 			}
 			w_lock.unlock();
+		} else {
+			/* Mark records failed */
+			for (auto& rec : batch->batch.recordsp_) {
+				if (pio_likely(rec->status_ != AEROSPIKE_OK)) {
+					rec->rq_block_->SetResult(-EIO, RequestStatus::kFailed);
+				}
+			}
 		}
 
 		return rc;
@@ -624,8 +631,8 @@ folly::Future<int> AeroSpike::ReadBatchSubmit(ReadBatch *batchp) {
 		if (pio_unlikely(batchp->failed_ && batchp->retry_ && batchp->retry_cnt_)) {
 			--batchp->retry_cnt_;
 			this->ResetReadBatchState(batchp);
-			/* Wait for 50ms before retry */
-			add_delay(50);
+			/* Wait for 100ms before retry */
+			add_delay(100);
 			return this->ReadBatchSubmit(batchp);
 		}
 
@@ -1064,8 +1071,8 @@ folly::Future<int> AeroSpike::DelBatchSubmit(DelBatch *batchp) {
 		if (pio_unlikely(batchp->failed_ && batchp->retry_ && batchp->retry_cnt_)) {
 			--batchp->retry_cnt_;
 			ResetDelBatchState(batchp);
-			/* Wait for 50ms before retry */
-			add_delay(50);
+			/* Wait for 100ms before retry */
+			add_delay(100);
 			return DelBatchSubmit(batchp);
 		}
 		return folly::makeFuture(int(batchp->failed_));
@@ -1491,8 +1498,8 @@ folly::Future<int> AeroSpike::ReadSingleSubmit(ReadSingle *batchp) {
 		if (pio_unlikely(batchp->failed_ && batchp->retry_ && batchp->retry_cnt_)) {
 			--batchp->retry_cnt_;
 			this->ResetReadSingleState(batchp);
-			/* Wait for 50ms before retry */
-			add_delay(50);
+			/* Wait for 100ms before retry */
+			add_delay(100);
 			return this->ReadSingleSubmit(batchp);
 		}
 		return folly::makeFuture(int(batchp->failed_));

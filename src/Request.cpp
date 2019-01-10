@@ -317,6 +317,10 @@ int RequestBlock::ReadResultPrepare() {
 		return -EIO;
 	}
 
+	if (pio_unlikely(GetRequest()->IsFlushReq())) {
+		return 0;
+	}
+
 	auto srcp = bufferp->Payload();
 	auto gap  = GetOffset() - GetAlignedOffset();
 	::memcpy(in_.bufferp_, srcp + gap, in_.size_);
