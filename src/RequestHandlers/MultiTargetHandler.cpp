@@ -118,20 +118,25 @@ folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		read_missed->swap(failed);
 		failed.clear();
 
+		#if 0
 		/* Initiate ReadAhead and populate cache if ghb sees a pattern based on history */
 		if(pio_likely(vmdkp->read_aheadp_ != NULL)) {
 			std::vector<std::unique_ptr<Request>> requests;
 			requests.emplace_back(reqp);
 			vmdkp->read_aheadp_->Run(*read_missed, requests);
 		}
+		#endif
 
 		/* Read from next StorageLayer - probably Network or File */
 		return targets_[1]->Read(vmdkp, reqp, *read_missed, failed)
 		.then([this, vmdkp, reqp, read_missed = std::move(read_missed), &failed] (int rc)
 				mutable -> folly::Future<int> {
+			#if 0
 			std::vector<std::unique_ptr<Request>> requests;
 			requests.emplace_back(reqp);
 			vmdkp->cache_stats_.read_miss_ += GetActualReadMisses(*read_missed, requests);
+			#endif
+			vmdkp->cache_stats_.read_miss_ += (*read_missed).size();
 			if (pio_unlikely(rc != 0)) {
 				vmdkp->cache_stats_.read_failed_ += failed.size();
 				LOG(ERROR) << __func__ << "Reading from TargetHandler layer for read populate failed";
