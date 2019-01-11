@@ -91,6 +91,8 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	// Let this always be the last code block, pulling it up does not harm anything
 	// but just for the sake of rule, let this be the last code block
 	read_aheadp_ = NULL;
+	LOG(INFO) << "ReadAhead is disabled";
+	/*
 	if(config_->IsReadAheadEnabled()) {
 		LOG(INFO) << "ReadAhead is enabled";
 		read_aheadp_ = std::make_unique<ReadAhead>(this);
@@ -101,6 +103,7 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	else {
 		LOG(INFO) << "ReadAhead is disabled";
 	}
+	*/
 }
 
 ActiveVmdk::~ActiveVmdk() = default;
