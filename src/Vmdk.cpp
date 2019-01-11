@@ -1173,9 +1173,11 @@ int ActiveVmdk::FlushStage_v2(CheckPointID ckpt_id,
 		.then([this, vmdkid, acc_size = acc_size, blk_sz = blk_sz] (int rc) mutable {
 			/* TBD : Free the created IO buffer */
 			this->aux_info_->lock_.lock();
+			#if 0
 			LOG(ERROR) << __func__ << ", acc size is::"
 				<< acc_size << ", pending:"
 				<< aux_info_->pending_cnt_;
+			#endif
 			aux_info_->pending_cnt_--;
 
 			/* If some of the requests has failed then don't submit new ones */
@@ -1251,9 +1253,11 @@ int ActiveVmdk::FlushStage_v2(CheckPointID ckpt_id,
 		.then([this, vmdkid, acc_size = acc_size, blk_sz = blk_sz] (int rc) mutable {
 			/* TBD : Free the created IO buffer */
 			this->aux_info_->lock_.lock();
+			#if 0
 			LOG(ERROR) << __func__ << ", acc size is::"
 				<< acc_size << ", pending:"
 				<< aux_info_->pending_cnt_;
+			#endif
 			aux_info_->pending_cnt_--;
 
 			/* If some of the requests has failed then don't submit new ones */
