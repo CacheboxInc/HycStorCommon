@@ -55,11 +55,36 @@ void ReadAhead::InitializeGHB() {
 }
 
 folly::Future<std::unique_ptr<ReadResultVec>>
-ReadAhead::Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>& requests) {
-	auto block_size = vmdkp_->BlockSize();
-	std::map<int64_t, bool> predictions;
-	auto results = std::make_unique<ReadResultVec>();
+ReadAhead::Run(ReqBlockVec& offsets, Request* request) {
 	std::vector<int64_t> rh_offsets;
+	auto results = std::make_unique<ReadResultVec>();
+	
+	// Filter out read ahead missed blocks if any
+	for(const auto an_offset : offsets) {
+		bool offset_matched = false;
+		if(not request->IsReadAheadRequired()) {
+			request->ForEachRequestBlock([&offset_matched, &an_offset] (RequestBlock* blockp) { 
+				if(blockp->GetOffset() == an_offset->GetOffset()) {
+					offset_matched = true;
+				}
+				return true;
+			});
+		}
+		if(not offset_matched) {
+			rh_offsets.push_back(an_offset->GetOffset());
+		}
+	}
+	if(rh_offsets.empty()) {
+		return folly::makeFuture(std::move(results));
+	}
+	
+	return RunPredictions(rh_offsets);
+}
+
+folly::Future<std::unique_ptr<ReadResultVec>>
+ReadAhead::Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>& requests) {
+	std::vector<int64_t> rh_offsets;
+	auto results = std::make_unique<ReadResultVec>();
 	
 	// Filter out read ahead missed blocks if any
 	for(const auto an_offset : offsets) {
@@ -69,7 +94,6 @@ ReadAhead::Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>
 				req->ForEachRequestBlock([&offset_matched, &an_offset] (RequestBlock* blockp) { 
 					if(blockp->GetOffset() == an_offset->GetOffset()) {
 						offset_matched = true;
-						return true;
 					}
 					return true;
 				});
@@ -82,15 +106,24 @@ ReadAhead::Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>
 	if(rh_offsets.empty()) {
 		return folly::makeFuture(std::move(results));
 	}
+	
+	return RunPredictions(rh_offsets);
+}
 
+folly::Future<std::unique_ptr<ReadResultVec>>
+ReadAhead::RunPredictions(std::vector<int64_t>& offsets) {
+	auto block_size = vmdkp_->BlockSize();
+	std::map<int64_t, bool> predictions;
+	auto results = std::make_unique<ReadResultVec>();
+	
 	std::unique_lock<std::mutex> io_lock(pending_ios_mutex_);
-	if(pending_ios_.size() + rh_offsets.size() >= MAX_PENDING_IOS_) {
+	if(pending_ios_.size() + offsets.size() >= MAX_PENDING_IOS_) {
 		// Should rarely occur
 		LOG(WARNING) << "ReadAhead queue is full cannot serve this time. Should be very rare though.";
 		return folly::makeFuture(std::move(results));
 	}
 
-	std::for_each(rh_offsets.begin(), rh_offsets.end(), [&](int64_t offset){
+	std::for_each(offsets.begin(), offsets.end(), [&](int64_t offset){
 		pending_ios_.insert(std::pair<int64_t, bool>(offset, true));
 	});
 	
@@ -109,7 +142,8 @@ ReadAhead::Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>
 	
 	auto local_offsets_size = local_offsets.size();	
 	if(st_read_ahead_stats_.stats_rh_read_misses_ + local_offsets_size >= ULONG_MAX - 10) {
-		LOG(INFO) << "Resetting stats_rh_read_misses_ counter, current value = [" << st_read_ahead_stats_.stats_rh_read_misses_ << "].";
+		LOG(INFO) << "Resetting stats_rh_read_misses_ counter, current value = [" 
+				<< st_read_ahead_stats_.stats_rh_read_misses_ << "].";
 		st_read_ahead_stats_.stats_rh_read_misses_ = 0;
 	}
 	st_read_ahead_stats_.stats_rh_read_misses_ += local_offsets_size;
@@ -117,7 +151,8 @@ ReadAhead::Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>
 	uint64_t* prefetch_lbas = new uint64_t[prefetch_depth_];
 	for(auto it = local_offsets.begin(); it != local_offsets.end(); ++it) {
 		if(st_read_ahead_stats_.stats_rh_ghb_lib_calls_ + 1 >= ULONG_MAX - 10) {
-			LOG(INFO) << "Resetting stats_rh_ghb_lib_calls_ counter, current value = [" << st_read_ahead_stats_.stats_rh_ghb_lib_calls_ << "].";
+			LOG(INFO) << "Resetting stats_rh_ghb_lib_calls_ counter, current value = [" 
+					<< st_read_ahead_stats_.stats_rh_ghb_lib_calls_ << "].";
 			st_read_ahead_stats_.stats_rh_ghb_lib_calls_ = 0;
 		}
 		++st_read_ahead_stats_.stats_rh_ghb_lib_calls_;
@@ -138,7 +173,7 @@ ReadAhead::Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>
 	delete[] prefetch_lbas;
 	if(predictions.size() > 0) {
 		for(auto it = offsets.begin(); it != offsets.end(); ++it) {
-			auto it_predictions = predictions.find((int64_t)((*it)->GetOffset()));
+			auto it_predictions = predictions.find(*it);
 			if(it_predictions != predictions.end()) {
 				predictions.erase(it_predictions);
 			}
@@ -146,13 +181,15 @@ ReadAhead::Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>
 		auto pred_size = predictions.size();
 		auto stats_blocks = st_read_ahead_stats_.stats_rh_blocks_size_.load(std::memory_order_relaxed);
 		if(stats_blocks + pred_size >= ULONG_MAX - 10) {
-			LOG(INFO) << "Resetting stats_rh_blocks_size_ counter, current value = [" << st_read_ahead_stats_.stats_rh_blocks_size_ << "].";
+			LOG(INFO) << "Resetting stats_rh_blocks_size_ counter, current value = [" 
+					<< st_read_ahead_stats_.stats_rh_blocks_size_ << "].";
 			st_read_ahead_stats_.stats_rh_blocks_size_ = 0;
 			stats_blocks = 0;
 		}
 		st_read_ahead_stats_.stats_rh_blocks_size_ = stats_blocks + pred_size;
 		return Read(predictions);
 	}
+	
 	return folly::makeFuture(std::move(results));
 }
 
@@ -212,3 +249,47 @@ void ReadAhead::CoalesceRequests(/*[In]*/std::map<int64_t, bool>& predictions,
 	predictions.erase(LONG_MAX);
 }
 
+uint64_t ReadAhead::AdjustReadMisses(const std::vector<RequestBlock*>& missed, 
+		const std::vector<std::unique_ptr<Request>>& requests) {
+	uint64_t read_misses = 0;
+	for(const auto an_offset : missed) {
+		bool offset_matched = false;
+		for(const auto& req : requests) {
+			if(not req->IsReadAheadRequired()) {
+				req->ForEachRequestBlock([&offset_matched, &an_offset] (RequestBlock* blockp) { 
+					if(blockp->GetOffset() == an_offset->GetOffset()) {
+						offset_matched = true;
+						return true;
+					}
+					return true;
+				});
+			}
+		}
+		if(not offset_matched) {
+			++read_misses;
+		}
+	}
+	
+	return read_misses;
+}
+
+uint64_t ReadAhead::AdjustReadMisses(const std::vector<RequestBlock*>& missed, 
+		Request* request) {
+	uint64_t read_misses = 0;
+	for(const auto an_offset : missed) {
+		bool offset_matched = false;
+		if(not request->IsReadAheadRequired()) {
+			request->ForEachRequestBlock([&offset_matched, &an_offset] (RequestBlock* blockp) { 
+				if(blockp->GetOffset() == an_offset->GetOffset()) {
+					offset_matched = true;
+				}
+				return true;
+			});
+		}
+		if(not offset_matched) {
+			++read_misses;
+		}
+	}
+	
+	return read_misses;
+}

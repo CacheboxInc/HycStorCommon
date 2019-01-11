@@ -51,8 +51,6 @@ private:
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed);
-	uint64_t GetActualReadMisses(const std::vector<RequestBlock*>& missed, 
-				const std::vector<std::unique_ptr<Request>>& requests);
 private:
 	std::vector<std::unique_ptr<RequestHandler>> targets_;
 };
