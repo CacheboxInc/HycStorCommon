@@ -152,6 +152,7 @@ int main(int argc, char* argv[]) {
 	uint64_t block_size;
 	uint32_t tid;
 	uint32_t lid;
+	int64_t disk_size;
 	std::string path;
 
 	std::cout << "VMDK Configuration JSON Dump Utility" << std::endl;
@@ -169,6 +170,8 @@ int main(int argc, char* argv[]) {
 	std::cin >> lid;
 	std::cout << "Enter DevPath: ";
 	std::cin >> path;
+	std::cout << "Enter DiskSizeBytes: ";
+	std::cin >> disk_size;
 
 	VmdkConfig config;
 
@@ -178,6 +181,7 @@ int main(int argc, char* argv[]) {
 	config.SetTargetId(tid);
 	config.SetLunId(lid);
 	config.SetDevPath(path);
+	config.SetDiskSize(disk_size);
 
 	ConfigureCompression(config);
 	ConfigureEncryption(config);

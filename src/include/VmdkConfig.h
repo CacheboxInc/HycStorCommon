@@ -94,6 +94,8 @@ public:
 
 	void SetRamMetaDataKV();
 	bool IsRamMetaDataKV();
+	void SetDiskSize(int64_t size);
+	bool GetDiskSize(int64_t& size) const;
 
 	template <typename T, typename V>
 	void GetPreloadBlocks(std::vector<std::pair<T, V>>& offsets) const {
@@ -207,6 +209,8 @@ public:
 
 	static const std::string kPreload;
 	static const std::string kOffset;
+	
+	static const std::string kDiskSizeBytes;
 };
 
 std::ostream& operator <<(std::ostream& os, const VmdkConfig::ErrorType& type);

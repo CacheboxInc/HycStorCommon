@@ -119,7 +119,7 @@ folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		failed.clear();
 
 		/* Initiate ReadAhead and populate cache if ghb sees a pattern based on history */
-		if(pio_likely(vmdkp->read_aheadp_ != NULL)) {
+		if(pio_likely(vmdkp->read_aheadp_ != NULL && vmdkp->read_aheadp_->IsReadAheadEnabled())) {
 			vmdkp->read_aheadp_->Run(*read_missed, reqp);
 		}
 
@@ -333,7 +333,7 @@ folly::Future<int> MultiTargetHandler::BulkReadComplete(ActiveVmdk* vmdkp,
 	missed->swap(failed);
 	
 	/* Initiate ReadAhead and populate cache if ghb sees a pattern based on history */
-	if(pio_likely(vmdkp->read_aheadp_ != NULL)) {
+	if(pio_likely(vmdkp->read_aheadp_ != NULL && vmdkp->read_aheadp_->IsReadAheadEnabled())) {
 		vmdkp->read_aheadp_->Run(*missed, requests);
 	}
 

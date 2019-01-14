@@ -16,22 +16,24 @@ bool ReadAhead::initialized_ = false;
 ghb_params_t ReadAhead::ghb_params_ = {};
 ghb_t ReadAhead::ghb_ = {};
 
-ReadAhead::ReadAhead(ActiveVmdk* vmdkp, int prefetch_depth, int start_index, int loopback, int n_history) 
-		: vmdkp_(vmdkp),prefetch_depth_(prefetch_depth),start_index_(start_index),
-		loopback_(loopback),n_history_(n_history) {
+ReadAhead::ReadAhead(ActiveVmdk* vmdkp, int prefetch_depth, int start_index, int loopback) 
+		: vmdkp_(vmdkp),prefetch_depth_(prefetch_depth), start_index_(start_index), loopback_(loopback),
+		n_history_(MAX_PENDING_IOS_) {
 	if(not vmdkp_) {
 		LOG(ERROR) <<  __func__  << "vmdkp is passed as nullptr, cannot construct ReadAhead object";
 		throw std::runtime_error("At __func__ vmdkp is passed as nullptr, cannot construct ReadAhead object");
 	}
+	n_history_ = MAX_PENDING_IOS_;
+	InitializeMaxOffset();
 }
 
 ReadAhead::ReadAhead(ActiveVmdk* vmdkp)
-		: vmdkp_(vmdkp),prefetch_depth_(256),start_index_(32),
-		loopback_(8), n_history_(2048) {
+		: vmdkp_(vmdkp),prefetch_depth_(256),start_index_(32), loopback_(8), n_history_(MAX_PENDING_IOS_) {
 	if(not vmdkp_) {
 		LOG(ERROR) <<  __func__  << "vmdkp is passed as nullptr, cannot construct ReadAhead object";
 		throw std::runtime_error("At __func__ vmdkp is passed as nullptr, cannot construct ReadAhead object");
 	}
+	InitializeMaxOffset();
 }
 
 ReadAhead::~ReadAhead() {}
@@ -71,7 +73,10 @@ ReadAhead::Run(ReqBlockVec& offsets, Request* request) {
 			});
 		}
 		if(not offset_matched) {
-			rh_offsets.push_back(an_offset->GetOffset());
+			int64_t offset = an_offset->GetOffset();
+			if(offset < max_offset_) {
+				rh_offsets.push_back(offset);
+			}
 		}
 	}
 	if(rh_offsets.empty()) {
@@ -100,7 +105,10 @@ ReadAhead::Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>
 			}
 		}
 		if(not offset_matched) {
-			rh_offsets.push_back(an_offset->GetOffset());
+			int64_t offset = an_offset->GetOffset();
+			if(offset < max_offset_) {
+				rh_offsets.push_back(offset);
+			}
 		}
 	}
 	if(rh_offsets.empty()) {
@@ -115,7 +123,7 @@ ReadAhead::RunPredictions(std::vector<int64_t>& offsets) {
 	auto block_size = vmdkp_->BlockSize();
 	std::map<int64_t, bool> predictions;
 	auto results = std::make_unique<ReadResultVec>();
-	
+
 	std::unique_lock<std::mutex> io_lock(pending_ios_mutex_);
 	if(pending_ios_.size() + offsets.size() >= MAX_PENDING_IOS_) {
 		// Should rarely occur
@@ -292,4 +300,24 @@ uint64_t ReadAhead::AdjustReadMisses(const std::vector<RequestBlock*>& missed,
 	}
 	
 	return read_misses;
+}
+
+void ReadAhead::InitializeMaxOffset() {
+	max_offset_ = 0;
+	force_disable_read_ahead_ = true;
+	auto disk_size = vmdkp_->GetDiskSize();
+	auto block_size = vmdkp_->BlockSize();
+	// Unread Area = 1 * Predictability + 2MB
+	int64_t adjust_safety = 2 * ((prefetch_depth_ + PENDING_IOS_SERVE_SIZE ) * block_size) + (2 * 1024 * 1024);
+	if(disk_size > adjust_safety) {
+		max_offset_ = disk_size - adjust_safety;
+		if(not IsBlockSizeAlgined(max_offset_, block_size)) {
+			max_offset_ = AlignDownToBlockSize(max_offset_, block_size);
+		}
+		force_disable_read_ahead_ = false;
+	}
+	if(force_disable_read_ahead_) {
+		LOG(INFO) << "For VmdkID , Disk size " << vmdkp_->GetID() << disk_size <<
+				" is too small to enable ReadAhead. Read Ahead is disabled for this disk.";
+	}
 }
