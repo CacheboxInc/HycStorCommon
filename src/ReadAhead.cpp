@@ -23,7 +23,6 @@ ReadAhead::ReadAhead(ActiveVmdk* vmdkp, int prefetch_depth, int start_index, int
 		LOG(ERROR) <<  __func__  << "vmdkp is passed as nullptr, cannot construct ReadAhead object";
 		throw std::runtime_error("At __func__ vmdkp is passed as nullptr, cannot construct ReadAhead object");
 	}
-	n_history_ = MAX_PENDING_IOS_;
 	InitializeMaxOffset();
 }
 
