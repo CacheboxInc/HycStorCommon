@@ -48,26 +48,10 @@ struct VirtualMachineOnDisk {
 	4: i64 snapshot_id;
 }
 
-struct IOAVmdkStats {
-	1: VmdkID vmdk_id;
-	2: VmID vm_id;
-	3: string read_iostats;
-	4: string write_iostats;
-	5: i64 tag;
-}
-
 struct IOAVmStats {
-	1: map<string, IOAVmdkStats> data;
-}
-
-struct IOAVmdkFingerPrint {
-	1: VmdkID vmdk_id;
-	2: VmID vm_id;
-	3: string read_fprints;
-	4: string write_fprints;
-	5: i64 tag;
+	1: map<string, string> data;
 }
 
 struct IOAVmFPrintStats {
-	1:  map<string, IOAVmdkFingerPrint> data;
+	1:  map<string, string> data;
 }

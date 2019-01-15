@@ -38,8 +38,7 @@ folly::Future<int> BlockTraceHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		auto o = reqp->GetOffset();
 		auto s = reqp->GetTransferLength() >> kSectorShift;
 
-		auto status = analyzerp_->Read(handle_, l, o, s, qd);
-		log_assert(status);
+		analyzerp_->Read(handle_, l, o, s, qd);
 		return rc;
 	});
 }
@@ -62,8 +61,7 @@ folly::Future<int> BlockTraceHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		auto o = reqp->GetOffset();
 		auto s = reqp->GetTransferLength() >> kSectorShift;
 
-		auto status = analyzerp_->Write(handle_, l, o, s, qd);
-		log_assert(status);
+		analyzerp_->Write(handle_, l, o, s, qd);
 		return rc;
 	});
 }
@@ -122,8 +120,8 @@ folly::Future<int> BlockTraceHandler::BulkWrite(ActiveVmdk* vmdkp,
 			auto l = reqp->GetLatency();
 			auto o = reqp->GetOffset();
 			auto s = reqp->GetTransferLength() >> kSectorShift;
-			auto status = analyzerp_->Write(handle_, l, o, s, qd);
-			log_assert(status);
+
+			analyzerp_->Write(handle_, l, o, s, qd);
 		}
 		return rc;
 	});
@@ -142,8 +140,8 @@ folly::Future<int> BlockTraceHandler::BulkRead(ActiveVmdk* vmdkp,
 			auto l = reqp->GetLatency();
 			auto o = reqp->GetOffset();
 			auto s = reqp->GetTransferLength() >> kSectorShift;
-			auto status = analyzerp_->Read(handle_, l, o, s, qd);
-			log_assert(status);
+
+			analyzerp_->Read(handle_, l, o, s, qd);
 		}
 		return rc;
 	});
