@@ -86,6 +86,7 @@ public:
 	void AddVmdk(ActiveVmdk* vmdkp);
 	folly::Future<int> StartPreload(const ::ondisk::VmdkID& id);
 	const ::ondisk::VmID& GetID() const noexcept;
+	const ::ondisk::VmUUID& GetUUID() const noexcept;
 	VmdkHandle GetHandle() const noexcept;
 	const config::VmConfig* GetJsonConfig() const noexcept;
 
@@ -118,6 +119,7 @@ private:
 private:
 	VmdkHandle handle_;
 	::ondisk::VmID vm_id_;
+	::ondisk::VmUUID vm_uuid_;
 	std::atomic<RequestID> request_id_{0};
 	std::unique_ptr<config::VmConfig> config_;
 

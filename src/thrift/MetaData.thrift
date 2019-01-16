@@ -3,6 +3,8 @@ namespace cpp2 ondisk
 typedef i64 CheckPointID
 typedef string VmdkID
 typedef string VmID
+typedef string VmdkUUID
+typedef string VmUUID
 typedef i64 SnapshotID
 typedef i64 BlockID
 typedef binary (cpp.type = "std::unique_ptr<folly::IOBuf>") IOBufPtr
@@ -54,6 +56,8 @@ struct IOAVmdkStats {
 	3: string read_iostats;
 	4: string write_iostats;
 	5: i64 tag;
+	6: string vm_uuid;
+	7: string vmdk_uuid;
 }
 
 struct IOAVmStats {
@@ -66,6 +70,8 @@ struct IOAVmdkFingerPrint {
 	3: string read_fprints;
 	4: string write_fprints;
 	5: i64 tag;
+	6: string vm_uuid;
+	7: string vmdk_uuid;
 }
 
 struct IOAVmFPrintStats {

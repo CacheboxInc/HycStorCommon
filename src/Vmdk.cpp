@@ -54,6 +54,10 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 		const std::string& config)
 		: Vmdk(handle, std::move(id)), vmp_(vmp),
 		config_(std::make_unique<config::VmdkConfig>(config)) {
+	if (not config_->GetVmdkUUID(vmdk_uuid_)) {
+		throw std::invalid_argument("vmdk uuid is not set.");
+	}
+
 	uint32_t block_size;
 	if (not config_->GetBlockSize(block_size)) {
 		block_size = kDefaultBlockSize;

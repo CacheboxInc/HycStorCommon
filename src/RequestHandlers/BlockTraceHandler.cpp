@@ -13,7 +13,7 @@ namespace pio {
 
 BlockTraceHandler::BlockTraceHandler(ActiveVmdk* vmdkp) :
 		RequestHandler(nullptr), analyzerp_(vmdkp->GetVM()->GetAnalyzer()) {
-	handle_ = analyzerp_->RegisterVmdk(vmdkp->GetID());
+	handle_ = analyzerp_->RegisterVmdk(vmdkp->GetID(), vmdkp->GetUUID());
 }
 
 BlockTraceHandler::~BlockTraceHandler() {

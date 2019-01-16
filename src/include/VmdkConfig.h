@@ -16,10 +16,14 @@ public:
 	VmdkConfig();
 	void SetVmdkId(const ::ondisk::VmdkID& id);
 	bool GetVmdkId(::ondisk::VmdkID& id) const;
+	void SetVmdkUUID(const ::ondisk::VmdkUUID& uuid);
+	bool GetVmdkUUID(::ondisk::VmdkUUID& uuid) const;
 	void SetParentDiskVmdkId(const ::ondisk::VmdkID& id);
 	bool GetParentDiskVmdkId(::ondisk::VmdkID& id) const;
 	void SetVmId(const ::ondisk::VmID& id);
 	bool GetVmId(::ondisk::VmID& id) const;
+	void SetVmUUID(const std::string& uuid);
+	bool GetVmUUID(std::string& uuid) const;
 	void SetBlockSize(uint32_t size);
 	bool GetBlockSize(uint32_t& size) const;
 	void SetParentDisk(const std::string& parent_name);
@@ -157,7 +161,9 @@ public:
 public:
 	static const std::string kEnabled;
 	static const std::string kVmdkID;
+	static const std::string kVmdkUUID;
 	static const std::string kVmID;
+	static const std::string kVmUUID;
 	static const std::string kBlockSize;
 
 	static const std::string kCompression;
