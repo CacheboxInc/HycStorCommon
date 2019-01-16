@@ -439,7 +439,8 @@ int VirtualMachine::GetVmdkParentStats(AeroSpikeConn *aerop, ActiveVmdk* vmdkp,
 	return rc;
 }
 
-int VirtualMachine::FlushStart(CheckPointID ckpt_id, bool perform_move,
+int VirtualMachine::FlushStart(CheckPointID ckpt_id, bool perform_flush,
+		bool perform_move,
 		uint32_t max_req_size, uint32_t max_pending_reqs) {
 
 	if (flush_in_progress_.test_and_set()) {
@@ -462,9 +463,10 @@ int VirtualMachine::FlushStart(CheckPointID ckpt_id, bool perform_move,
 			folly::Promise<int> promise;
 			auto fut = promise.getFuture();
 			managerp->threadpool_.pool_->AddTask([vmdkp, ckpt_id,
-				promise = std::move(promise), perform_move,
+				promise = std::move(promise), perform_flush, perform_move,
 					max_req_size, max_pending_reqs]() mutable {
-				auto rc = vmdkp->FlushStages(ckpt_id, perform_move,
+				auto rc = vmdkp->FlushStages(ckpt_id, perform_flush,
+					perform_move,
 					max_req_size, max_pending_reqs);
 				promise.setValue(rc);
 			});

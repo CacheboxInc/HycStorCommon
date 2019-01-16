@@ -37,6 +37,11 @@ public:
 	virtual folly::Future<int> Move(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
+	virtual folly::Future<int> BulkMove(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) override;
 private:
 	std::vector<pio::RangeLock::range_t> Ranges(
 		const std::vector<std::unique_ptr<Request>>& requests);

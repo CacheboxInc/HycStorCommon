@@ -34,6 +34,12 @@ public:
 	virtual folly::Future<int> Move(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
+	virtual folly::Future<int> BulkMove(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt_id,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) override;
+
 private:
 	std::unique_ptr<RequestHandler> headp_;
 	std::unique_ptr<AeroSpike> aero_obj_{nullptr};

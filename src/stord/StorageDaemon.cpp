@@ -24,6 +24,7 @@
 #include "TgtInterfaceImpl.h"
 #include "ScanManager.h"
 #include "VmManager.h"
+#include <boost/format.hpp>
 
 #ifdef USE_NEP
 #include <TargetManager.hpp>

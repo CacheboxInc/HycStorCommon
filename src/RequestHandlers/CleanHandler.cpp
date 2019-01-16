@@ -210,6 +210,16 @@ folly::Future<int> CleanHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 	return 0;
 }
 
+folly::Future<int> CleanHandler::BulkMove(ActiveVmdk *vmdkp,
+		::ondisk::CheckPointID ckpt_id,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	/* Should not be here */
+	log_assert(0);
+	return 0;
+}
+
 folly::Future<int> CleanHandler::BulkWrite(ActiveVmdk* vmdkp,
 		::ondisk::CheckPointID ckpt,
 		const std::vector<std::unique_ptr<Request>>& requests,
