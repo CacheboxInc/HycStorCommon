@@ -74,26 +74,6 @@ void Analyzer::SetTimerTicked() {
 	++ticks_;
 }
 
-std::string Analyzer::RemoveDataField(std::string&& body) {
-	static_assert(HasData<IOAVmStats>::value,
-			"IOAVmStats must have data field");
-	static_assert(HasData<IOAVmFPrintStats>::value,
-			"IOAVmFPrintStats must have data field");
-	json_error_t  error;
-	json_t        *jdata, *r_data;
-
-	jdata = json_loads(body.c_str(), JSON_DISABLE_EOF_CHECK, &error);
-	log_assert(jdata != NULL);
-
-	r_data = json_object_get(jdata, "data");
-	log_assert(r_data != NULL);
-
-	auto data_body = json_dumps(r_data, 0);
-	json_decref(jdata);
-
-	return data_body;
-}
-
 std::optional<std::string>
 Analyzer::GetIOStats(const VmdkID& id, const ::io_vmdk_handle_t& handle,
 		const ::io_level_t level) {
@@ -135,12 +115,7 @@ std::optional<std::string> Analyzer::GetIOStats() {
 	}
 
 	using S2 = apache::thrift::SimpleJSONSerializer;
-	auto json_body = S2::serialize<std::string>(stats);
-	if (json_body.empty()) {
-		return {};
-	}
-
-	return RemoveDataField(std::move(json_body));
+	return S2::serialize<std::string>(stats);
 }
 
 std::optional<std::string> Analyzer::GetFingerPrintStats(
@@ -181,11 +156,7 @@ std::optional<std::string> Analyzer::GetFingerPrintStats() {
 	}
 
 	using S2 = apache::thrift::SimpleJSONSerializer;
-	auto json_body = S2::serialize<std::string>(stats);
-	if (json_body.empty()) {
-		return {};
-	}
-	return RemoveDataField(std::move(json_body));
+	return S2::serialize<std::string>(stats);
 }
 
 bool Analyzer::Read(::io_vmdk_handle_t handle, int64_t latency, Offset offset,
