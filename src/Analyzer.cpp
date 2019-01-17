@@ -118,12 +118,22 @@ std::string Analyzer::RemoveDataField(std::string&& body) {
 		"IOAVmStats must have data field");
 	static_assert(HasData<IOAVmFPrintStats>::value,
 		"IOAVmFPrintStats must have data field");
-	constexpr char datap[] = "{\"data\":";
-	log_assert(boost::starts_with(body, datap) and
-			boost::algorithm::ends_with(body, "}"));
-	body.erase(1, std::strlen(datap)-1);
-	body.pop_back();
-	return body;
+
+	json_error_t  error;
+
+	auto jdata = json_loads(body.c_str(), JSON_DISABLE_EOF_CHECK, &error);
+	log_assert(jdata);
+
+	auto r_data = json_object_get(jdata, "data");
+	log_assert(r_data);
+
+	auto data_body = json_dumps(r_data, 0);
+	log_assert(data_body);
+
+	std::string res(data_body);
+	std::free(data_body);
+	json_decref(jdata);
+	return res;
 }
 
 std::optional<std::string> Analyzer::GetIOStats() {
