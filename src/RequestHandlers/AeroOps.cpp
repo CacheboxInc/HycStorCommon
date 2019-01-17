@@ -124,16 +124,32 @@ int AeroSpike::WriteBatchPrepare(ActiveVmdk *vmdkp,
  * */
 
 static void WriteListener(as_error *errp, void *datap, as_event_loop* loopp) {
+
 	auto wrp = (WriteRecord *) reinterpret_cast<WriteRecord*>(datap);
 	log_assert(wrp && wrp->batchp_);
 	auto batchp = (wrp->batchp_);
 
+	bool stop_pipeline = false;
 	wrp->status_ = AEROSPIKE_OK;
+
+	batchp->batch.ncomplete_++;
+
+	if ((batchp->batch.ncomplete_ == batchp->batch.nsent_) &&
+		(batchp->batch.nsent_ == batchp->batch.nwrites_)) {
+		stop_pipeline = true;
+	} else if ((batchp->batch.ncomplete_ == batchp->batch.nsent_) &&
+				(batchp->failed_ == true)) {
+		stop_pipeline = true;
+	}
+
 	if (pio_unlikely(errp)) {
 		wrp->status_ = errp->code;
-		as_monitor_notify(&batchp->aero_conn_->as_mon_);
 		LOG(ERROR) << __func__ << "::error msg:"
 			<< errp->message << ", err code:" << errp->code;
+		batchp->failed_ = true;
+		if (batchp->batch.ncomplete_ == batchp->batch.nsent_) {
+			stop_pipeline = true;
+		}
 	}
 
 #ifdef INJECT_AERO_WRITE_ERROR
@@ -142,99 +158,54 @@ static void WriteListener(as_error *errp, void *datap, as_event_loop* loopp) {
 		if (batchp->retry_cnt_ > 2) {
 			wrp->status_ = AEROSPIKE_ERR_TIMEOUT;
 			LOG(ERROR) << __func__ << "::Injecting AEROSPIKE_ERR_TIMEOUT error, retry_cnt :: " << batchp->retry_cnt_;
-			as_monitor_notify(&batchp->aero_conn_->as_mon_);
 		} else if (batchp->retry_cnt_ == 2) {
 			wrp->status_ = AEROSPIKE_ERR_CLUSTER;
 			LOG(ERROR) << __func__ << "::Injecting AEROSPIKE_ERR_CLUSTER error, retry_cnt :: " << batchp->retry_cnt_;
-			as_monitor_notify(&batchp->aero_conn_->as_mon_);
 		}
 	}
 #endif
 
-	auto complete = [&] () mutable {
-		std::lock_guard<std::mutex> lock(batchp->batch.lock_);
-		batchp->batch.ncomplete_++;
-		return batchp->submitted_ and batchp->batch.ncomplete_
-						== batchp->batch.nsent_;
-	} ();
-
-	if (complete == true) {
-		batchp->promise_->setValue(0);
+	if (stop_pipeline == true) {
+			batchp->promise_->setValue(0);
 	}
-
 	return;
 }
 
 static void WritePipeListener(void *udatap, as_event_loop *lp) {
+
 	auto wrp = reinterpret_cast<WriteRecord *>(udatap);
 	log_assert(wrp && wrp->batchp_);
-
 	auto batchp = wrp->batchp_;
-	std::unique_lock<std::mutex> b_lock(batchp->batch.lock_);
-	if (pio_unlikely(batchp->batch.nsent_ >= batchp->batch.nwrites_)) {
-		LOG(ERROR) << __func__ << " Pipeline Submit Error nsent::"
-			<< batchp->batch.nsent_
-			<< " nwrites::" << batchp->batch.nwrites_
-			<< " ncomplete::" << batchp->batch.ncomplete_
-			<< " retry::" << batchp->retry_cnt_
-			<< " Submit status::" << batchp->submitted_;
-		log_assert(batchp->batch.nsent_ < batchp->batch.nwrites_);
-	}
 
-	log_assert(batchp->submitted_ == false);
-	++batchp->batch.nsent_;
+	if (batchp->submitted_ == true || batchp->failed_ == true) {
+		batchp->submitted_ = true;
+		return;
+	}
+	batchp->batch.nsent_++;
 
 	wrp = batchp->batch.rec_it_->get();
 	++batchp->batch.rec_it_;
 	as_pipe_listener fnp = nullptr;
 
 	if(pio_unlikely(batchp->batch.nsent_ == batchp->batch.nwrites_)) {
-		/* complete batch is submitted */
 		batchp->submitted_ = true;
-		log_assert(batchp->batch.nsent_ == batchp->batch.nwrites_);
 	} else {
 		fnp = WritePipeListener;
 		log_assert(batchp->batch.nsent_ < batchp->batch.nwrites_);
 	}
-	b_lock.unlock();
 
 	auto kp = &wrp->key_;
 	auto rp = &wrp->record_;
-	auto complete = false;
 	as_error err;
 	auto s = aerospike_key_put_async(&batchp->aero_conn_->as_, &err,
 			NULL, kp, rp, WriteListener,
 			reinterpret_cast<void*>(wrp), lp, fnp);
+
 	if (pio_unlikely(s != AEROSPIKE_OK)) {
 		LOG(ERROR) << __func__ << "::request submit failed, code"
 			<< err.code << "msg:" << err.message;
-
-		/*
-		 * Error in submitting no more keys from this batch will be put --
-		 * mark batch submitted
-		 */
-
-		std::unique_lock<std::mutex> b_lock(batchp->batch.lock_);
-		batchp->submitted_ = true;
 		batchp->batch.nsent_--;
-		if (batchp->batch.nsent_ == batchp->batch.ncomplete_) {
-
-			/*
-			 * Sending new put request failed and all sent requests
-			 * have been responded
-			 */
-
-			complete = true;
-		}
-
-		wrp->status_ = s;
 		batchp->failed_ = true;
-		b_lock.unlock();
-	}
-
-	if (complete == true) {
-		log_assert(batchp->submitted_ == true);
-		batchp->promise_->setValue(0);
 	}
 }
 
@@ -602,7 +573,6 @@ folly::Future<int> AeroSpike::ReadBatchSubmit(ReadBatch *batchp) {
 
 	return batchp->promise_->getFuture()
 	.then([this, batchp] (int rc) mutable {
-		as_monitor_notify(&batchp->aero_conn_->as_mon_);
 		switch (batchp->as_result_) {
 			/* Record not found is not an error case*/
 			case AEROSPIKE_OK:
@@ -858,17 +828,32 @@ int AeroSpike::DelBatchPrepare(ActiveVmdk *vmdkp,
  * */
 
 static void DelListener(as_error *errp, void *datap, as_event_loop* loopp) {
+
 	auto drp = reinterpret_cast<DelRecord *>(datap);
 	log_assert(drp && drp->batchp_);
 	auto batchp = drp->batchp_;
+
+	bool stop_pipeline = false;
 	drp->status_ = AEROSPIKE_OK;
+
+	batchp->batch.ncomplete_++;
+
+	if ((batchp->batch.ncomplete_ >= batchp->batch.nsent_) &&
+		(batchp->batch.nsent_ == batchp->batch.ndeletes_)) {
+		stop_pipeline = true;
+	} else if ((batchp->batch.ncomplete_ >= batchp->batch.nsent_) &&
+				(batchp->failed_ == true)) {
+		stop_pipeline = true;
+	}
+
 	if (pio_unlikely(errp)) {
 		drp->status_ = errp->code;
-		as_monitor_notify(&batchp->aero_conn_->as_mon_);
-		#if 0
 		LOG(ERROR) << __func__ << "::error msg:" <<
 			errp->message << ", err code:" << errp->code;
-		#endif
+		batchp->failed_ = true;
+		if (batchp->batch.ncomplete_ >= batchp->batch.nsent_) {
+			stop_pipeline = true;
+		}
 	}
 
 #ifdef INJECT_AERO_DEL_ERROR
@@ -876,24 +861,16 @@ static void DelListener(as_error *errp, void *datap, as_event_loop* loopp) {
 	if (!drp->status_) {
 		if (batchp->retry_cnt_ > 2) {
 			drp->status_ = AEROSPIKE_ERR_TIMEOUT;
-			as_monitor_notify(&batchp->aero_conn_->as_mon_);
 			LOG(ERROR) << __func__ << "Injecting AEROSPIKE_ERR_TIMEOUT error, retry_cnt ::" << batchp->retry_cnt_;
 		} else if (batchp->retry_cnt_ == 2) {
 			drp->status_ = AEROSPIKE_ERR_CLUSTER;
-			as_monitor_notify(&batchp->aero_conn_->as_mon_);
 			LOG(ERROR) << __func__ << "Injecting AEROSPIKE_ERR_CLUSTER error, retry_cnt ::" << batchp->retry_cnt_;
 		}
 	}
 #endif
-	auto complete = [&] () mutable {
-		std::lock_guard<std::mutex> lock(batchp->batch.lock_);
-		batchp->batch.ncomplete_++;
-		return batchp->submitted_ and batchp->batch.ncomplete_
-						== batchp->batch.nsent_;
-	} ();
 
-	if (complete == true) {
-		batchp->promise_->setValue(0);
+	if (stop_pipeline == true) {
+			batchp->promise_->setValue(0);
 	}
 }
 
@@ -903,26 +880,18 @@ static void DelPipeListener(void *udatap, as_event_loop *lp) {
 	log_assert(drp && drp->batchp_);
 
 	DelBatch *batchp = (drp->batchp_);
+
 	as_pipe_listener fnp = DelPipeListener;
 
-	std::unique_lock<std::mutex> b_lock(batchp->batch.lock_);
-	if (pio_unlikely(batchp->batch.nsent_ >= batchp->batch.ndeletes_)) {
-		LOG(ERROR) << __func__ << "Pipeline Submit Error nsent::"
-			<< batchp->batch.nsent_
-			<< " ndeletes::" << batchp->batch.ndeletes_
-			<< " ncomplete::" << batchp->batch.ncomplete_
-			<< " retry::" << batchp->retry_cnt_
-			<< " Submit status::" << batchp->submitted_;
-		log_assert(batchp->batch.nsent_ < batchp->batch.ndeletes_);
+	if (batchp->submitted_ == true || batchp->failed_ == true) {
+		batchp->submitted_ = true;
+		return;
 	}
-
-	log_assert(batchp->submitted_ == false);
 	batchp->batch.nsent_++;
 
 	drp = (*(batchp->batch.rec_it_)).get();
 	std::advance(batchp->batch.rec_it_, 1);
 	if (batchp->batch.rec_it_ == (batchp->batch.recordsp_).end()) {
-		/* complete batch is submitted */
 		batchp->submitted_ = true;
 		fnp                = NULL;
 		log_assert(batchp->batch.nsent_ == batchp->batch.ndeletes_);
@@ -930,41 +899,16 @@ static void DelPipeListener(void *udatap, as_event_loop *lp) {
 		log_assert(batchp->batch.nsent_ < batchp->batch.ndeletes_);
 	}
 
-	b_lock.unlock();
 	as_key *kp  = &drp->key_;
-	bool complete = false;
-
 	as_error  err;
 	as_status s;
 	s = aerospike_key_remove_async(&batchp->aero_conn_->as_, &err, NULL, kp,
 			DelListener, (void *) drp, lp, fnp);
 	if (pio_unlikely(s != AEROSPIKE_OK)) {
-
-		/* Sending failed */
 		LOG(ERROR) << __func__ << "::Submit failed, err code:"
 			<< err.code << ", err msg:" << err.message;
-
-		std::unique_lock<std::mutex> b_lock(batchp->batch.lock_);
-
-		/* No more keys from this batch will be removed --
-		 * mark batch submitted
-		 */
-
-		batchp->submitted_ = true;
 		batchp->batch.nsent_--;
-		if (batchp->batch.nsent_ == batchp->batch.ncomplete_) {
-			/* All sent requests has been responded */
-			complete = true;
-		}
-
-		drp->status_ = s;
 		batchp->failed_ = true;
-		b_lock.unlock();
-	}
-
-	if (complete == true) {
-		log_assert(batchp->submitted_ == true);
-		batchp->promise_->setValue(0);
 	}
 }
 
@@ -994,14 +938,13 @@ folly::Future<int> AeroSpike::DelBatchSubmit(DelBatch *batchp) {
 	drp = (*(batchp->batch.rec_it_)).get();
 	std::advance(batchp->batch.rec_it_, 1);
 
+	batchp->batch.nsent_     = 1;
 	kp  = &drp->key_;
 	if (ndeletes == 1) {
 		batchp->submitted_ = true;
-		batchp->batch.nsent_     = 1;
 		fnp = NULL;
 	} else {
 		batchp->submitted_ = false;
-		batchp->batch.nsent_     = 1;
 		fnp = DelPipeListener;
 	}
 
@@ -1056,7 +999,6 @@ folly::Future<int> AeroSpike::DelBatchSubmit(DelBatch *batchp) {
 					batchp->failed_ = true;
 					batchp->retry_ = true;
 					break;
-
 				case AEROSPIKE_OK:
 				case AEROSPIKE_ERR_RECORD_NOT_FOUND:
 					break;
@@ -1471,7 +1413,6 @@ folly::Future<int> AeroSpike::ReadSingleSubmit(ReadSingle *batchp) {
 
 	return batchp->promise_->getFuture()
 	.then([this, batchp] (int rc) mutable {
-		as_monitor_notify(&batchp->aero_conn_->as_mon_);
 		switch (batchp->as_result_) {
 			/* Record not found is not an error case*/
 			case AEROSPIKE_OK:
