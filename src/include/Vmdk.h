@@ -174,15 +174,31 @@ public:
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process);
 	folly::Future<int> Move(Request* reqp, const CheckPoints& min_max);
+	folly::Future<int> BulkMoveStart(std::vector<FlushBlock>& blocks,
+				ondisk::CheckPointID ckpt_id);
+	folly::Future<int> BulkMove(ActiveVmdk* vmdkp,
+		std::vector<ReadRequest>::const_iterator it,
+		std::vector<ReadRequest>::const_iterator eit,
+		ondisk::CheckPointID ckpt_id);
+	folly::Future<int> BulkMove(const CheckPoints& min_max,
+		std::unique_ptr<ReqVec> requests,
+		std::unique_ptr<ReqBlockVec> process,
+		std::unique_ptr<IOBufPtrVec> iobufs);
+	folly::Future<int> BulkMove(
+		const CheckPoints& min_max,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process);
 	folly::Future<int> Write(Request* reqp, ::ondisk::CheckPointID ckpt_id);
 	folly::Future<int> WriteSame(Request* reqp, ::ondisk::CheckPointID ckpt_id);
 	folly::Future<int> TakeCheckPoint(::ondisk::CheckPointID check_point);
 	folly::Future<int> CommitCheckPoint(::ondisk::CheckPointID check_point);
-	int FlushStages(::ondisk::CheckPointID check_point, bool perform_move, uint32_t, uint32_t);
+	int FlushStages(::ondisk::CheckPointID check_point, bool perform_flush,
+			bool perform_move, uint32_t, uint32_t);
 	int FlushStage(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
 	int FlushStage_v2(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
 	int MoveStage(::ondisk::CheckPointID check_point, uint32_t);
 	int MoveStage_v2(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
+	int MoveStage_v3(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
 	CheckPoint* GetCheckPoint(::ondisk::CheckPointID ckpt_id) const;
 
 	/* Functions to gathering Vmdk statistics at this point in time */

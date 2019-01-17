@@ -31,6 +31,25 @@ int GetFileLimit()
 	return limit.rlim_cur;
 }
 
+
+bool AeroClientLogCallback(as_log_level level, const char *func, const char *file,
+    uint32_t line, const char *fmt, ...)
+{
+    char msg[1024] = {0};
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf(msg, 1024, fmt, ap);
+    msg[1023] = '\0';
+    va_end(ap);
+
+    LOG(ERROR) << "file:" << file << " line:" << line << " func:" << func << " level:" << level
+       << " msg:" << msg;
+
+    return 0;
+
+}
+
 int AeroSpikeConn::Connect() {
 	static constexpr uint16_t kAeroEventLoops = 4;
 	static constexpr uint16_t kMaxCommandsInProgress = 128 / kAeroEventLoops;
@@ -101,6 +120,11 @@ int AeroSpikeConn::Connect() {
 	cfg.policies.remove.key = AS_POLICY_KEY_SEND;
 	cfg.policies.apply.key = AS_POLICY_KEY_SEND;
 
+	cfg.policies.read.replica = AS_POLICY_REPLICA_SEQUENCE; 
+	cfg.policies.write.replica = AS_POLICY_REPLICA_SEQUENCE; //default is MASTER 
+	cfg.policies.write.commit_level = AS_POLICY_COMMIT_LEVEL_MASTER; //default is ALL
+	//cfg.tender_interval = 1800000; //1000 (1 sec) * 60 * 30 = 30 mins
+
 	/* TODO: See if we need to set for all types of policies */
 	/* Timeout setting */
 	cfg.policies.write.base.total_timeout = 5000;// 5secs
@@ -146,6 +170,10 @@ int AeroSpikeConn::Connect() {
 	as_monitor_init(&this->as_mon_);
 	this->as_started_ = true;
 	VLOG(1) << "Connected to Aerospike Server succesfully";
+
+	//uncomment to enable aerospike client logs
+	//as_log_set_level(AS_LOG_LEVEL_INFO);
+	//as_log_set_callback(AeroClientLogCallback);
 	return 0;
 }
 

@@ -56,6 +56,11 @@ int FlushInstance::StartFlush(const VmID& vmid) {
 		perform_move = true;
 	}
 
+	bool perform_flush;
+	if (not GetJsonConfig()->GetFlushAllowedStatus(perform_flush)) {
+		perform_flush = true;
+	}
+
 	uint32_t max_pending_reqs = 0;
 	if (not GetJsonConfig()->GetMaxPendingReqsCnt(max_pending_reqs)) {
 		max_pending_reqs = kMaxPendingFlushReqs;
@@ -73,7 +78,7 @@ int FlushInstance::StartFlush(const VmID& vmid) {
 	LOG(ERROR) << __func__ << " max_req_size:" << max_req_size  <<
 			", max_pending_reqs:" << max_pending_reqs;
 
-	rc = vmp->FlushStart(ckpt_id, perform_move,
+	rc = vmp->FlushStart(ckpt_id, perform_flush, perform_move,
 		max_req_size, max_pending_reqs);
 	if (pio_unlikely(rc)) {
 		return rc;

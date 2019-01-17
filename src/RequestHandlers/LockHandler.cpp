@@ -123,6 +123,28 @@ folly::Future<int> LockHandler::BulkWrite(ActiveVmdk* vmdkp,
 	});
 }
 
+folly::Future<int> LockHandler::BulkMove(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	auto g = std::make_unique<Guard>(range_lock_.get(), Ranges(requests));
+	return g->Lock()
+	.then([this, g = std::move(g), vmdkp, ckpt, &requests, &process, &failed]
+			(int rc) mutable -> folly::Future<int> {
+		if (pio_unlikely(not g->IsLocked() || rc < 0)) {
+			return rc ? rc : -1;
+		} else if (pio_unlikely(not nextp_)) {
+			return 0;
+		}
+
+		return nextp_->BulkMove(vmdkp, ckpt, requests, process, failed)
+		.then([g = std::move(g)] (int rc) {
+			return rc;
+		});
+	});
+}
+
 std::vector<pio::RangeLock::range_t> LockHandler::Ranges(
 		const std::vector<std::unique_ptr<Request>>& requests) {
 	std::vector<pio::RangeLock::range_t> ranges;

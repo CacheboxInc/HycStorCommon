@@ -6,6 +6,7 @@
 #include <aerospike/aerospike_key.h>
 #include <aerospike/as_monitor.h>
 #include <aerospike/as_event.h>
+#include <aerospike/as_log.h>
 #include <AeroConfig.h>
 
 namespace pio {
