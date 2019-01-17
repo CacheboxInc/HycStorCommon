@@ -96,11 +96,11 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	read_aheadp_ = NULL;
 	// To avail ReadAhead the disk size must be > 20MB
 	if(config_->IsReadAheadEnabled() && disk_size_bytes_ > (20 * 1024 * 1024)) {
-		LOG(INFO) << "ReadAhead is enabled";
 		read_aheadp_ = std::make_unique<ReadAhead>(this);
 		if (not read_aheadp_) {
 			throw std::bad_alloc();
 		}
+		LOG(INFO) << "ReadAhead is enabled";
 	}
 	else {
 		LOG(INFO) << "ReadAhead is disabled";
