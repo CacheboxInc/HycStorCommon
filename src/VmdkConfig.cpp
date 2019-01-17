@@ -14,9 +14,7 @@ namespace pio { namespace config {
 
 const std::string VmdkConfig::kEnabled = "Enabled";
 const std::string VmdkConfig::kVmID = "VmID";
-const std::string VmdkConfig::kVmUUID = "VmUUID";
 const std::string VmdkConfig::kVmdkID = "VmdkID";
-const std::string VmdkConfig::kVmdkUUID = "VmdkUUID";
 const std::string VmdkConfig::kBlockSize = "BlockSize";
 
 const std::string VmdkConfig::kEncryption = "Encryption";
@@ -101,28 +99,8 @@ bool VmdkConfig::GetVmdkId(VmdkID& id) const {
 	return JsonConfig::GetKey(kVmdkID, id);
 }
 
-void VmdkConfig::SetVmdkUUID(const VmdkUUID& uuid) {
-	JsonConfig::SetKey(kVmdkUUID, uuid);
-}
-
-bool VmdkConfig::GetVmdkUUID(VmdkUUID& uuid) const {
-	return JsonConfig::GetKey(kVmdkUUID, uuid);
-}
-
 void VmdkConfig::SetVmId(const VmID& id) {
 	JsonConfig::SetKey(kVmID, id);
-}
-
-bool VmdkConfig::GetVmId(VmID& id) const {
-	return JsonConfig::GetKey(kVmID, id);
-}
-
-void VmdkConfig::SetVmUUID(const VmUUID& uuid) {
-	JsonConfig::SetKey(kVmUUID, uuid);
-}
-
-bool VmdkConfig::GetVmUUID(VmUUID& uuid) const {
-	return JsonConfig::GetKey(kVmUUID, uuid);
 }
 
 bool VmdkConfig::GetParentDiskVmdkId(VmdkID& id) const {
@@ -131,6 +109,10 @@ bool VmdkConfig::GetParentDiskVmdkId(VmdkID& id) const {
 
 void VmdkConfig::SetParentDiskVmdkId(const VmdkID& id) {
 	JsonConfig::SetKey(kParentDiskVmdkID, id);
+}
+
+bool VmdkConfig::GetVmId(VmID& id) const {
+	return JsonConfig::GetKey(kVmID, id);
 }
 
 void VmdkConfig::SetBlockSize(uint32_t size) {

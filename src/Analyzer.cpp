@@ -36,7 +36,7 @@ std::ostream& operator << (std::ostream& os, const Analyzer& analyzer) {
 	os << "{IOA Handle " << analyzer.vm_handle_
 		<< " VMDKs = [ ";
 	for (const auto& handle : analyzer.vmdks_) {
-		os << handle.vmdk_id_ << ',' << handle.vmdk_handle_ << ' ';
+		os << handle.first << ',' << handle.second << ' ';
 	}
 	os << "]}";
 	return os;
@@ -58,21 +58,15 @@ Analyzer::Analyzer(const VmID& vm_id, uint32_t l1_ticks, uint32_t l2_ticks,
 
 Analyzer::~Analyzer() {
 	for (auto& handle : vmdks_) {
-		::iostats_unregister_vmdk(handle.vmdk_handle_);
+		::iostats_unregister_vmdk(handle.second);
 	}
 	::iostats_unregister_vm(vm_handle_);
 	::iostats_finalize();
 }
 
-void Analyzer::SetVmUUID(const VmUUID& vm_uuid) {
-	vm_uuid_ = vm_uuid;
-}
-
-::io_vmdk_handle_t Analyzer::RegisterVmdk(const VmdkID& vmdkid,
-		const VmdkUUID& vmdk_uuid) {
+::io_vmdk_handle_t Analyzer::RegisterVmdk(const VmdkID& vmdkid) {
 	auto h = ::iostats_register_vmdk(vm_handle_, vmdkid.c_str(), kDefaultIoaLevels);
-	VmdkInfo vmdk_info = {vmdkid, vmdk_uuid, h};
-	vmdks_.emplace_back(vmdk_info);
+	vmdks_.emplace_back(vmdkid, h);
 	return h;
 }
 
@@ -101,12 +95,10 @@ std::string Analyzer::GetVmdkIOStat(const ::io_vmdk_handle_t handle,
 
 std::optional<IOAVmdkStats>
 Analyzer::GetIOStats(const VmdkID& id, const ::io_vmdk_handle_t& handle,
-		const ::io_level_t level, const VmdkUUID& vmdk_uuid) {
+		const ::io_level_t level) {
 	IOAVmdkStats stat;
 	stat.set_vmdk_id(id);
-	stat.set_vmdk_uuid(vmdk_uuid);
 	stat.set_vm_id(vm_id_);
-	stat.set_vm_uuid(vm_uuid_);
 	stat.set_tag(ioa_tag_);
 
 	stat.set_read_iostats(GetVmdkIOStat(handle, IOSTATS_READ, level));
@@ -147,8 +139,7 @@ std::optional<std::string> Analyzer::GetIOStats() {
 	IOAVmStats stats;
 	int i = 0;
 	for (auto& vmdk : vmdks_) {
-		auto s = GetIOStats(vmdk.vmdk_id_, vmdk.vmdk_handle_, level,
-		                    vmdk.vmdk_uuid_);
+		auto s = GetIOStats(vmdk.first, vmdk.second, level);
 		if (pio_likely(s)) {
 			stats.data.emplace(std::to_string(i), std::move(s.value()));
 		}
@@ -184,12 +175,10 @@ std::string Analyzer::GetVmdkFingerPrint(const ::io_vmdk_handle_t& handle,
 
 std::optional<IOAVmdkFingerPrint> Analyzer::GetFingerPrintStats(
 		const VmdkID& vmdk_id, const ::io_vmdk_handle_t& handle,
-		const ::io_level_t level, const VmdkUUID& vmdk_uuid) {
+		const ::io_level_t level) {
 	IOAVmdkFingerPrint stat;
 	stat.set_vmdk_id(vmdk_id);
-	stat.set_vmdk_uuid(vmdk_uuid);
 	stat.set_vm_id(vm_id_);
-	stat.set_vm_uuid(vm_uuid_);
 	stat.set_tag(ioa_tag_);
 
 	stat.set_read_fprints(GetVmdkFingerPrint(handle, IOSTATS_READ, level));
@@ -220,8 +209,7 @@ std::optional<std::string> Analyzer::GetFingerPrintStats() {
 	IOAVmFPrintStats stats;
 	int i = 0;
 	for (auto& vmdk : vmdks_) {
-		auto s = GetFingerPrintStats(vmdk.vmdk_id_, vmdk.vmdk_handle_, level,
-		                             vmdk.vmdk_uuid_);
+		auto s = GetFingerPrintStats(vmdk.first, vmdk.second, level);
 		if (pio_likely(s)) {
 			stats.data.emplace(std::to_string(i), std::move(s.value()));
 		}
@@ -241,7 +229,7 @@ bool Analyzer::Read(::io_vmdk_handle_t handle, int64_t latency, Offset offset,
 #ifndef NDEBUG
 	auto it = std::find_if(vmdks_.begin(), vmdks_.end(),
 			[&handle] (const auto& x) {
-		return handle == x.vmdk_handle_;
+		return handle == x.second;
 	});
 	log_assert(it != vmdks_.end());
 #endif
@@ -254,7 +242,7 @@ bool Analyzer::Write(::io_vmdk_handle_t handle, int64_t latency, Offset offset,
 #ifndef NDEBUG
 	auto it = std::find_if(vmdks_.begin(), vmdks_.end(),
 			[&handle] (const auto& x) {
-		return handle == x.vmdk_handle_;
+		return handle == x.second;
 	});
 	log_assert(it != vmdks_.end());
 #endif

@@ -251,10 +251,6 @@ public:
 		return parentdisk_vmdkid_;
 	};
 
-	const ::ondisk::VmdkUUID GetUUID() const {
-		return vmdk_uuid_;
-	};
-
 	VirtualMachine* GetVM() const noexcept;
 	const config::VmdkConfig* GetJsonConfig() const noexcept;
 
@@ -327,7 +323,6 @@ private:
 	uint32_t block_shift_{0};
 	bool cleanup_on_write_{true};
 	std::unique_ptr<config::VmdkConfig> config_;
-	::ondisk::VmdkUUID vmdk_uuid_;
 
 	struct {
 		mutable std::mutex mutex_;

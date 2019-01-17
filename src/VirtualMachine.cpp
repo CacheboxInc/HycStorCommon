@@ -50,10 +50,6 @@ VirtualMachine::VirtualMachine(VmHandle handle, VmID vm_id,
 		config_(std::make_unique<config::VmConfig>(config)),
 		timer_(kTickSeconds), analyzer_(vm_id_, kL1Ticks, kL2Ticks, kL3Ticks) {
 	setname_ = config_->GetTargetName();
-	if (not config_->GetVmUUID(vm_uuid_)) {
-		throw std::invalid_argument("vm uuid is not set.");
-	}
-	analyzer_.SetVmUUID(vm_uuid_);
 }
 
 VirtualMachine::~VirtualMachine() {
@@ -61,10 +57,6 @@ VirtualMachine::~VirtualMachine() {
 
 const VmID& VirtualMachine::GetID() const noexcept {
 	return vm_id_;
-}
-
-const VmUUID& VirtualMachine::GetUUID() const noexcept {
-	return vm_uuid_;
 }
 
 VmHandle VirtualMachine::GetHandle() const noexcept {
@@ -108,7 +100,7 @@ void VirtualMachine::PostIOStats(_ha_instance* instancep) {
 	if (not body) {
 		return;
 	}
-	std::string endpoint = EndPoint::kStats + GetUUID();
+	std::string endpoint = EndPoint::kStats + GetID();
 	this->RestCall(instancep, std::move(endpoint), std::move(body.value()));
 }
 
@@ -117,7 +109,7 @@ void VirtualMachine::PostFingerPrintStats(_ha_instance* instancep) {
 	if (not body) {
 		return;
 	}
-	std::string endpoint = EndPoint::kFingerPrint + GetUUID();
+	std::string endpoint = EndPoint::kFingerPrint + GetID();
 	this->RestCall(instancep, std::move(endpoint), std::move(body.value()));
 }
 

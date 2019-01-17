@@ -20,12 +20,10 @@ class EventBase;
 namespace pio {
 class Analyzer {
 public:
-	Analyzer(const ::ondisk::VmID& vm_id, uint32_t l1_ticks,
-		uint32_t l2_ticks, uint32_t l3_ticks);
+	Analyzer(const ::ondisk::VmID& vm_id, uint32_t l1_ticks, uint32_t l2_ticks,
+		uint32_t l3_ticks);
 	~Analyzer();
-	void SetVmUUID(const ::ondisk::VmUUID& vm_uuid);
-	::io_vmdk_handle_t RegisterVmdk(const ::ondisk::VmdkID& vmdkid,
-		const ::ondisk::VmdkUUID& vmdk_uuid);
+	::io_vmdk_handle_t RegisterVmdk(const ::ondisk::VmdkID& vmdkid);
 	void StartTimer(_ha_instance *instancep, folly::EventBase* basep);
 	bool Read(::io_vmdk_handle_t handle, int64_t latency, Offset offset,
 		size_t nsectors, uint32_t queue_depth);
@@ -41,17 +39,15 @@ private:
 	std::string GetVmdkIOStat(const ::io_vmdk_handle_t handle,
 		const io_op_t op, const io_level_t level);
 	std::optional<::ondisk::IOAVmdkStats> GetIOStats(const ::ondisk::VmdkID& id,
-		const ::io_vmdk_handle_t& handle, const io_level_t level,
-		const std::string& vmdk_uuid);
+		const ::io_vmdk_handle_t& handle, const io_level_t level);
 	std::string RemoveDataField(std::string&& body);
 	std::string GetVmdkFingerPrint(const ::io_vmdk_handle_t& handle,
 		const io_op_t op, const io_level_t level);
 	std::optional<::ondisk::IOAVmdkFingerPrint> GetFingerPrintStats(
-		const ::ondisk::VmdkID& vmdk_id, const ::io_vmdk_handle_t& handle,
-		const io_level_t level, const std::string& vmdk_uuid);
+		const ::ondisk::VmdkID& vmdk_id,
+		const ::io_vmdk_handle_t& handle, const io_level_t level);
 private:
 	const ::ondisk::VmID& vm_id_;
-	::ondisk::VmUUID vm_uuid_;
 
 	struct {
 		uint64_t ticks_{0};
@@ -63,12 +59,6 @@ private:
 	int64_t ioa_tag_{};
 	::io_vm_handle_t vm_handle_{};
 
-	struct VmdkInfo {
-		::ondisk::VmdkID vmdk_id_;
-		::ondisk::VmdkUUID vmdk_uuid_;
-		::io_vmdk_handle_t vmdk_handle_;
-	};
-
-	std::vector<VmdkInfo> vmdks_;
+	std::vector<std::pair<::ondisk::VmdkID, ::io_vmdk_handle_t>> vmdks_;
 };
 }
