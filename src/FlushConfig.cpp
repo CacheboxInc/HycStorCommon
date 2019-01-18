@@ -2,6 +2,7 @@
 #include "FlushConfig.h"
 namespace pio { namespace config {
 const std::string FlushConfig::kMoveAllowed = "MoveAllowed";
+const std::string FlushConfig::kFlushAllowed = "FlushAllowed";
 const std::string FlushConfig::kMaxPendingReqCnt = "MaxPendingReqCnt";
 const std::string FlushConfig::kMaxReqSize = "MaxReqSize";
 
@@ -17,6 +18,10 @@ void FlushConfig::SetMoveAllowedStatus(bool status) {
 
 bool FlushConfig::GetMoveAllowedStatus(bool& status) {
 	return JsonConfig::GetKey(kMoveAllowed, status);
+}
+
+bool FlushConfig::GetFlushAllowedStatus(bool& status) {
+	return JsonConfig::GetKey(kFlushAllowed, status);
 }
 
 bool FlushConfig::GetMaxPendingReqsCnt(uint32_t& val) {

@@ -74,56 +74,24 @@ void Analyzer::SetTimerTicked() {
 	++ticks_;
 }
 
-std::string Analyzer::GetVmdkIOStat(const ::io_vmdk_handle_t handle,
-		const io_op_t op, const io_level_t level) {
+std::optional<std::string>
+Analyzer::GetIOStats(const VmdkID& id, const ::io_vmdk_handle_t& handle,
+		const ::io_level_t level) {
 	io_statsbuf_t stats;
 	stats.size = 0;
 	stats.alloced = false;
 	stats.data = nullptr;
 
-	::iostats_snap(handle, op, level);
-	bool s = ::iostats_get_statsbuf(handle, op, nullptr, &stats);
-	if (pio_unlikely(not s)) {
-		return std::string();
+	prepare_stats(handle, level);
+
+	auto s = iostats_get_statsbuf(handle, &stats);
+	if (pio_unlikely(not s or not stats.data)) {
+		return {};
 	}
 
-	log_assert(stats.data);
 	std::string res(stats.data, stats.size);
 	::iostats_free_statsbuf(&stats);
 	return res;
-}
-
-std::optional<IOAVmdkStats>
-Analyzer::GetIOStats(const VmdkID& id, const ::io_vmdk_handle_t& handle,
-		const ::io_level_t level) {
-	IOAVmdkStats stat;
-	stat.set_vmdk_id(id);
-	stat.set_vm_id(vm_id_);
-	stat.set_tag(ioa_tag_);
-
-	stat.set_read_iostats(GetVmdkIOStat(handle, IOSTATS_READ, level));
-	if (pio_unlikely(stat.read_iostats.empty())) {
-		return {};
-	}
-
-	stat.set_write_iostats(GetVmdkIOStat(handle, IOSTATS_WRITE, level));
-	if (pio_unlikely(stat.write_iostats.empty())) {
-		return {};
-	}
-	return {std::move(stat)};
-}
-
-std::string Analyzer::RemoveDataField(std::string&& body) {
-	static_assert(HasData<IOAVmStats>::value,
-		"IOAVmStats must have data field");
-	static_assert(HasData<IOAVmFPrintStats>::value,
-		"IOAVmFPrintStats must have data field");
-	constexpr char datap[] = "{\"data\":";
-	log_assert(boost::starts_with(body, datap) and
-			boost::algorithm::ends_with(body, "}"));
-	body.erase(1, std::strlen(datap)-1);
-	body.pop_back();
-	return body;
 }
 
 std::optional<std::string> Analyzer::GetIOStats() {
@@ -140,57 +108,34 @@ std::optional<std::string> Analyzer::GetIOStats() {
 	int i = 0;
 	for (auto& vmdk : vmdks_) {
 		auto s = GetIOStats(vmdk.first, vmdk.second, level);
-		if (pio_likely(s)) {
+		if (pio_likely(s and not s.value().empty())) {
 			stats.data.emplace(std::to_string(i), std::move(s.value()));
+			++i;
 		}
-		++i;
 	}
 
 	using S2 = apache::thrift::SimpleJSONSerializer;
-	auto json_body = S2::serialize<std::string>(stats);
-	if (json_body.empty()) {
-		return {};
-	}
-	return RemoveDataField(std::move(json_body));
+	return S2::serialize<std::string>(stats);
 }
 
-std::string Analyzer::GetVmdkFingerPrint(const ::io_vmdk_handle_t& handle,
-		const io_op_t op, const io_level_t level) {
+std::optional<std::string> Analyzer::GetFingerPrintStats(
+		const VmdkID& vmdk_id, const ::io_vmdk_handle_t& handle,
+		const ::io_level_t level) {
 	io_fprintbuf_t stats;
 	stats.size = 0;
 	stats.alloced = false;
 	stats.data = nullptr;
 
-	::iostats_snap(handle, op, level);
-	bool s = ::iostats_get_fprintbuf(handle, op, nullptr, &stats);
-	if (not s) {
-		return std::string();
+	prepare_stats(handle, level);
+
+	auto s = ::iostats_get_fprintbuf(handle, &stats);
+	if (pio_unlikely(not s or not stats.data)) {
+		return {};
 	}
 
-	log_assert(stats.data);
 	std::string res(stats.data, stats.size);
 	::iostats_free_fprintbuf(&stats);
 	return res;
-}
-
-std::optional<IOAVmdkFingerPrint> Analyzer::GetFingerPrintStats(
-		const VmdkID& vmdk_id, const ::io_vmdk_handle_t& handle,
-		const ::io_level_t level) {
-	IOAVmdkFingerPrint stat;
-	stat.set_vmdk_id(vmdk_id);
-	stat.set_vm_id(vm_id_);
-	stat.set_tag(ioa_tag_);
-
-	stat.set_read_fprints(GetVmdkFingerPrint(handle, IOSTATS_READ, level));
-	if (pio_unlikely(stat.read_fprints.empty())) {
-		return {};
-	}
-
-	stat.set_write_fprints(GetVmdkFingerPrint(handle, IOSTATS_WRITE, level));
-	if (pio_unlikely(stat.read_fprints.empty())) {
-		return {};
-	}
-	return {std::move(stat)};
 }
 
 std::optional<std::string> Analyzer::GetFingerPrintStats() {
@@ -199,29 +144,19 @@ std::optional<std::string> Analyzer::GetFingerPrintStats() {
 	}
 
 	::io_level_t level = ::io_level_t::IOSTATS_LEVEL3;
-	if (ticks_ % l1_ticks_ == 0) {
-		level = level | ::io_level_t::IOSTATS_LEVEL1;
-	}
-	if (ticks_ % l2_ticks_ == 0) {
-		level = level | ::io_level_t::IOSTATS_LEVEL2;
-	}
 
 	IOAVmFPrintStats stats;
 	int i = 0;
 	for (auto& vmdk : vmdks_) {
 		auto s = GetFingerPrintStats(vmdk.first, vmdk.second, level);
-		if (pio_likely(s)) {
+		if (pio_likely(s and not s.value().empty())) {
 			stats.data.emplace(std::to_string(i), std::move(s.value()));
+			++i;
 		}
-		++i;
 	}
 
 	using S2 = apache::thrift::SimpleJSONSerializer;
-	auto json_body = S2::serialize<std::string>(stats);
-	if (json_body.empty()) {
-		return {};
-	}
-	return RemoveDataField(std::move(json_body));
+	return S2::serialize<std::string>(stats);
 }
 
 bool Analyzer::Read(::io_vmdk_handle_t handle, int64_t latency, Offset offset,

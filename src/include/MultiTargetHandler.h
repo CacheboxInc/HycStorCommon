@@ -44,6 +44,11 @@ public:
 	virtual folly::Future<int> Move(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
+	folly::Future<int> BulkMove(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) override;
 private:
 	void InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 		const config::VmdkConfig* configp);

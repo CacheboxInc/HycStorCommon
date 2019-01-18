@@ -68,6 +68,14 @@ folly::Future<int> CacheTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
 	return headp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
 }
 
+folly::Future<int> CacheTargetHandler::BulkMove(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	return headp_->BulkMove(vmdkp, ckpt, requests, process, failed);
+}
+
 folly::Future<int> CacheTargetHandler::BulkRead(ActiveVmdk* vmdkp,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,

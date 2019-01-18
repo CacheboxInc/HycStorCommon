@@ -202,6 +202,102 @@ folly::Future<int> DirtyHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
+/* TBD : Pass the checkpoint ID from top */
+folly::Future<int> DirtyHandler::BulkMove(ActiveVmdk *vmdkp,
+		::ondisk::CheckPointID ckpt_id,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+
+	failed.clear();
+	if (pio_unlikely(not nextp_)) {
+		failed.reserve(process.size());
+		std::copy(process.begin(), process.end(), std::back_inserter(failed));
+		return -ENODEV;
+	}
+
+	if (pio_unlikely(aero_conn_ == nullptr)) {
+		/* TBD : May want to treat this as error */
+		failed.clear();
+		for (auto blockp : process) {
+			blockp->SetResult(0, RequestStatus::kSuccess);
+		}
+		return 0;
+	}
+
+#ifdef INJECT_MOVE_FAILURE
+	static std::atomic<uint32_t> count=0;
+#endif
+
+	/* Read record from DIRTY Namespace */
+	return aero_obj_->AeroReadCmdProcess(vmdkp, process, failed,
+		kAsNamespaceCacheDirty, aero_conn_)
+	.then([this, vmdkp, &process, &failed,
+			connect = this->aero_conn_, ckpt_id] (int rc) mutable
+			-> folly::Future<int> {
+
+#ifdef INJECT_MOVE_FAILURE
+		if (count++ > 3) {
+			LOG(ERROR) << __func__ << "Injecting Move ERROR, count::" << count;
+			count = 0;
+			return -EIO;
+		}
+#endif
+		if (pio_unlikely(rc)) {
+			LOG(ERROR) << __func__ << "Reading from DIRTY namespace failed, error code::" << rc;
+			return rc;
+		}
+
+		/* We should not be seeing any Miss */
+		for (auto blockp : process) {
+			if (pio_unlikely(blockp->IsReadHit())) {
+				blockp->SetResult(0, RequestStatus::kSuccess);
+			} else {
+				blockp->SetResult(-EIO, RequestStatus::kFailed);
+				failed.emplace_back(blockp);
+				LOG(ERROR) << __func__ << "Record not found ::"
+					<< vmdkp->GetID() << ":"
+					<< blockp->GetReadCheckPointId() << ":"
+					<< blockp->GetAlignedOffset();
+				rc = -EIO;
+			}
+		}
+
+		if (pio_unlikely(rc)) {
+			LOG(ERROR) << __func__ << "Some of the records has not "
+				" found in DIRTY namespace, error code::" << rc;
+			return rc;
+		}
+
+		/* Write record into CLEAN namespace */
+		return aero_obj_->AeroWriteCmdProcess(vmdkp, ckpt_id,
+			process, failed, kAsNamespaceCacheClean, connect)
+		.then([this, vmdkp, &process, &failed, connect, ckpt_id] (int rc) mutable
+			-> folly::Future<int> {
+			if (pio_unlikely(rc)) {
+				LOG(ERROR) << __func__ << "Writing in CLEAN namespace failed, error code::" << rc;
+				return rc;
+			}
+
+			/* Delete record from DIRTY namespace */
+			return aero_obj_->AeroDelCmdProcess(vmdkp, ckpt_id,
+				process, failed, kAsNamespaceCacheDirty, connect)
+			.then([&process, &failed]  (int rc) mutable {
+				if (pio_unlikely(rc)) {
+					LOG(ERROR) << __func__ << "Delete from DIRTY namespace failed, error code::" << rc;
+					return rc;
+				}
+
+				failed.clear();
+				for (auto blockp : process) {
+					blockp->SetResult(0, RequestStatus::kSuccess);
+				}
+				return 0;
+			});
+		});
+	});
+}
+
 folly::Future<int> DirtyHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {

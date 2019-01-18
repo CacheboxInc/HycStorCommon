@@ -313,6 +313,14 @@ folly::Future<int> MultiTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
 	return targets_[0]->BulkWrite(vmdkp, ckpt, requests, process, failed);
 }
 
+folly::Future<int> MultiTargetHandler::BulkMove(ActiveVmdk* vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock*>& failed) {
+	return targets_[0]->BulkMove(vmdkp, ckpt, requests, process, failed);
+}
+
 folly::Future<int> MultiTargetHandler::BulkReadComplete(ActiveVmdk* vmdkp,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process, std::vector<RequestBlock*>& failed) {

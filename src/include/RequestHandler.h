@@ -45,6 +45,11 @@ public:
 	virtual folly::Future<int> Move(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed);
+	virtual folly::Future<int> BulkMove(ActiveVmdk *vmdkp,
+		::ondisk::CheckPointID ckpt,
+		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed);
 	virtual int Cleanup(ActiveVmdk *vmdkp);
 
 protected:

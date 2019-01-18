@@ -9,9 +9,6 @@
 #include "gen-cpp2/MetaData_types.h"
 #include "IDs.h"
 #include "iostats.h"
-#include "RecurringTimer.h"
-
-struct _ha_instance;
 
 namespace folly {
 class EventBase;
@@ -24,7 +21,6 @@ public:
 		uint32_t l3_ticks);
 	~Analyzer();
 	::io_vmdk_handle_t RegisterVmdk(const ::ondisk::VmdkID& vmdkid);
-	void StartTimer(_ha_instance *instancep, folly::EventBase* basep);
 	bool Read(::io_vmdk_handle_t handle, int64_t latency, Offset offset,
 		size_t nsectors, uint32_t queue_depth);
 	bool Write(::io_vmdk_handle_t handle, int64_t latency, Offset offset,
@@ -35,15 +31,10 @@ public:
 
 	friend std::ostream& operator << (std::ostream& os, const Analyzer& analyzer);
 private:
-	int PostRest(_ha_instance* instancep, std::string&& ep, std::string&& body);
-	std::string GetVmdkIOStat(const ::io_vmdk_handle_t handle,
-		const io_op_t op, const io_level_t level);
-	std::optional<::ondisk::IOAVmdkStats> GetIOStats(const ::ondisk::VmdkID& id,
-		const ::io_vmdk_handle_t& handle, const io_level_t level);
 	std::string RemoveDataField(std::string&& body);
-	std::string GetVmdkFingerPrint(const ::io_vmdk_handle_t& handle,
-		const io_op_t op, const io_level_t level);
-	std::optional<::ondisk::IOAVmdkFingerPrint> GetFingerPrintStats(
+	std::optional<std::string> GetIOStats(const ::ondisk::VmdkID& id,
+		const ::io_vmdk_handle_t& handle, const io_level_t level);
+	std::optional<std::string> GetFingerPrintStats(
 		const ::ondisk::VmdkID& vmdk_id,
 		const ::io_vmdk_handle_t& handle, const io_level_t level);
 private:
