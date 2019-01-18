@@ -14,7 +14,6 @@ from urllib.parse import urlencode
 stord_ip = '127.0.0.1:9000'
 
 json_vmdk_list = []
-json_rh_list = []
 
 def print_progress_bar(iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█'):
     percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
@@ -38,9 +37,6 @@ def run_stord_stats(vmdk_id, num_samples, time_interval):
         r = requests.get("%s://%s/stord_svc/v1.0/vmdk_stats/?vmdk-id=%s" % (h, stord_ip, vmdk_id), data=json.dumps(data), headers=headers, cert=cert, verify=False)
         assert (r.status_code == 200)
         json_vmdk_list.append(r.json())
-        r = requests.get("%s://%s/stord_svc/v1.0/read_ahead_stats/?vmdk-id=%s" % (h, stord_ip, vmdk_id), data=json.dumps(data), headers=headers, cert=cert, verify=False)
-        assert (r.status_code == 200)
-        json_rh_list.append(r.json())
         progress = (100 / num_samples)*(x+1)
         print_progress_bar(x+1, num_samples, prefix = 'Progress:', suffix = 'Complete', length = 50)
         time.sleep(time_interval)
@@ -61,9 +57,11 @@ def get_samples(opt, json_list):
     if opt == 'r':
         key = 'read_ahead_blks'
     elif opt == 'm':
-        key = 'read_ahead_misses'
+        key = 'read_miss'
     elif opt == 'h':
         key = 'read_hits'
+    elif opt == 't':
+        key = 'total_reads'
     for an_item in json_list:
         samples.append(an_item[key])
 
@@ -77,6 +75,9 @@ def get_read_hits(json_list):
 
 def get_rh_blocks(json_list):
     return get_samples('r', json_list)
+
+def get_total_reads(json_list):
+    return get_samples('t', json_list)
 
 def get_time_samples(num_samples, time_interval):
     time_samples = []
@@ -100,13 +101,15 @@ def main(argv):
     run_stord_stats(vmdk_id, num_samples, time_interval)
     time = get_time_samples(num_samples, time_interval)
     read_hits = get_read_hits(json_vmdk_list)
-    rh_blocks = get_rh_blocks(json_rh_list)
-    read_misses = get_read_misses(json_rh_list)
+    rh_blocks = get_rh_blocks(json_vmdk_list)
+    read_misses = get_read_misses(json_vmdk_list)
+    total_reads = get_total_reads(json_vmdk_list)
     print("Data Set for plotting")
     print("time = %s" % time)
     print("Read Misses = %s" % read_misses)
     print("Read Hits = %s" % read_hits)
     print("Read Ahead = %s" % rh_blocks)
+    print("Total Reads = %s" % total_reads)
     # Plot the graph
     print('Plotting graph...')
     plot_line_graph(time, read_misses, read_hits, rh_blocks)

@@ -139,10 +139,13 @@ public:
 	virtual ~Vmdk();
 	const ::ondisk::VmdkID& GetID() const noexcept;
 	VmdkHandle GetHandle() const noexcept;
-
+	int64_t GetDiskSize() const {
+		return disk_size_bytes_;
+	}
 protected:
 	VmdkHandle handle_;
 	::ondisk::VmdkID id_;
+	int64_t disk_size_bytes_;
 };
 
 class ActiveVmdk : public Vmdk {

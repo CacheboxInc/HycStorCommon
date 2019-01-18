@@ -118,25 +118,16 @@ folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		read_missed->swap(failed);
 		failed.clear();
 
-		#if 0
 		/* Initiate ReadAhead and populate cache if ghb sees a pattern based on history */
-		if(pio_likely(vmdkp->read_aheadp_ != NULL)) {
-			std::vector<std::unique_ptr<Request>> requests;
-			requests.emplace_back(reqp);
-			vmdkp->read_aheadp_->Run(*read_missed, requests);
+		if(pio_likely(vmdkp->read_aheadp_ != NULL && vmdkp->read_aheadp_->IsReadAheadEnabled())) {
+			vmdkp->read_aheadp_->Run(*read_missed, reqp);
 		}
-		#endif
 
 		/* Read from next StorageLayer - probably Network or File */
 		return targets_[1]->Read(vmdkp, reqp, *read_missed, failed)
 		.then([this, vmdkp, reqp, read_missed = std::move(read_missed), &failed] (int rc)
 				mutable -> folly::Future<int> {
-			#if 0
-			std::vector<std::unique_ptr<Request>> requests;
-			requests.emplace_back(reqp);
-			vmdkp->cache_stats_.read_miss_ += GetActualReadMisses(*read_missed, requests);
-			#endif
-			vmdkp->cache_stats_.read_miss_ += (*read_missed).size();
+			vmdkp->cache_stats_.read_miss_ += ReadAhead::AdjustReadMisses(*read_missed, reqp);
 			if (pio_unlikely(rc != 0)) {
 				vmdkp->cache_stats_.read_failed_ += failed.size();
 				LOG(ERROR) << __func__ << "Reading from TargetHandler layer for read populate failed";
@@ -342,14 +333,14 @@ folly::Future<int> MultiTargetHandler::BulkReadComplete(ActiveVmdk* vmdkp,
 	missed->swap(failed);
 	
 	/* Initiate ReadAhead and populate cache if ghb sees a pattern based on history */
-	if(pio_likely(vmdkp->read_aheadp_ != NULL)) {
+	if(pio_likely(vmdkp->read_aheadp_ != NULL && vmdkp->read_aheadp_->IsReadAheadEnabled())) {
 		vmdkp->read_aheadp_->Run(*missed, requests);
 	}
 
 	return targets_[1]->BulkRead(vmdkp, requests, *missed, failed)
 	.then([this, vmdkp, &requests, &failed, missed = std::move(missed)]
 			(int rc) mutable -> folly::Future<int> {
-		vmdkp->cache_stats_.read_miss_ += GetActualReadMisses(*missed, requests);
+		vmdkp->cache_stats_.read_miss_ += ReadAhead::AdjustReadMisses(*missed, requests);
 		if (pio_unlikely(rc)) {
 			vmdkp->cache_stats_.read_failed_ += failed.size();
 			return rc < 0 ? rc : -rc;
@@ -397,28 +388,4 @@ folly::Future<int> MultiTargetHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
 		std::vector<RequestBlock*>& failed) {
 	return targets_[0]->BulkReadPopulate(vmdkp, requests, process, failed);
 }
-
-uint64_t MultiTargetHandler::GetActualReadMisses(const std::vector<RequestBlock*>& missed, 
-		const std::vector<std::unique_ptr<Request>>& requests) {
-	uint64_t read_misses = 0;
-	for(const auto an_offset : missed) {
-		bool offset_matched = false;
-		for(const auto& req : requests) {
-			if(not req->IsReadAheadRequired()) {
-				req->ForEachRequestBlock([&offset_matched, &an_offset] (RequestBlock* blockp) { 
-					if(blockp->GetOffset() == an_offset->GetOffset()) {
-						offset_matched = true;
-						return true;
-					}
-					return true;
-				});
-			}
-		}
-		if(not offset_matched) {
-			++read_misses;
-		}
-	}
-	return read_misses;
-}
-
 }

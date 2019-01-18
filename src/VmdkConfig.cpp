@@ -71,6 +71,7 @@ const std::string VmdkConfig::kCleanupOnWrite = "CleanupOnWrite";
 const std::string VmdkConfig::kReadAhead = "ReadAhead";
 const std::string VmdkConfig::kPreload = "Preload";
 const std::string VmdkConfig::kOffset = "Offsets";
+const std::string VmdkConfig::kDiskSizeBytes = "DiskSizeBytes";
 
 VmdkConfig::VmdkConfig(const std::string& config) : JsonConfig(config) {
 }
@@ -671,5 +672,12 @@ bool VmdkConfig::IsReadAheadEnabled() const {
 	return rc and enabled;
 }
 
+void VmdkConfig::SetDiskSize(int64_t size) {
+    JsonConfig::SetKey(kDiskSizeBytes, size);
+}
+
+bool VmdkConfig::GetDiskSize(int64_t& size) const {
+    return JsonConfig::GetKey(kDiskSizeBytes, size);
+}
 
 }}

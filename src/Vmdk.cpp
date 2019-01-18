@@ -37,7 +37,7 @@ namespace pio {
 
 const std::string CheckPoint::kCheckPoint = "CheckPoint";
 
-Vmdk::Vmdk(VmdkHandle handle, VmdkID&& id) : handle_(handle), id_(std::move(id)) {
+Vmdk::Vmdk(VmdkHandle handle, VmdkID&& id) : handle_(handle), id_(std::move(id)), disk_size_bytes_(0) {
 }
 
 Vmdk::~Vmdk() = default;
@@ -88,22 +88,23 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 
 	ComputePreloadBlocks();
 
+	config_->GetDiskSize(disk_size_bytes_);
+	LOG(INFO) << "VmdkID =  " << id << " Disk Size = " << disk_size_bytes_;
+
 	// Let this always be the last code block, pulling it up does not harm anything
 	// but just for the sake of rule, let this be the last code block
 	read_aheadp_ = NULL;
-	LOG(INFO) << "ReadAhead is disabled";
-	/*
-	if(config_->IsReadAheadEnabled()) {
-		LOG(INFO) << "ReadAhead is enabled";
+	// To avail ReadAhead the disk size must be > 20MB
+	if(config_->IsReadAheadEnabled() && disk_size_bytes_ > (20 * 1024 * 1024)) {
 		read_aheadp_ = std::make_unique<ReadAhead>(this);
 		if (not read_aheadp_) {
 			throw std::bad_alloc();
 		}
+		LOG(INFO) << "ReadAhead is enabled";
 	}
 	else {
 		LOG(INFO) << "ReadAhead is disabled";
 	}
-	*/
 }
 
 ActiveVmdk::~ActiveVmdk() = default;

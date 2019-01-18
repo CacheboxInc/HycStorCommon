@@ -29,12 +29,25 @@ public:
 	
 	// Methods
 	ReadAhead(ActiveVmdk* vmdkp, int prefetch_depth, int start_index, 
-		int loopback, int n_history);
+		int loopback);
 	ReadAhead(ActiveVmdk* vmdkp);
 	virtual ~ReadAhead();
 	folly::Future<std::unique_ptr<ReadResultVec>>
 	Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>& requests);
-	
+	folly::Future<std::unique_ptr<ReadResultVec>>
+	Run(ReqBlockVec& offsets, Request* request);
+	static uint64_t AdjustReadMisses(const std::vector<RequestBlock*>& missed, 
+		const std::vector<std::unique_ptr<Request>>& requests); 
+	static uint64_t AdjustReadMisses(const std::vector<RequestBlock*>& missed, 
+		Request* request); 
+	bool IsReadAheadEnabled() const {
+		return !force_disable_read_ahead_;
+	}
+	void ForceDisableReadAhead() {
+		force_disable_read_ahead_ = true;
+	}
+
+	// Stats getter methods
 	uint64_t StatsTotalReadAheadBlocks() const {
 		return st_read_ahead_stats_.stats_rh_blocks_size_;
 	}
@@ -59,6 +72,8 @@ private:
 	int				start_index_;
 	int				loopback_;
 	int				n_history_;
+	int64_t			max_offset_;
+	bool			force_disable_read_ahead_;
 
 	static const int64_t 	MAX_PENDING_IOS_ = 1024;
 	static const int64_t 	PENDING_IOS_SERVE_SIZE = 8;
@@ -77,5 +92,8 @@ private:
 	Read(std::map<int64_t, bool>& predictions);
 	void CoalesceRequests(/*[In]*/std::map<int64_t, bool>& predictions, 
 			/*[Out]*/ReadRequestVec& requests); 
+	folly::Future<std::unique_ptr<ReadResultVec>>
+	RunPredictions(std::vector<int64_t>& offsets);
+	void InitializeMaxOffset();
 };
 }

@@ -30,7 +30,7 @@ using namespace ::hyc_thrift;
 static const size_t kVmdkBlockSize = 4096;
 static const VmdkID kVmdkid = "kVmdkid";
 static const VmID kVmid = "kVmid";
-
+static const int64_t kDiskSize = 21474836480; // 20GB
 #define N_ACCESSES	(64)
 #define N_STREAMS	(4)
 
@@ -74,6 +74,7 @@ protected:
 		config.DisableFileTarget();
 		config.DisableNetworkTarget();
 		config.EnableReadAhead();
+		config.SetDiskSize(kDiskSize);
 	}
 
 	typedef enum {
@@ -145,10 +146,13 @@ protected:
 			});
 			requests.emplace_back(std::move(req));
 		}
-	
-		auto future = vmdkp_->read_aheadp_->Run(*process, requests);
-		future.wait();
-		EXPECT_TRUE(future.isReady());
+		bool is_ready = false;
+		if(vmdkp_->read_aheadp_ != NULL && vmdkp_->read_aheadp_->IsReadAheadEnabled()) {
+			auto future = vmdkp_->read_aheadp_->Run(*process, requests);
+			future.wait();
+			is_ready = future.isReady();
+		}
+		EXPECT_TRUE(is_ready);
 	}
 
 	void RunConfigTest(bool config_switch) {
@@ -163,6 +167,10 @@ protected:
 		EXPECT_TRUE(config_switch == vmdkp_->GetJsonConfig()->IsReadAheadEnabled());
 	}
 };
+
+TEST_F(ReadAheadTests, ConfigTestEnable) {
+	RunConfigTest(true);
+}
 
 TEST_F(ReadAheadTests, SequentialPattern) {
 	RunTest(SEQUENTIAL);
@@ -182,10 +190,6 @@ TEST_F(ReadAheadTests, CorrelatedPattern) {
 
 TEST_F(ReadAheadTests, RandomPattern) {
 	RunTest(RANDOM);
-}
-
-TEST_F(ReadAheadTests, ConfigTestEnable) {
-	RunConfigTest(true);
 }
 
 TEST_F(ReadAheadTests, ConfigTestDisable) {
