@@ -446,7 +446,7 @@ folly::Future<int> ActiveVmdk::BulkFlush(const CheckPoints& min_max,
 
 	auto failed = std::make_unique<std::vector<RequestBlock*>>();
 	return headp_->BulkFlush(this, requests, process, *failed)
-	.then([this, failed = std::move(failed), &requests]
+	.then([failed = std::move(failed), &requests]
 			(folly::Try<int>& result) mutable {
 		auto ret = 0;
 		auto failedp = failed.get();
@@ -680,7 +680,7 @@ folly::Future<int> ActiveVmdk::BulkFlush(const CheckPoints& min_max,
 	std::unique_ptr<IOBufPtrVec> iobufs) {
 
 	return BulkFlush(min_max, *requests, *process)
-	.then([this, requests = std::move(requests), process = std::move(process),
+	.then([requests = std::move(requests), process = std::move(process),
 			iobufs = std::move(iobufs)] (int rc) {
 		if (rc) {
 			LOG(ERROR) << __func__ << "Error::" << rc;
@@ -809,7 +809,7 @@ ActiveVmdk::BulkFlush(ActiveVmdk* vmdkp,
 
 	return folly::collectAll(std::move(futures))
 	.then([&, requests = std::move(requests), process = std::move(process),
-		iobufs = std::move(iobufs), read_size]
+		iobufs = std::move(iobufs)]
 		(const std::vector<folly::Try<int>>& results) -> folly::Future<int> {
 		for (auto& t : results) {
 			if (pio_likely(t.hasValue() and t.value() != 0)) {
@@ -1716,7 +1716,7 @@ folly::Future<int> ActiveVmdk::BulkMove(const CheckPoints& min_max,
 
 	auto failed = std::make_unique<std::vector<RequestBlock*>>();
 	return headp_->BulkMove(this, min_max.second, requests, process, *failed)
-	.then([this, failed = std::move(failed), &requests]
+	.then([failed = std::move(failed), &requests]
 			(folly::Try<int>& result) mutable {
 		auto ret = 0;
 		auto failedp = failed.get();
@@ -1758,7 +1758,7 @@ folly::Future<int> ActiveVmdk::BulkMove(const CheckPoints& min_max,
 	std::unique_ptr<IOBufPtrVec> iobufs) {
 
 	return BulkMove(min_max, *requests, *process)
-	.then([this, requests = std::move(requests), process = std::move(process),
+	.then([requests = std::move(requests), process = std::move(process),
 			iobufs = std::move(iobufs)] (int rc) {
 		if (rc) {
 			LOG(ERROR) << __func__ << "Error::" << rc;
@@ -1887,7 +1887,7 @@ ActiveVmdk::BulkMove(ActiveVmdk* vmdkp,
 
 	return folly::collectAll(std::move(futures))
 	.then([&, requests = std::move(requests), process = std::move(process),
-		iobufs = std::move(iobufs), read_size]
+		iobufs = std::move(iobufs)]
 		(const std::vector<folly::Try<int>>& results) -> folly::Future<int> {
 		for (auto& t : results) {
 			if (pio_likely(t.hasValue() and t.value() != 0)) {

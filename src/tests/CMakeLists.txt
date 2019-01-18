@@ -13,7 +13,7 @@ add_executable(StorageLayerTests
 	VirtualMachineTests.cpp
 	CompressHandlerTest.cpp
 	EncryptHandlerTest.cpp
-	ReadAhead.cpp
+	ReadAheadTests.cpp
 )
 
 if(USE_NEP)
