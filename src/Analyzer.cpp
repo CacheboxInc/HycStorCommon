@@ -84,7 +84,7 @@ Analyzer::GetIOStats(const VmdkID& id, const ::io_vmdk_handle_t& handle,
 
 	prepare_stats(handle, level);
 
-	auto s = iostats_get_stats(handle, &stats);
+	auto s = iostats_get_statsbuf(handle, &stats);
 	if (pio_unlikely(not s or not stats.data)) {
 		return {};
 	}
@@ -128,7 +128,7 @@ std::optional<std::string> Analyzer::GetFingerPrintStats(
 
 	prepare_stats(handle, level);
 
-	auto s = ::iostats_get_fprints(handle, &stats);
+	auto s = ::iostats_get_fprintbuf(handle, &stats);
 	if (pio_unlikely(not s or not stats.data)) {
 		return {};
 	}
