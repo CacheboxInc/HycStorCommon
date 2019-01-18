@@ -8,6 +8,10 @@ add_library(HycClientLib
 	${HycClientLibFiles}
 )
 
+target_link_libraries(HycClientLib
+	StorRpcLib
+)
+
 add_subdirectory(tests)
 
 install(TARGETS HycClientLib DESTINATION "/usr/lib/hyc")
