@@ -778,6 +778,9 @@ constexpr T GetErrNo(T arg1, Args... args) {
 void StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	auto it = requests_.scheduled_.find(id);
 	log_assert(it != requests_.scheduled_.end());
+	if (result) {
+		LOG(ERROR) << "reqid " << id << " has nonzero res: " << result;
+	}
 
 	auto req = std::move(it->second);
 	auto reqp = req.get();
@@ -968,7 +971,7 @@ void StordVmdk::BulkReadComplete(const std::vector<Request*>& requests,
 		}
 		return nullptr;
 	};
-
+	reqp->result = result.result;
 	for (const auto& result : results) {
 		auto reqp = RequestFind(result.reqid);
 		if (hyc_likely(result.result == 0)) {
