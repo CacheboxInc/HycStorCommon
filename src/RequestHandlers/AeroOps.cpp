@@ -848,8 +848,10 @@ static void DelListener(as_error *errp, void *datap, as_event_loop* loopp) {
 
 	if (pio_unlikely(errp)) {
 		drp->status_ = errp->code;
+		#if 0
 		LOG(ERROR) << __func__ << "::error msg:" <<
 			errp->message << ", err code:" << errp->code;
+		#endif
 		batchp->failed_ = true;
 		if (batchp->batch.ncomplete_ >= batchp->batch.nsent_) {
 			stop_pipeline = true;
