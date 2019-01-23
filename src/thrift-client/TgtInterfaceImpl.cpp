@@ -779,7 +779,7 @@ void StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	auto it = requests_.scheduled_.find(id);
 	log_assert(it != requests_.scheduled_.end());
 	if (result) {
-		LOG(ERROR) << "reqid " << id << " has nonzero res: " << result;
+		VLOG(5) << "reqid " << id << " has nonzero res: " << result;
 	}
 
 	auto req = std::move(it->second);
@@ -971,9 +971,9 @@ void StordVmdk::BulkReadComplete(const std::vector<Request*>& requests,
 		}
 		return nullptr;
 	};
-	reqp->result = result.result;
 	for (const auto& result : results) {
 		auto reqp = RequestFind(result.reqid);
+		reqp->result = result.result;
 		if (hyc_likely(result.result == 0)) {
 			log_assert(reqp != nullptr);
 			ReadDataCopy(reqp, result);
