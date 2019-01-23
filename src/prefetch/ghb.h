@@ -1,6 +1,10 @@
 #ifndef __GHB_H__
 #define __GHB_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* ------------------------------------------------------------------------------
  * Global History Buffer-based Cache Prefetching
  *
@@ -58,5 +62,8 @@ void ghb_finalize(ghb_t *ghb);
  */
 int ghb_update_and_query(ghb_t *ghb, uint8_t ctx, uint64_t lba,
 			 uint64_t *prefetch_lbas);
+#ifdef __cplusplus
+}
+#endif
 
 #endif	/* __GHB_H__ */

@@ -69,3 +69,13 @@ target_link_libraries(AeroBench
 	boost_context
 	-Wl,--end-group
 )
+
+add_executable(PrefetchBench
+	PrefetchBench.cpp
+)
+
+target_link_libraries(PrefetchBench
+	-Wl,--start-group
+	${LIBRARY_LIST}
+	-Wl,--end-group
+)
