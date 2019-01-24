@@ -8,6 +8,7 @@ namespace pio {
 struct EndPoint {
 	constexpr static char kStats[] = "/stats/";
 	constexpr static char kFingerPrint[] = "/fprints/";
+	constexpr static char kStordCacheStats[] = "/hdm_stats?component=stord";
 };
 
 struct RestResponse {

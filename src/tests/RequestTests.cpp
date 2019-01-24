@@ -18,6 +18,8 @@ using namespace ::hyc_thrift;
 static void DefaultVmdkConfig(config::VmdkConfig& config, uint64_t block_size) {
 	config.SetVmId("vmid");
 	config.SetVmdkId("vmdkid");
+	config.SetVmUUID("vmuuid");
+	config.SetVmdkUUID("vmdkuuid");
 	config.SetBlockSize(block_size);
 }
 

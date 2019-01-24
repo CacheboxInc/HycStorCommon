@@ -16,6 +16,7 @@
 #include "gen-cpp2/MetaData_constants.h"
 #include "DaemonCommon.h"
 #include "IDs.h"
+#include "VmdkCacheStats.h"
 #include "VirtualMachine.h"
 #include "Request.h"
 #include "RequestHandler.h"
@@ -254,6 +255,10 @@ public:
 		return parentdisk_vmdkid_;
 	};
 
+	const ::ondisk::VmdkUUID& GetUUID() const noexcept {
+		return vmdk_uuid_;
+	};
+
 	VirtualMachine* GetVM() const noexcept;
 	const config::VmdkConfig* GetJsonConfig() const noexcept;
 
@@ -301,7 +306,7 @@ public:
 	} cache_stats_;
 
 	void GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept;
-
+	void FillCacheStats(::ondisk::IOAVmdkStats& dest) const noexcept;
 private:
 	folly::Future<int> WriteCommon(Request* reqp, ::ondisk::CheckPointID ckpt_id);
 	int WriteRequestComplete(Request* reqp, ::ondisk::CheckPointID ckpt_id);
@@ -326,6 +331,7 @@ private:
 	uint32_t block_shift_{0};
 	bool cleanup_on_write_{true};
 	std::unique_ptr<config::VmdkConfig> config_;
+	::ondisk::VmdkUUID vmdk_uuid_;
 
 	struct {
 		mutable std::mutex mutex_;
@@ -352,6 +358,7 @@ private:
 	} stats_;
 
 	std::vector<PreloadBlock> preload_blocks_;
+	mutable VmdkCacheStats old_cache_stats_;
 
 public:
 	std::unique_ptr<RequestHandler> headp_{nullptr};

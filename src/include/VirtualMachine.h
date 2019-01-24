@@ -23,6 +23,7 @@ using namespace ::hyc_thrift;
 
 namespace pio {
 /* forward declaration for Pimpl */
+class VmdkCacheStats;
 namespace config {
 	class VmConfig;
 }
@@ -86,6 +87,7 @@ public:
 	void AddVmdk(ActiveVmdk* vmdkp);
 	folly::Future<int> StartPreload(const ::ondisk::VmdkID& id);
 	const ::ondisk::VmID& GetID() const noexcept;
+	const ::ondisk::VmUUID& GetUUID() const noexcept;
 	VmdkHandle GetHandle() const noexcept;
 	const config::VmConfig* GetJsonConfig() const noexcept;
 
@@ -107,6 +109,7 @@ private:
 	void WriteComplete(::ondisk::CheckPointID ckpt_id);
 	void CheckPointComplete(::ondisk::CheckPointID ckpt_id);
 	void FlushComplete(::ondisk::CheckPointID ckpt_id);
+
 	void PostIOStats(_ha_instance* instancep);
 	void PostFingerPrintStats(_ha_instance* instancep);
 
@@ -118,6 +121,7 @@ private:
 private:
 	VmdkHandle handle_;
 	::ondisk::VmID vm_id_;
+	::ondisk::VmUUID vm_uuid_;
 	std::atomic<RequestID> request_id_{0};
 	std::unique_ptr<config::VmConfig> config_;
 

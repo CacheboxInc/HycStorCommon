@@ -42,6 +42,7 @@ public:
 
 private:
 	Analyzer* analyzerp_;
+	const ::ondisk::VmdkID vmdk_id_;
 	::io_vmdk_handle_t handle_;
 	struct {
 		std::atomic<uint32_t> read_{0};

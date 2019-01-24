@@ -18,6 +18,9 @@ using namespace pio::config;
 using namespace ::ondisk;
 using namespace ::hyc_thrift;
 
+static const VmdkUUID kVmdkUUID = "kVmdkUUID";
+static const VmUUID kVmUUID = "kVmUUID";
+
 class TgtInterfaceTest : public ::testing::Test {
 public:
 
@@ -39,11 +42,14 @@ public:
 	VmHandle AddVm(const std::string& vmid) {
 		VmConfig config;
 		config.SetVmId(vmid);
+		config.SetVmUUID(kVmUUID);
 		return NewVm(vmid.c_str(), config.Serialize().c_str());
 	}
 
 	VmdkHandle AddVmdk(VmHandle vm_handle, const VmdkID& vmdkid,
-			const VmdkConfig& config) {
+			VmdkConfig& config) {
+		config.SetVmUUID(kVmUUID);
+		config.SetVmdkUUID(kVmdkUUID);
 		return NewActiveVmdk(vm_handle, vmdkid.c_str(),
 				config.Serialize().c_str());
 	}

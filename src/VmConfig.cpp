@@ -10,6 +10,7 @@ using namespace ::ondisk;
 namespace pio { namespace config {
 
 const std::string VmConfig::kVmID = "VmID";
+const std::string VmConfig::kVmUUID = "VmUUID";
 const std::string VmConfig::kTargetID = "TargetID";
 const std::string VmConfig::kTargetName = "TargetName";
 const std::string VmConfig::kAeroClusterID = "AeroClusterID";
@@ -26,6 +27,14 @@ void VmConfig::SetVmId(const VmID& id) {
 
 bool VmConfig::GetVmId(VmID& id) const {
 	return JsonConfig::GetKey(kVmID, id);
+}
+
+void VmConfig::SetVmUUID(const VmUUID& uuid) {
+	JsonConfig::SetKey(kVmUUID, uuid);
+}
+
+bool VmConfig::GetVmUUID(VmUUID& uuid) const {
+	return JsonConfig::GetKey(kVmUUID, uuid);
 }
 
 void VmConfig::SetTargetId(uint32_t target_id) {
