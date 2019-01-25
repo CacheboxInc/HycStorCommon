@@ -20,6 +20,8 @@ using namespace ::hyc_thrift;
 
 const VmID kVmid = "VmID";
 const VmdkID kVmdkid = "VmdkID";
+const VmUUID kVmUUID = "VmUUID";
+const VmdkUUID kVmdkUUID = "VmdkUUID";
 const uint64_t kBlockSize = 4096;
 
 class VirtualMachineTest : public ::testing::Test {
@@ -54,6 +56,7 @@ public:
 	VmHandle AddVm() {
 		VmConfig config;
 		config.SetVmId(kVmid);
+		config.SetVmUUID(kVmUUID);
 		config.SetAeroClusterID("0");
 		return NewVm(kVmid.c_str(), config.Serialize().c_str());
 	}
@@ -62,6 +65,8 @@ public:
 		VmdkConfig c;
 		c.SetVmdkId(kVmdkid);
 		c.SetVmId(kVmid);
+		c.SetVmdkUUID(kVmdkUUID);
+		c.SetVmUUID(kVmUUID);
 		c.SetBlockSize(kBlockSize);
 		c.DisableCompression();
 		c.DisableEncryption();

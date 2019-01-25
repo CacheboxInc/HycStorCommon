@@ -29,6 +29,8 @@ protected:
 	void DefaultVmdkConfig(config::VmdkConfig& config, uint64_t block_size) {
 		config.SetVmId("vmdkid");
 		config.SetVmdkId("vmdkid");
+		config.SetVmUUID("vmdkUUID");
+		config.SetVmdkUUID("vmdkUUID");
 		config.SetBlockSize(block_size);
 		config.ConfigureRamCache(1024);
 	}

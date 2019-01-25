@@ -25,6 +25,8 @@ using namespace ::ondisk;
 static const size_t kVmdkBlockSize = 8192;
 static const VmdkID kVmdkid = "kVmdkid";
 static const VmID kVmid = "kVmid";
+static const VmdkUUID kVmdkUUID = "kVmdkUUID";
+static const VmUUID kVmUUID = "kVmUUID";
 
 class SuccessHandlerTests : public ::testing::Test {
 protected:
@@ -58,6 +60,8 @@ protected:
 	void DefaultVmdkConfig(VmdkConfig& config) {
 		config.SetVmdkId(kVmdkid);
 		config.SetVmId(kVmid);
+		config.SetVmdkUUID(kVmdkUUID);
+		config.SetVmUUID(kVmUUID);
 		config.SetBlockSize(kVmdkBlockSize);
 		config.ConfigureCompression("snappy", 1);
 		config.ConfigureEncryption("aes128-gcm", "abcd");

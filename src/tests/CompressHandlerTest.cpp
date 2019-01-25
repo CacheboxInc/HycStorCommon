@@ -45,6 +45,8 @@ public:
 			bool is_compression_enabled, bool is_encryption_enabled) {
 		config.SetVmId("vmdkid");
 		config.SetVmdkId("vmdkid");
+		config.SetVmUUID("vmuuid");
+		config.SetVmdkUUID("vmdkuuid");
 		config.SetBlockSize(block_size);
 		if (is_compression_enabled)
 			config.ConfigureCompression("snappy", 1);

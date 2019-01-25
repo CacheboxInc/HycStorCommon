@@ -138,6 +138,7 @@ endif(USE_NEP)
 
 set(StorageLayerFiles
 	TgtInterfaceImpl.cpp
+	VmdkCacheStats.cpp
 	VirtualMachine.cpp
 	VmConfig.cpp
 	AeroConfig.cpp

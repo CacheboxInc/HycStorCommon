@@ -54,6 +54,10 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 		const std::string& config)
 		: Vmdk(handle, std::move(id)), vmp_(vmp),
 		config_(std::make_unique<config::VmdkConfig>(config)) {
+	if (not config_->GetVmdkUUID(vmdk_uuid_)) {
+		throw std::invalid_argument("vmdk uuid is not set.");
+	}
+
 	uint32_t block_size;
 	if (not config_->GetBlockSize(block_size)) {
 		block_size = kDefaultBlockSize;
@@ -107,7 +111,10 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	}
 }
 
-ActiveVmdk::~ActiveVmdk() = default;
+ActiveVmdk::~ActiveVmdk() {
+	/* destroy layers before rest of the ActiveVmdk object is destroyed */
+	headp_ = nullptr;
+}
 
 size_t ActiveVmdk::BlockShift() const {
 	return block_shift_;
@@ -254,6 +261,13 @@ void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
 	vmdk_stats->bufsz_after_uncompress = cache_stats_.bufsz_after_uncompress;
 }
 
+void ActiveVmdk::FillCacheStats(IOAVmdkStats& dest) const noexcept {
+	VmdkCacheStats cur_stats;
+
+	GetCacheStats(&cur_stats);
+	cur_stats.GetCummulativeCacheStats(old_cache_stats_, dest);
+}
+
 CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
 		const CheckPoints& min_max, bool& found) const {
 	auto [min, max] = min_max;
@@ -384,7 +398,7 @@ folly::Future<int> ActiveVmdk::BulkRead(const CheckPoints& min_max,
 		}
 
 		int32_t res = 0;
-		--stats_.reads_in_progress_;
+		stats_.reads_in_progress_ -= requests.size();
 		for (auto& reqp : requests) {
 			auto rc = reqp->Complete();
 			if (pio_unlikely(rc < 0)) {

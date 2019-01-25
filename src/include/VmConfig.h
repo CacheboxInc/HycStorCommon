@@ -15,6 +15,9 @@ public:
 	void SetVmId(const ::ondisk::VmID& vmid);
 	bool GetVmId(::ondisk::VmID& vmid) const;
 
+	void SetVmUUID(const ::ondisk::VmUUID& uuid);
+	bool GetVmUUID(::ondisk::VmUUID& uuid) const;
+
 	void SetTargetId(uint32_t target_id);
 	bool GetTargetId(uint32_t& target_id) const;
 	void SetTargetName(const std::string& target_name);
@@ -26,6 +29,7 @@ public:
 
 public:
 	static const std::string kVmID;
+	static const std::string kVmUUID;
 	static const std::string kTargetID;
 	static const std::string kTargetName;
 	static const std::string kAeroClusterID;

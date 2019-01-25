@@ -36,6 +36,8 @@ public:
 	void DefaultVmdkConfig(config::VmdkConfig& config, uint64_t block_size) {
 		config.SetVmId("vmdkid");
 		config.SetVmdkId("vmdkid");
+		config.SetVmUUID("vmuuid");
+		config.SetVmdkUUID("vmdkuuid");
 		config.SetBlockSize(block_size);
 		config.ConfigureEncryption("aes128-gcm", "abcd");
 		config.DisableCompression();

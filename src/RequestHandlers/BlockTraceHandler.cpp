@@ -12,11 +12,13 @@ using namespace ::ondisk;
 namespace pio {
 
 BlockTraceHandler::BlockTraceHandler(ActiveVmdk* vmdkp) :
-		RequestHandler(nullptr), analyzerp_(vmdkp->GetVM()->GetAnalyzer()) {
-	handle_ = analyzerp_->RegisterVmdk(vmdkp->GetID());
+		RequestHandler(nullptr), analyzerp_(vmdkp->GetVM()->GetAnalyzer()),
+		vmdk_id_(vmdkp->GetID()) {
+	handle_ = analyzerp_->RegisterVmdk(vmdkp);
 }
 
 BlockTraceHandler::~BlockTraceHandler() {
+	analyzerp_->UnregisterVmdk(vmdk_id_);
 	handle_ = 0;
 }
 
