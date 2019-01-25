@@ -25,6 +25,8 @@ using ::testing::Combine;
 
 const VmID kVmid = "VmID";
 const VmdkID kVmdkid = "VmdkID";
+const VmUUID kVmUUID = "kVmUUID";
+const VmdkUUID kVmdkUUID = "kVmdkUUID";
 
 class PreloadTest : public TestWithParam<
 		::testing::tuple<uint64_t, Offset, Offset, uint32_t>> {
@@ -72,6 +74,7 @@ public:
 	VmHandle AddVm() {
 		VmConfig config;
 		config.SetVmId(kVmid);
+		config.SetVmUUID(kVmUUID);
 		config.SetAeroClusterID("0");
 		return NewVm(kVmid.c_str(), config.Serialize().c_str());
 	}
@@ -85,6 +88,8 @@ public:
 		VmdkConfig c;
 		c.SetVmdkId(kVmdkid);
 		c.SetVmId(kVmid);
+		c.SetVmdkUUID(kVmdkUUID);
+		c.SetVmUUID(kVmUUID);
 		c.SetBlockSize(block_size);
 		c.ConfigureRamCache(1024);
 		c.SetPreloadBlocks(preload_.offsets_);

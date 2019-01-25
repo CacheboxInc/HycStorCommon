@@ -30,6 +30,8 @@ using namespace ::hyc_thrift;
 static const size_t kVmdkBlockSize = 4096;
 static const VmdkID kVmdkid = "kVmdkid";
 static const VmID kVmid = "kVmid";
+static const VmUUID kVmUUID = "kVmUUID";
+static const VmdkUUID kVmdkUUID = "kVmdkUUID";
 static const int64_t kDiskSize = 21474836480; // 20GB
 #define N_ACCESSES	(64)
 #define N_STREAMS	(4)
@@ -64,6 +66,8 @@ protected:
 	void DefaultVmdkConfig(VmdkConfig& config) {
 		config.SetVmdkId(kVmdkid);
 		config.SetVmId(kVmid);
+		config.SetVmdkUUID(kVmdkUUID);
+		config.SetVmUUID(kVmUUID);
 		config.SetBlockSize(kVmdkBlockSize);
 		config.DisableCompression();
 		config.DisableEncryption();
