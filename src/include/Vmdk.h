@@ -284,6 +284,8 @@ public:
 		std::atomic<size_t> total_bytes_reads_{0};
 		std::atomic<size_t> total_bytes_writes_{0};
 
+		std::atomic<uint64_t> total_blk_reads_{0};
+
 		std::atomic<uint64_t> parent_blks_{0};
 		std::atomic<uint64_t> read_populates_{0};
 		std::atomic<uint64_t> cache_writes_{0};

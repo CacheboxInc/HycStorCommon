@@ -217,21 +217,32 @@ void ActiveVmdk::ComputePreloadBlocks() {
 }
 
 void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
-	vmdk_stats->total_reads_    = cache_stats_.total_reads_;
+
+	if (pio_likely(read_aheadp_)) {
+		vmdk_stats->read_ahead_blks_ = read_aheadp_->StatsTotalReadAheadBlocks();
+
+		auto app_reads               = cache_stats_.total_blk_reads_ -
+						vmdk_stats->read_ahead_blks_;
+		vmdk_stats->total_blk_reads_ = app_reads;
+
+		vmdk_stats->total_reads_     = cache_stats_.total_reads_;
+		vmdk_stats->read_miss_       = read_aheadp_->StatsTotalReadMissBlocks();
+		vmdk_stats->read_hits_       = app_reads - vmdk_stats->read_miss_;
+	} else {
+		vmdk_stats->total_blk_reads_ = cache_stats_.total_blk_reads_;
+		vmdk_stats->total_reads_     = cache_stats_.total_reads_;
+		vmdk_stats->read_miss_       = cache_stats_.read_miss_;
+		vmdk_stats->read_hits_       = cache_stats_.read_hits_;
+	}
+
 	vmdk_stats->total_writes_   = cache_stats_.total_writes_;
 	vmdk_stats->read_populates_ =  cache_stats_.read_populates_;
 	vmdk_stats->cache_writes_   =  cache_stats_.cache_writes_;
-	vmdk_stats->read_hits_      = cache_stats_.read_hits_;
-	vmdk_stats->read_miss_      = cache_stats_.read_miss_;
 	vmdk_stats->read_failed_    = cache_stats_.read_failed_;
 	vmdk_stats->write_failed_   = cache_stats_.write_failed_;
 
 	vmdk_stats->reads_in_progress_  = stats_.reads_in_progress_;
 	vmdk_stats->writes_in_progress_ = stats_.writes_in_progress_;
-
-	if(pio_likely(read_aheadp_)) {
-		vmdk_stats->read_ahead_blks_ = read_aheadp_->StatsTotalReadAheadBlocks();
-	}
 
 	vmdk_stats->flushes_in_progress_ = FlushesInProgress();
 	vmdk_stats->moves_in_progress_   = MovesInProgress();
