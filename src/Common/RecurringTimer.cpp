@@ -29,6 +29,9 @@ void RecurringTimer::AttachToEventBase(folly::EventBase* basep) {
 
 void RecurringTimer::Cancel() {
 	*cancel_ = true;
+	if (basep_ == nullptr) {
+		return;
+	}
 	basep_->runInEventBaseThreadAndWait([this] () mutable {
 		cancelTimeout();
 	});
