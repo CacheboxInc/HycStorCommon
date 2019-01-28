@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <memory>
 #include <folly/io/async/AsyncTimeout.h>
 
 namespace pio {
@@ -19,8 +20,8 @@ private:
 	void Cancel();
 private:
 	folly::EventBase* basep_{nullptr};
-	bool cancel_{false};
-	TimeoutFunc func_;
 	std::chrono::milliseconds milli_;
+	std::shared_ptr<bool> cancel_{};
+	TimeoutFunc func_;
 };
 }
