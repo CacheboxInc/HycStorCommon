@@ -219,7 +219,7 @@ int NewFlushReq(VmID vmid, const std::string& config) {
 			auto rc = fi->StartFlush(vmid);
 			/* Remove fi Instance */
 			std::lock_guard<std::mutex> lock(managerp->lock_);
-			managerp->FreeInstance(vmid);
+			managerp->FreeInstance(vmid, rc);
 			return rc;
 		});
 	} catch (...) {
@@ -310,10 +310,10 @@ int NewFlushStatusReq(VmID vmid, FlushStats &flush_stat) {
 	return rc;
 }
 
-int FlushHistoryReq(VmID vmid, std::ostringstream& fh) {
+int FlushHistoryReq(VmID vmid, json_t *history_param) {
 	auto managerp = SingletonHolder<FlushManager>::GetInstance();
 	std::unique_lock<std::mutex> flush_lock(managerp->lock_);
-	auto t = managerp->GetHistory(vmid, fh);
+	auto t = managerp->GetHistory(vmid, history_param);
 
 	if (pio_unlikely(t)) {
 		LOG(ERROR) << "Flush history not present for vmid " << vmid;
@@ -434,6 +434,12 @@ int RemoveVmUsingVmID(VmID vmid) {
 			LOG(ERROR) << "Unable to Clean the aerospike set entries";
 		}
 		#endif
+
+		/* Removing flush_history associated with VM*/
+		auto flush_managerp = SingletonHolder<FlushManager>::GetInstance();
+		std::unique_lock<std::mutex> flush_lock(flush_managerp->lock_);
+		flush_managerp->FreeHistory(vmid);
+		flush_lock.unlock();
 
 		LOG(INFO) << __func__ << " Calling FreeInstance";
 		return managerp->FreeInstance(handle);

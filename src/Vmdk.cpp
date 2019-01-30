@@ -895,6 +895,7 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id,
 	 */
 
 	aux_info_->InitState(FlushAuxData::FlushStageType::kFlushStage);
+	aux_info_->FlushStartedAt_ = std::chrono::steady_clock::now();
 	int32_t size = 0;
 
 	auto ckptp = GetCheckPoint(ckpt_id);
@@ -1091,6 +1092,10 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id,
 
 	log_assert(aux_info_->sleeping_ == false);
 	log_assert(aux_info_->pending_cnt_ == 0);
+
+	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
+		(std::chrono::steady_clock::now() - aux_info_->FlushStartedAt_);
+	aux_info_->FlushStageDuration_ = duration.count();
 	aux_info_->lock_.unlock();
 
 	LOG (ERROR) << __func__ << vmdkid << "::"
@@ -1110,6 +1115,7 @@ int ActiveVmdk::FlushStage_v2(CheckPointID ckpt_id,
 	 */
 
 	aux_info_->InitState(FlushAuxData::FlushStageType::kFlushStage);
+	aux_info_->FlushStartedAt_ = std::chrono::steady_clock::now();
 
 	auto ckptp = GetCheckPoint(ckpt_id);
 	log_assert(ckptp != nullptr);
@@ -1332,6 +1338,10 @@ int ActiveVmdk::FlushStage_v2(CheckPointID ckpt_id,
 
 	log_assert(aux_info_->sleeping_ == false);
 	log_assert(aux_info_->pending_cnt_ == 0);
+
+	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
+		(std::chrono::steady_clock::now() - aux_info_->FlushStartedAt_);
+	aux_info_->FlushStageDuration_ = duration.count();
 	aux_info_->lock_.unlock();
 
 	LOG (ERROR) << __func__ << vmdkid << "::"
@@ -1393,6 +1403,7 @@ int ActiveVmdk::MoveStage_v2(CheckPointID ckpt_id,
 	uint32_t max_req_size, uint32_t max_pending_reqs) {
 
 	aux_info_->InitState(FlushAuxData::FlushStageType::kMoveStage);
+	aux_info_->MoveStartedAt_ = std::chrono::steady_clock::now();
 	int32_t size = 0;
 
 	auto ckptp = GetCheckPoint(ckpt_id);
@@ -1588,8 +1599,11 @@ int ActiveVmdk::MoveStage_v2(CheckPointID ckpt_id,
 
 	log_assert(aux_info_->sleeping_ == false);
 	log_assert(aux_info_->pending_cnt_ == 0);
-	aux_info_->lock_.unlock();
 
+	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
+		(std::chrono::steady_clock::now() - aux_info_->MoveStartedAt_);
+	aux_info_->MoveStageDuration_ = duration.count();
+	aux_info_->lock_.unlock();
 	LOG (ERROR) << __func__ << vmdkid << "::"
 		<< "Move stage End, total attempted moved blocks count::"
 		<< aux_info_->moved_blks_
@@ -1606,6 +1620,7 @@ int ActiveVmdk::MoveStage(CheckPointID ckpt_id, uint32_t max_pending_reqs) {
 	 */
 
 	aux_info_->InitState(FlushAuxData::FlushStageType::kMoveStage);
+	aux_info_->MoveStartedAt_ = std::chrono::steady_clock::now();
 	int32_t size = BlockSize();
 
 	auto ckptp = GetCheckPoint(ckpt_id);
@@ -1694,6 +1709,10 @@ int ActiveVmdk::MoveStage(CheckPointID ckpt_id, uint32_t max_pending_reqs) {
 
 	log_assert(aux_info_->sleeping_ == false);
 	log_assert(aux_info_->pending_cnt_ == 0);
+
+	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
+		(std::chrono::steady_clock::now() - aux_info_->MoveStartedAt_);
+	aux_info_->MoveStageDuration_ = duration.count();
 	aux_info_->lock_.unlock();
 
 	LOG (ERROR) << __func__ << vmdkid << "::"
@@ -1959,6 +1978,7 @@ int ActiveVmdk::MoveStage_v3(CheckPointID ckpt_id,
 	 */
 
 	aux_info_->InitState(FlushAuxData::FlushStageType::kMoveStage);
+	aux_info_->MoveStartedAt_ = std::chrono::steady_clock::now();
 
 	auto ckptp = GetCheckPoint(ckpt_id);
 	log_assert(ckptp != nullptr);
@@ -2159,6 +2179,10 @@ int ActiveVmdk::MoveStage_v3(CheckPointID ckpt_id,
 
 	log_assert(aux_info_->sleeping_ == false);
 	log_assert(aux_info_->pending_cnt_ == 0);
+
+	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
+		(std::chrono::steady_clock::now() - aux_info_->MoveStartedAt_);
+	aux_info_->MoveStageDuration_ = duration.count();
 	aux_info_->lock_.unlock();
 
 	LOG (ERROR) << __func__ << vmdkid << "::"

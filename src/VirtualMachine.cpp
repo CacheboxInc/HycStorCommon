@@ -292,12 +292,40 @@ folly::Future<int> VirtualMachine::CommitCheckPoint(CheckPointID ckpt_id) {
 
 int VirtualMachine::FlushStatus(FlushStats &flush_stat) {
 	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+
+	uint64_t flush_time  = 0;
+	uint64_t move_time   = 0;
+	uint64_t flush_bytes = 0;
+	uint64_t move_bytes  = 0;
+
 	per_disk_flush_stat disk_stats;
 	for (const auto& vmdkp : vmdk_.list_) {
 		disk_stats = std::make_pair(vmdkp->aux_info_->GetFlushedBlksCnt(),
 			vmdkp->aux_info_->GetMovedBlksCnt());
 		flush_stat.emplace(vmdkp->GetID(), disk_stats);
+
+		if (not vmdkp->aux_info_->FlushStageDuration_ &&
+			vmdkp->aux_info_->FlushStartedAt_ < std::chrono::steady_clock::now()) {
+			auto vmdk_flush_time = std::chrono::duration_cast<std::chrono::milliseconds>
+				(std::chrono::steady_clock::now() - vmdkp->aux_info_->FlushStartedAt_);
+			flush_time += vmdk_flush_time.count();
+		} else {
+			flush_time += vmdkp->aux_info_->FlushStageDuration_;
+		}
+
+		if (vmdkp->aux_info_->FlushStageDuration_ && not vmdkp->aux_info_->MoveStageDuration_) {
+			auto vmdk_move_time = std::chrono::duration_cast<std::chrono::milliseconds>
+				(std::chrono::steady_clock::now() - vmdkp->aux_info_->MoveStartedAt_);
+			move_time += vmdk_move_time.count();
+		} else {
+			move_time += vmdkp->aux_info_->MoveStageDuration_;
+		}
+
+		flush_bytes += (vmdkp->aux_info_->GetFlushedBlksCnt() * vmdkp->BlockSize());
+		move_bytes  += (vmdkp->aux_info_->GetMovedBlksCnt() * vmdkp->BlockSize());
 	}
+	flush_stat.emplace("-2", std::make_pair(flush_time, move_time));
+	flush_stat.emplace("-3", std::make_pair(flush_bytes, move_bytes));
 	return 0;
 }
 

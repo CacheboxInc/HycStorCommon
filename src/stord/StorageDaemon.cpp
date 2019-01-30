@@ -1230,6 +1230,7 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 	}
 
 	FlushStats flush_stat;
+	bool flush_not_running = false;
 	auto ret = pio::NewFlushStatusReq(vmid, flush_stat);
 	if (ret) {
 		std::ostringstream es;
@@ -1237,18 +1238,24 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 		if (ret == -EINVAL) {
 			es << "Flush is not running currently for VMID::"  << vmid;
 			SetErrMsg(resp, STORD_ERR_FLUSH_NOT_STARTED, es.str());
+			// TODO: Return success for REST and check error in status.
+			flush_not_running = true;
 		} else {
 			es << "Failed to get flush status for VMID::"  << vmid;
+			LOG(ERROR) << "Failed to get flush status for VMID::"  << vmid;
 			SetErrMsg(resp, STORD_ERR_INVALID_FLUSH, es.str());
 		}
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	bool first = true;
 	FlushStats::iterator itr;
 
 	uint64_t total_flushed_blks = 0;
 	uint64_t total_moved_blks = 0;
+	uint64_t flush_duration = 0;
+	uint64_t move_duration = 0;
+	uint64_t flush_bytes = 0;
+	uint64_t move_bytes = 0;
 
 	/*TODO: Get total number of blocks to be flushed from bitmap.
 	 *      For now sending zero.
@@ -1256,11 +1263,19 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 	uint64_t remaining_blks = 0;
 
 	for (itr = flush_stat.begin(); itr != flush_stat.end(); ++itr) {
-		if (pio_unlikely(first)) {
+		if (pio_unlikely(flush_not_running)) {
+			break;
+		}
+		if (itr->first == "-1") {
 			LOG(ERROR) << boost::format("%1% %2% %3% %4%")
 				% "Start time:-" % (itr->second).first
 				% "Elapsed time:-" % (itr->second).second;
-			first = false;
+		} else if (itr->first == "-2") {
+			flush_duration = (itr->second).first;
+			move_duration  = (itr->second).second;
+		} else if (itr->first == "-3") {
+			flush_bytes = (itr->second).first;
+			move_bytes  = (itr->second).second;
 		} else {
 			LOG(ERROR) << boost::format("[LUN:%1%] %2% %3% %|20t|%4% %5%")
 				% itr->first % "Flushed Blks:-" % (itr->second).first
@@ -1274,21 +1289,42 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 
 	json_t *flush_params = json_object();
 
-	json_object_set_new(flush_params, "flush_running", json_boolean(true));
+	if (flush_not_running) {
+		json_object_set_new(flush_params, "flush_running", json_boolean(false));
+	} else {
+		json_object_set_new(flush_params, "flush_running", json_boolean(true));
+	}
+
+	if (flush_duration && ((flush_duration / 1000) / 1024)) {
+		auto flush_speed = ((flush_bytes) / (flush_duration / 1000) / 1024);
+		json_object_set_new(flush_params, "curr_flush_speed(KBps)", json_integer(flush_speed));
+	}
+
+	if (move_duration && ((move_duration / 1000) / 1024)) {
+		auto move_speed = ((move_bytes) / (move_duration / 1000) / 1024);
+		json_object_set_new(flush_params, "curr_move_speed(KBps)", json_integer(move_speed));
+	}
+
 	json_object_set_new(flush_params, "flushed_blks_cnt", json_integer(total_flushed_blks));
 	json_object_set_new(flush_params, "moved_blks_cnt", json_integer(total_moved_blks));
 	json_object_set_new(flush_params, "remaining_blks_cnt", json_integer(remaining_blks));
+	json_object_set_new(flush_params, "flush_duration(ms)", json_integer(flush_duration));
+	json_object_set_new(flush_params, "move_duration(ms)", json_integer(move_duration));
 
 	param_valuep = ha_parameter_get(reqp, "get_history");
 	if (param_valuep) {
-		std::ostringstream fh;
-		auto t = pio::FlushHistoryReq(vmid, fh);
+		json_t *history_param = json_object();
+		auto t = pio::FlushHistoryReq(vmid, history_param);
 		if (pio_unlikely(t)) {
 			LOG(INFO) << "History unavailable for vmid " << vmid;
 		}
-		const auto st = fh.str();
-		json_object_set_new(flush_params, "history", json_string(st.c_str()));
 
+		auto *hist_str = json_dumps(history_param, JSON_ENCODE_ANY);
+		json_object_clear(history_param);
+		json_decref(history_param);
+
+		json_object_set_new(flush_params, "history", json_string(hist_str));
+		::free(hist_str);
 	} else {
 		LOG(INFO) << "History not queried";
 	}
@@ -1518,17 +1554,27 @@ static int NewFlushHistoryReq(const _ha_request *reqp, _ha_response *resp, void 
 		return HA_CALLBACK_CONTINUE;
 	}
 
+	json_t *history_param = json_object();
+	auto t = pio::FlushHistoryReq(vmid, history_param);
+	if (pio_unlikely(t)) {
+		std::ostringstream es;
+		es << "History unavailable for vmid " << vmid
+			<< ". First flush not triggered or still in progress";
+
+		LOG(ERROR) << es.str();
+		json_object_clear(history_param);
+		json_decref(history_param);
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto *hist_str = json_dumps(history_param, JSON_ENCODE_ANY);
+	json_object_clear(history_param);
+	json_decref(history_param);
 
 	json_t *flush_params = json_object();
-
-	std::ostringstream fh;
-	auto t = pio::FlushHistoryReq(vmid, fh);
-	if (pio_unlikely(t)) {
-		LOG(ERROR) << "History unavailable for vmid " << vmid
-			<< ". First flush not triggered or still in progress";
-	}
-	const auto st = fh.str();
-	json_object_set_new(flush_params, "history", json_string(st.c_str()));
+	json_object_set_new(flush_params, "history", json_string(hist_str));
+	::free(hist_str);
 
 	auto *flush_params_str = json_dumps(flush_params, JSON_ENCODE_ANY);
 

@@ -106,6 +106,12 @@ public:
 	bool done_{false};
 	bool failed_{false};
 	std::atomic<uint64_t> reqid_{0};
+
+	std::chrono::steady_clock::time_point FlushStartedAt_;
+	uint64_t FlushStageDuration_{0};
+	std::chrono::steady_clock::time_point MoveStartedAt_;
+	uint64_t MoveStageDuration_{0};
+
 public:
 	void InitState(FlushStageType type) {
 		/* TBD: rendez reset */

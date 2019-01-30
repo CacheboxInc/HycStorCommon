@@ -103,6 +103,7 @@ set(LIBRARY_LIST
 	${ThriftLibs}
 	${HYC_COMPRESS_LIBS}
 	${HYC_ENCRYPT_LIBS}
+	jansson
 )
 
 set(HA_LIBS

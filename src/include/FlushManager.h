@@ -25,17 +25,23 @@ public:
 	void DestroyInstance();
 	int NewInstance(::ondisk::VmID vmid, const std::string& config);
 	FlushInstance* GetInstance(const ::ondisk::VmID& vmid);
-	void FreeInstance(const ::ondisk::VmID& vmid);
+	void FreeInstance(const ::ondisk::VmID& vmid, int status);
 	std::mutex lock_;
 
-	void PopulateHistory(const ::ondisk::VmID& vmid, FlushInstance *fi);
+	void PopulateHistory(const ::ondisk::VmID& vmid, FlushInstance *fi, int status);
+	void FreeHistory(const ::ondisk::VmID& vmid);
 	struct instance_history {
+		int status;
 		uint64_t FlushedBlks;
 		uint64_t MovedBlks;
 		uint64_t RunDuration;
+		uint64_t FlushDuration;
+		uint64_t MoveDuration;
+		uint64_t FlushBytes;
+		uint64_t MoveBytes;
 		std::chrono::system_clock::time_point StartedAt;
 	};
-	int GetHistory(const ::ondisk::VmID& vmid, std::ostringstream& fh);
+	int GetHistory(const ::ondisk::VmID& vmid, void *history_param);
 	std::multimap<::ondisk::VmID, instance_history> flush_history_;
 private:
 	SpinLock mutex_;

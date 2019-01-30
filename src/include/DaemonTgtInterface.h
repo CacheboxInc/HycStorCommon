@@ -28,7 +28,7 @@ int CommitCkpt(ondisk::VmID vmid, std::string& ckpt_id);
 int NewFlushReq(ondisk::VmID vmid, const std::string& config);
 int NewScanReq(ondisk::VmID vmid, const std::string& config);
 int NewFlushStatusReq(ondisk::VmID vmid, FlushStats &flush_stat);
-int FlushHistoryReq(ondisk::VmID vmid, std::ostringstream& fh);
+int FlushHistoryReq(ondisk::VmID vmid, json_t *history_param);
 int NewScanStatusReq(pio::AeroClusterID id, ScanStats &scan_stat);
 int NewAeroCacheStatReq(ondisk::VmID vmid, AeroStats *);
 
