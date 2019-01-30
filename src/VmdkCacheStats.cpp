@@ -6,10 +6,15 @@ namespace pio {
 
 void VmdkCacheStats::GetCummulativeCacheStats(VmdkCacheStats& old_stats,
 		IOAVmdkStats& stats) const noexcept {
-	stats.total_reads = total_reads_ - old_stats.total_reads_;
-	stats.total_writes = total_writes_ - old_stats.total_writes_;
+	//App stats are irrespective of block size
+	stats.app_reads = total_reads_ - old_stats.total_reads_;
+	stats.app_writes = total_writes_ - old_stats.total_writes_;
+
+	//Analyser needs stats in terms of block size sending blk_size stats to them.
+	stats.total_reads = total_blk_reads_ - old_stats.total_blk_reads_;
+	stats.total_writes = cache_writes_ - old_stats.cache_writes_;
 	stats.read_populates = read_populates_ - old_stats.read_populates_;
-	stats.cache_writes = cache_writes_ - old_stats.cache_writes_;
+	stats.cache_writes = stats.total_writes;
 	stats.read_hits = read_hits_ - old_stats.read_hits_;
 	stats.read_miss = read_miss_ - old_stats.read_miss_;
 	stats.read_failed = read_failed_ - old_stats.read_failed_;

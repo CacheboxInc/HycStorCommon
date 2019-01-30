@@ -10,9 +10,9 @@ namespace pio {
 
 class VmdkCacheStats {
 public:
-	uint64_t total_reads_{0};
-	uint64_t total_writes_{0};
-	uint64_t total_blk_reads_{0};
+	uint64_t total_reads_{0};		//Total reads issued by app
+	uint64_t total_writes_{0};		//Total writes issued by app
+	uint64_t total_blk_reads_{0};		//Total reads in terms of blk size
 	size_t total_bytes_reads_{0};
 	size_t total_bytes_writes_{0};
 

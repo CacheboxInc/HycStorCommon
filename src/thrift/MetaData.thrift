@@ -85,6 +85,9 @@ struct IOAVmdkStats {
 	59: i64 bufsz_after_compress;
 	60: i64 bufsz_before_uncompress;
 	61: i64 bufsz_after_uncompress;
+	62: i64 total_blk_reads;
+	63: i64 app_reads;
+	64: i64 app_writes;
 }
 
 struct IOAVmStats {
