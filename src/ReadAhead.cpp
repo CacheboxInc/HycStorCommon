@@ -195,8 +195,11 @@ folly::Future<std::unique_ptr<ReadResultVec>>
 ReadAhead::Read(std::map<int64_t, bool>& predictions) {
 	assert(not predictions.empty());
 	ReadRequestVec requests;
-	
+	LOG(ERROR) << "==================================================================";	
+	LOG(ERROR) << "Prediction Size = " << predictions.size();
 	CoalesceRequests(predictions, requests);
+	LOG(ERROR) << "Request Size = " << requests.size();
+	LOG(ERROR) << "==================================================================";	
 
 	auto vmp = vmdkp_->GetVM();
 	assert(vmp);
