@@ -24,15 +24,22 @@ public:
 	typedef struct __ReadAheadStats__ {
 		std::atomic<uint64_t>	stats_rh_blocks_size_{0};
 		std::atomic<uint64_t>	stats_rh_read_misses_{0};
+		std::atomic<uint64_t>	stats_rh_ghb_lib_calls_{0};
 	}ReadAheadStats;
 	
 	// Methods
+	ReadAhead(ActiveVmdk* vmdkp, int prefetch_depth, int start_index, 
+		int loopback);
 	ReadAhead(ActiveVmdk* vmdkp);
 	virtual ~ReadAhead();
 	folly::Future<std::unique_ptr<ReadResultVec>>
 	Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>& requests);
 	folly::Future<std::unique_ptr<ReadResultVec>>
 	Run(ReqBlockVec& offsets, Request* request);
+	static uint64_t AdjustReadMisses(const std::vector<RequestBlock*>& missed, 
+		const std::vector<std::unique_ptr<Request>>& requests); 
+	static uint64_t AdjustReadMisses(const std::vector<RequestBlock*>& missed, 
+		Request* request); 
 	bool IsReadAheadEnabled() const {
 		return !force_disable_read_ahead_;
 	}
@@ -49,9 +56,14 @@ public:
 		return st_read_ahead_stats_.stats_rh_read_misses_;
 	}
 	
+	uint64_t StatsTotalGhbLibCalls() const {
+		return st_read_ahead_stats_.stats_rh_ghb_lib_calls_;
+	}
+	
 	void GetReadAheadStats(ReadAheadStats& st_rh_stats) const {
 		st_rh_stats.stats_rh_blocks_size_ = st_read_ahead_stats_.stats_rh_blocks_size_.load(std::memory_order_relaxed);
 		st_rh_stats.stats_rh_read_misses_ = st_read_ahead_stats_.stats_rh_read_misses_.load(std::memory_order_relaxed);
+		st_rh_stats.stats_rh_ghb_lib_calls_ = st_read_ahead_stats_.stats_rh_ghb_lib_calls_.load(std::memory_order_relaxed);
 	}
 
 private:
@@ -65,8 +77,6 @@ private:
 
 	static const int64_t 	MAX_PENDING_IOS_ = 1024;
 	static const int64_t 	PENDING_IOS_SERVE_SIZE = 8;
-	static const int64_t	MAX_PREDICTION_SIZE = 1 << 20; 	// 1M
-	static const int64_t	MAX_PACKET_SIZE = 1 << 18; 		// 256K
 	std::map<int64_t, bool> pending_ios_;
 	std::mutex 				pending_ios_mutex_; 
 	static std::mutex		prediction_mutex_;
@@ -76,7 +86,6 @@ private:
 	ReadAheadStats 			st_read_ahead_stats_{0};
 
 	// Methods
-	ReadAhead() {}
 	void InitializeGHB();
 	void RefreshGHB();
 	folly::Future<std::unique_ptr<ReadResultVec>>
@@ -85,6 +94,6 @@ private:
 			/*[Out]*/ReadRequestVec& requests); 
 	folly::Future<std::unique_ptr<ReadResultVec>>
 	RunPredictions(std::vector<int64_t>& offsets);
-	void InitializeEssentials();
+	void InitializeMaxOffset();
 };
 }
