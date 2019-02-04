@@ -34,13 +34,13 @@ AeroMetaDataKV::~AeroMetaDataKV() {
 
 }
 
-folly::Future<int> AeroMetaDataKV::Write(const MetaDataKey& key,
-		const std::string& value) {
+folly::Future<int> AeroMetaDataKV::Write(const MetaDataKey&,
+		const std::string&) {
 	return 0;
 }
 
 folly::Future<MetaDataKV::ReadResult>
-		AeroMetaDataKV::Read(const MetaDataKey& key) {
+		AeroMetaDataKV::Read(const MetaDataKey&) {
 	return std::make_pair(std::string(), -ENOENT);
 }
 

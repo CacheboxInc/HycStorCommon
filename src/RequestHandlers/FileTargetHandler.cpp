@@ -55,7 +55,7 @@ int event_add(int fd, int ep_fd, int events, event_handler_t handler, void *data
 	return err;
 }
 
-void process_completions(int fd, int input_events, void *data) {
+void process_completions(int, int, void *data) {
 
 	struct io_event* events = new io_event[MAX_EVENTS];
 	struct AIORequestBlock *reqblock;
@@ -302,7 +302,7 @@ void FileTargetHandler::GatherEvents(void) {
 	delete [] epoll_events;
 }
 
-folly::Future<int> FileTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
+folly::Future<int> FileTargetHandler::Read(ActiveVmdk *vmdkp, Request *,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 	if (pio_unlikely(not failed.empty() || process.empty())) {
@@ -381,8 +381,8 @@ retry:
 	});
 }
 
-folly::Future<int> FileTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
+folly::Future<int> FileTargetHandler::Write(ActiveVmdk *vmdkp, Request *,
+		CheckPointID, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 
 #ifdef INJECT_WRITE_FAILURE
@@ -608,7 +608,7 @@ folly::Future<int> FileTargetHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
 }
 
 folly::Future<int> FileTargetHandler::BulkRead(ActiveVmdk* vmdkp,
-		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<std::unique_ptr<Request>>&,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 	return this->Read(vmdkp, nullptr, process, failed);
@@ -616,7 +616,7 @@ folly::Future<int> FileTargetHandler::BulkRead(ActiveVmdk* vmdkp,
 
 folly::Future<int> FileTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
 		::ondisk::CheckPointID ckpt,
-		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<std::unique_ptr<Request>>&,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 	return this->Write(vmdkp, nullptr, ckpt, process, failed);

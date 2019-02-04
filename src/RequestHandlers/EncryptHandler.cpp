@@ -94,9 +94,9 @@ folly::Future<int> EncryptHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	});
 }
 
-int EncryptHandler::ProcessWrite(ActiveVmdk *vmdkp,
+int EncryptHandler::ProcessWrite(ActiveVmdk *,
 		const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock *>& failed) {
+		std::vector<RequestBlock *>&) {
 	int error = 0;
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();

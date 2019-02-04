@@ -34,7 +34,7 @@ folly::Future<int> UnalignedHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	return nextp_->Read(vmdkp, reqp, process, failed);
 }
 
-void UnalignedHandler::ReadModify(ActiveVmdk *vmdkp, Request *reqp,
+void UnalignedHandler::ReadModify(ActiveVmdk *vmdkp, Request *,
 		std::vector<RequestBlock*>& process) {
 	log_assert(not process.empty());
 

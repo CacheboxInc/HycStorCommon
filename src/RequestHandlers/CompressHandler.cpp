@@ -136,7 +136,7 @@ folly::Future<int> CompressHandler::BulkRead(ActiveVmdk* vmdkp,
 
 int CompressHandler::ProcessWrite(ActiveVmdk *vmdkp,
 		const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock *>& failed) {
+		std::vector<RequestBlock *>&) {
 	int error = 0;
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();

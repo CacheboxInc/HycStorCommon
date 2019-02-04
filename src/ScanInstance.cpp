@@ -55,7 +55,7 @@ uint8_t GetObjects(const char *res, uint32_t& vmdkid, uint32_t& ckpt_id, uint64_
  *                       AEROSPIKE_OK)
  */
 
-bool scan_cb(const as_val* p_val, void* udata)
+bool scan_cb(const as_val* p_val, void* )
 {
 	bool ret = true;
 	if (!p_val) {

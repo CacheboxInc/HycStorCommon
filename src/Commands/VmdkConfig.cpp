@@ -146,7 +146,7 @@ static void ConfigureReadAhead(VmdkConfig& config) {
 	config.EnableReadAhead();
 }
 
-int main(int argc, char* argv[]) {
+int main(int, char*[]) {
 	std::string vmid;
 	std::string vmdkid;
 	uint64_t block_size;

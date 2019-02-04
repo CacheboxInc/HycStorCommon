@@ -16,7 +16,7 @@
 using namespace ::ondisk;
 
 namespace pio {
-int FlushManager::CreateInstance(struct _ha_instance *ha_instance) {
+int FlushManager::CreateInstance(struct _ha_instance *) {
 
 	auto rc = InitFlushManager();
 	if (pio_unlikely(rc)) {

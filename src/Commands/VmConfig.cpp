@@ -5,7 +5,7 @@
 using namespace pio;
 using namespace pio::config;
 
-int main(int argc, char* argv[]) {
+int main(int, char*[]) {
 	VmConfig config;
 	std::string vmid, cluster_id;
 	uint32_t tid;

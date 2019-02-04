@@ -349,6 +349,7 @@ struct WriteBatch {
 	}
 
 	static void WriteListener(as_error* errp, void* datap, as_event_loop* lp) {
+		(void) lp;
 		auto recordp = reinterpret_cast<WriteRecord*>(datap);
 		auto batchp = recordp->batchp_;
 		batchp->WriteListener(recordp, errp);
@@ -671,8 +672,8 @@ public:
 		return result_.promise_.setValue(0);
 	}
 
-	static void ReadListener(as_error* errp, as_batch_read_records* recordsp,
-			void* datap, as_event_loop* lp) {
+	static void ReadListener(as_error* errp, as_batch_read_records*,
+			void* datap, as_event_loop*) {
 		ReadBatch* batchp = reinterpret_cast<ReadBatch*>(datap);
 		batchp->ReadListener(errp);
 	}

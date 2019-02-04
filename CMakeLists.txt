@@ -87,13 +87,13 @@ add_compile_options(
   -Wextra
   -Werror
   -Wstrict-aliasing
-  -Wno-unused-parameter
   -Wno-missing-field-initializers
   -Wchar-subscripts
   -Wpointer-arith
   -Wformat
   -Wformat-security
   -Werror=format-security
+  -Wunused-variable
   -fstack-protector-all
   -fPIE
   -fpie

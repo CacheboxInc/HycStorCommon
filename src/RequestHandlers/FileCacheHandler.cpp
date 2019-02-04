@@ -49,7 +49,7 @@ const std::string& FileCacheHandler::GetFileCachePath() const {
 	return file_path_;
 }
 
-folly::Future<int> FileCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
+folly::Future<int> FileCacheHandler::Read(ActiveVmdk *vmdkp, Request *,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 	int ret = 0;
@@ -81,8 +81,8 @@ folly::Future<int> FileCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	return ret;
 }
 
-folly::Future<int> FileCacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
+folly::Future<int> FileCacheHandler::Write(ActiveVmdk *vmdkp, Request *,
+		CheckPointID, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 	int ret = 0;
 	if (pio_unlikely(not failed.empty() || process.empty())) {
@@ -132,10 +132,10 @@ folly::Future<int> FileCacheHandler::ReadPopulate(ActiveVmdk *vmdkp,
 }
 
 folly::Future<int> FileCacheHandler::BulkWrite(ActiveVmdk* vmdkp,
-		::ondisk::CheckPointID ckpt,
-		const std::vector<std::unique_ptr<Request>>& requests,
+		::ondisk::CheckPointID,
+		const std::vector<std::unique_ptr<Request>>&,
 		const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock*>& failed) {
+		std::vector<RequestBlock*>&) {
 	for (const auto& blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
 		log_assert(srcp->Size() == vmdkp->BlockSize());
@@ -155,9 +155,9 @@ folly::Future<int> FileCacheHandler::BulkWrite(ActiveVmdk* vmdkp,
 }
 
 folly::Future<int> FileCacheHandler::BulkRead(ActiveVmdk* vmdkp,
-		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<std::unique_ptr<Request>>&,
 		const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock*>& failed) {
+		std::vector<RequestBlock*>&) {
 	for (const auto& blockp : process) {
 		auto destp = NewAlignedRequestBuffer(vmdkp->BlockSize());
 		if (pio_unlikely(not destp)) {

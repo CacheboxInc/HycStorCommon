@@ -91,7 +91,7 @@ TEST(RequestTest, ReadTest) {
 					EXPECT_EQ(blockp->GetRequestBufferAtBack(), nullptr);
 					EXPECT_EQ(blockp->GetRequestBufferCount(), 0);
 
-					blockp->ForEachRequestBuffer([] (RequestBuffer *req_bufp) {
+					blockp->ForEachRequestBuffer([] (RequestBuffer *) {
 						EXPECT_TRUE(false);
 						return true;
 					});

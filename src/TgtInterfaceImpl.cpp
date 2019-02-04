@@ -175,7 +175,7 @@ AeroClusterHandle NewAeroCluster(AeroClusterID cluster_id,
 }
 
 AeroClusterHandle DelAeroCluster(AeroClusterID cluster_id,
-	const std::string& config) {
+	const std::string&) {
 
 	std::lock_guard<std::mutex> lock(g_aero_clusters.mutex_);
 	auto it = g_aero_clusters.ids_.find(cluster_id);
@@ -229,7 +229,7 @@ int NewFlushReq(VmID vmid, const std::string& config) {
 	return 0;
 }
 
-int NewScanReq(VmID vmid, const std::string& config) {
+int NewScanReq(VmID vmid, const std::string&) {
 
 	auto managerp = SingletonHolder<ScanManager>::GetInstance();
 	auto vmp = SingletonHolder<pio::VmManager>::GetInstance()->GetInstance(vmid);

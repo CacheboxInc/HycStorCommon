@@ -12,7 +12,7 @@ using namespace ::ondisk;
 
 namespace pio {
 CleanHandler::CleanHandler(const ActiveVmdk* vmdkp,
-		const config::VmdkConfig* configp) : RequestHandler(nullptr) {
+		const config::VmdkConfig*) : RequestHandler(nullptr) {
 	aero_obj_ = std::make_unique<AeroSpike>();
 	aero_conn_ = pio::GetAeroConn(vmdkp);
 }
@@ -202,19 +202,19 @@ folly::Future<int> CleanHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 	});
 }
 
-folly::Future<int> CleanHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
-		const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock *>& failed) {
+folly::Future<int> CleanHandler::Move(ActiveVmdk *, Request *,
+		const std::vector<RequestBlock*>&,
+		std::vector<RequestBlock *>&) {
 	/* Should not be here */
 	log_assert(0);
 	return 0;
 }
 
-folly::Future<int> CleanHandler::BulkMove(ActiveVmdk *vmdkp,
-		::ondisk::CheckPointID ckpt_id,
-		const std::vector<std::unique_ptr<Request>>& requests,
-		const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock*>& failed) {
+folly::Future<int> CleanHandler::BulkMove(ActiveVmdk *,
+		::ondisk::CheckPointID,
+		const std::vector<std::unique_ptr<Request>>&,
+		const std::vector<RequestBlock*>&,
+		std::vector<RequestBlock*>&) {
 	/* Should not be here */
 	log_assert(0);
 	return 0;

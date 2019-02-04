@@ -18,7 +18,7 @@ using namespace ::ondisk;
 
 namespace pio {
 DirtyHandler::DirtyHandler(const ActiveVmdk* vmdkp,
-		const config::VmdkConfig* configp) : RequestHandler(nullptr) {
+		const config::VmdkConfig*) : RequestHandler(nullptr) {
 	aero_obj_ = std::make_unique<AeroSpike>();
 	aero_conn_ = pio::GetAeroConn(vmdkp);
 }
@@ -205,7 +205,7 @@ folly::Future<int> DirtyHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 /* TBD : Pass the checkpoint ID from top */
 folly::Future<int> DirtyHandler::BulkMove(ActiveVmdk *vmdkp,
 		::ondisk::CheckPointID ckpt_id,
-		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<std::unique_ptr<Request>>&,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 

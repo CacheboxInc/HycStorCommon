@@ -41,7 +41,7 @@ void add_delay(uint64_t ms) {
 	return;
 }
 
-int AeroSpike::CacheIoWriteKeySet(ActiveVmdk *vmdkp, WriteRecord* wrecp,
+int AeroSpike::CacheIoWriteKeySet(ActiveVmdk *, WriteRecord* wrecp,
 		const std::string& ns,
 		const std::string& setp) {
 	auto kp  = &wrecp->key_;
@@ -123,7 +123,7 @@ int AeroSpike::WriteBatchPrepare(ActiveVmdk *vmdkp,
  * Fiber context.
  * */
 
-static void WriteListener(as_error *errp, void *datap, as_event_loop* loopp) {
+static void WriteListener(as_error *errp, void *datap, as_event_loop*) {
 
 	auto wrp = (WriteRecord *) reinterpret_cast<WriteRecord*>(datap);
 	log_assert(wrp && wrp->batchp_);
@@ -292,7 +292,7 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 	}
 
 	return batchp->promise_->getFuture()
-	.then([this, batchp] (int rc) mutable {
+	.then([this, batchp] (int) mutable {
 		log_assert(batchp->submitted_ == true);
 		batchp->submitted_ = 0;
 
@@ -351,7 +351,7 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 
 folly::Future<int> AeroSpike::AeroWrite(ActiveVmdk *vmdkp,
 		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock *>& failed, const std::string& ns,
+		std::vector<RequestBlock *>&, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
 	auto batch = std::make_unique<WriteBatch>(vmdkp->GetID(), ns,
@@ -434,7 +434,7 @@ folly::Future<int> AeroSpike::AeroWriteCmdProcess(ActiveVmdk *vmdkp,
 	return AeroWrite(vmdkp, ckpt, process, failed, ns, aero_conn);
 }
 
-int AeroSpike::CacheIoReadKeySet(ActiveVmdk *vmdkp, ReadRecord* rrecp,
+int AeroSpike::CacheIoReadKeySet(ActiveVmdk *, ReadRecord* rrecp,
 		const std::string& ns, ReadBatch* r_batch_rec) {
 
 	auto recp = as_batch_read_reserve(r_batch_rec->aero_recordsp_);
@@ -515,8 +515,8 @@ int AeroSpike::ReadBatchPrepare(ActiveVmdk *vmdkp,
  * This function is called from aerospike event loop threads -
  * outside of Fiber context.
  */
-static void ReadListener(as_error *errp, as_batch_read_records *records,
-		void *datap, as_event_loop *lp) {
+static void ReadListener(as_error *errp, as_batch_read_records *,
+		void *datap, as_event_loop *) {
 	auto rc = 0;
 	auto batchp = reinterpret_cast<ReadBatch *>(datap);
 	log_assert(batchp);
@@ -572,7 +572,7 @@ folly::Future<int> AeroSpike::ReadBatchSubmit(ReadBatch *batchp) {
 	}
 
 	return batchp->promise_->getFuture()
-	.then([this, batchp] (int rc) mutable {
+	.then([this, batchp] (int) mutable {
 		switch (batchp->as_result_) {
 			/* Record not found is not an error case*/
 			case AEROSPIKE_OK:
@@ -637,7 +637,7 @@ folly::Future<int> AeroSpike::AeroRead(ActiveVmdk *vmdkp,
 	auto start_time = std::chrono::high_resolution_clock::now();
 	return ReadBatchSubmit(batch.get())
 	.then([batch = std::move(batch), vmdkp, &failed, start_time = std::move(start_time)]
-			(int ret) mutable {
+			(int) mutable {
 		auto rc = 0;
 		if (pio_unlikely(batch->failed_)) {
 			LOG(ERROR) <<__func__ << "read_batch_submit failed";
@@ -777,7 +777,7 @@ folly::Future<int> AeroSpike::AeroReadCmdProcess(ActiveVmdk *vmdkp,
 #endif
 }
 
-int AeroSpike::CacheIoDelKeySet(ActiveVmdk *vmdkp, DelRecord* drecp,
+int AeroSpike::CacheIoDelKeySet(ActiveVmdk *, DelRecord* drecp,
 	const std::string& ns, const std::string& setp) {
 
 	auto kp = as_key_init(&drecp->key_, ns.c_str(), setp.c_str(),
@@ -786,9 +786,9 @@ int AeroSpike::CacheIoDelKeySet(ActiveVmdk *vmdkp, DelRecord* drecp,
 	return 0;
 }
 
-int AeroSpike::DelBatchInit(ActiveVmdk *vmdkp,
+int AeroSpike::DelBatchInit(ActiveVmdk *,
 	const std::vector<RequestBlock*>& process, DelBatch *d_batch_rec,
-	const std::string& ns) {
+	const std::string&) {
 
 	d_batch_rec->batch.recordsp_.reserve(process.size());
 	for (auto block : process) {
@@ -827,7 +827,7 @@ int AeroSpike::DelBatchPrepare(ActiveVmdk *vmdkp,
  * of Fiber context.
  * */
 
-static void DelListener(as_error *errp, void *datap, as_event_loop* loopp) {
+static void DelListener(as_error *errp, void *datap, as_event_loop*) {
 
 	auto drp = reinterpret_cast<DelRecord *>(datap);
 	log_assert(drp && drp->batchp_);
@@ -967,7 +967,7 @@ folly::Future<int> AeroSpike::DelBatchSubmit(DelBatch *batchp) {
 	}
 
 	return batchp->promise_->getFuture()
-	.then([this, batchp] (int rc) mutable {
+	.then([this, batchp] (int) mutable {
 		log_assert(batchp->submitted_ == true);
 		batchp->submitted_ = 0;
 
@@ -1025,7 +1025,7 @@ folly::Future<int> AeroSpike::DelBatchSubmit(DelBatch *batchp) {
 
 folly::Future<int> AeroSpike::AeroDel(ActiveVmdk *vmdkp, CheckPointID ckpt,
 		const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock *>& failed, const std::string& ns,
+		std::vector<RequestBlock *>&, const std::string& ns,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
 	/* Create Batch write records */
@@ -1340,7 +1340,7 @@ int AeroSpike::AeroMetaReadCmd(ActiveVmdk *vmdkp,
  */
 
 static void ReadListenerSingle(as_error *errp, as_record *record,
-		void *datap, as_event_loop *lp) {
+		void *datap, as_event_loop *) {
 	auto rc = 0;
 	auto batchp = reinterpret_cast<ReadSingle *>(datap);
 	log_assert(batchp);
@@ -1414,7 +1414,7 @@ folly::Future<int> AeroSpike::ReadSingleSubmit(ReadSingle *batchp) {
 	}
 
 	return batchp->promise_->getFuture()
-	.then([this, batchp] (int rc) mutable {
+	.then([this, batchp] (int) mutable {
 		switch (batchp->as_result_) {
 			/* Record not found is not an error case*/
 			case AEROSPIKE_OK:
@@ -1515,7 +1515,7 @@ folly::Future<int> AeroSpike::AeroSingleRead(ActiveVmdk *vmdkp,
 
 	return ReadSingleSubmit(batch.get())
 	.then([batch = std::move(batch), &failed]
-			(int ret) mutable {
+			(int) mutable {
 		auto rc = 0;
 		if (pio_unlikely(batch->failed_)) {
 			LOG(ERROR) <<__func__ << "read_batch_submit failed";

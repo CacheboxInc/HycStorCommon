@@ -181,7 +181,7 @@ static void thread_lock_range(struct ThreadArgs *argsp, size_t thread_index) {
 		auto guard = std::make_unique<Guard>(range_lockp, first, last);
 		auto f = guard->Lock()
 		.then([guard = std::move(guard), &counter_vecp, &thread_index, &argsp]
-					(int rc) mutable {
+					(int) mutable {
 			EXPECT_TRUE(guard->IsLocked());
 			EXPECT_FALSE(argsp->is_locked);
 			argsp->is_locked = true;

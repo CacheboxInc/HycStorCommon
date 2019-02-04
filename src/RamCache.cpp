@@ -10,7 +10,7 @@
 namespace pio {
 
 std::pair<std::unique_ptr<RequestBuffer>, bool>
-RamCache::Read(ActiveVmdk *vmdkp, Offset offset) {
+RamCache::Read(ActiveVmdk *, Offset offset) {
 	Key key = offset;
 
 	std::lock_guard<std::mutex> guard(mutex_);
@@ -27,7 +27,7 @@ RamCache::Read(ActiveVmdk *vmdkp, Offset offset) {
 	return std::make_pair(std::move(bufferp), true);
 }
 
-void RamCache::Write(ActiveVmdk *vmdkp, void *bufferp, Offset offset, size_t size) {
+void RamCache::Write(ActiveVmdk *, void *bufferp, Offset offset, size_t size) {
 	Key key = offset;
 
 	std::lock_guard<std::mutex> guard(mutex_);

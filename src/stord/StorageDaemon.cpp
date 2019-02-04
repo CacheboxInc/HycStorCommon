@@ -64,8 +64,8 @@ public:
 		cb->result(std::move(pong));
 	}
 
-	void async_tm_PushVmdkStats(std::unique_ptr<HandlerCallbackBase> cb,
-			VmdkHandle vmdk, std::unique_ptr<VmdkStats> stats) override {
+	void async_tm_PushVmdkStats(std::unique_ptr<HandlerCallbackBase>,
+			VmdkHandle, std::unique_ptr<VmdkStats> stats) override {
 		LOG(WARNING) << "read_requests " << stats->read_requests
 			<< " read_bytes " << stats->read_bytes
 			<< " read_latency " << stats->read_latency;
@@ -77,18 +77,18 @@ public:
 	}
 
 	void async_tm_CloseVm(std::unique_ptr<HandlerCallback<void>> cb,
-			VmHandle vm) override {
+			VmHandle) override {
 		cb->done();
 	}
 
 	void async_tm_OpenVmdk(std::unique_ptr<HandlerCallback<VmdkHandle>> cb,
-			std::unique_ptr<std::string> vmid,
+			std::unique_ptr<std::string>,
 			std::unique_ptr<std::string> vmdkid) override {
 		cb->result(GetVmdkHandle(*vmdkid.get()));
 	}
 
 	void async_tm_CloseVmdk(std::unique_ptr<HandlerCallback<int32_t>> cb,
-			VmdkHandle vmdk) override {
+			VmdkHandle) override {
 		cb->result(0);
 	}
 
@@ -254,8 +254,8 @@ public:
 
 	void async_tm_WriteSame(
 			std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
-			VmdkHandle vmdk, RequestID reqid, std::unique_ptr<IOBufPtr> data,
-			int32_t data_size, int32_t write_size, int64_t offset) override {
+			VmdkHandle, RequestID reqid, std::unique_ptr<IOBufPtr>,
+			int32_t, int32_t, int64_t) override {
 		auto write = std::make_unique<WriteResult>();
 		write->set_reqid(reqid);
 		write->set_result(0);
@@ -296,7 +296,7 @@ public:
 				std::unique_ptr<ReqBlockVec> process) mutable {
 			return vmp->BulkWrite(vmdkp, *reqs, *process)
 			.then([&NewResult, reqs = std::move(reqs),
-					process = std::move(process)] (int rc) mutable {
+					process = std::move(process)] (int) mutable {
 				std::vector<::hyc_thrift::WriteResult> res;
 				res.reserve(reqs->size());
 				for (const auto& req : *reqs) {
@@ -310,7 +310,7 @@ public:
 				std::unique_ptr<Request> req) mutable {
 			auto reqp = req.get();
 			return vmp->Write(vmdkp, reqp)
-			.then([&NewResult, req = std::move(req)] (int rc) mutable {
+			.then([&NewResult, req = std::move(req)] (int) mutable {
 				std::vector<::hyc_thrift::WriteResult> res;
 				res.emplace_back(NewResult(req->GetID(), req->GetResult()));
 				return res;
@@ -446,7 +446,7 @@ static struct {
 	} rest_guard;
 } g_thread_;
 
-static void Usr1SignalHandler(int signal) {
+static void Usr1SignalHandler(int) {
 	thrift_server->stopListening();
 	thrift_server->stop();
 }
@@ -502,7 +502,7 @@ void HaHeartbeat(void *userp) {
 	LOG(INFO) << "HB thread exiting";
 }
 
-int StordHaStartCallback(const _ha_request *reqp, _ha_response *resp,
+int StordHaStartCallback(const _ha_request *, _ha_response *,
 		void *userp) {
 	try {
 		log_assert(userp != nullptr);
@@ -518,8 +518,8 @@ int StordHaStartCallback(const _ha_request *reqp, _ha_response *resp,
 	}
 }
 
-int StordHaStopCallback(const _ha_request *reqp, _ha_response *resp,
-		void *userp) {
+int StordHaStopCallback(const _ha_request *, _ha_response *,
+		void *) {
 	{
 		std::lock_guard<std::mutex> lk(g_thread_.ha_guard.mutex_);
 		g_thread_.stop_ = true;
@@ -559,7 +559,7 @@ static int GuardHandler() {
 }
 
 
-static int NewVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
+static int NewVm(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 
 	if (param_valuep  == NULL) {
@@ -613,7 +613,7 @@ static int NewVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int RemoveVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
+static int RemoveVm(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 
 	LOG(INFO) << __func__ << "START";
@@ -649,7 +649,7 @@ static int RemoveVm(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 }
 
 static int NewAeroCluster(const _ha_request *reqp, _ha_response *resp,
-	void *userp ) {
+	void *) {
 	auto param_valuep = ha_parameter_get(reqp, "aero-id");
 	if (param_valuep  == NULL) {
 		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -694,7 +694,7 @@ static int NewAeroCluster(const _ha_request *reqp, _ha_response *resp,
 }
 
 static int DelAeroCluster(const _ha_request *reqp, _ha_response *resp,
-	void *userp ) {
+	void *) {
 	auto param_valuep = ha_parameter_get(reqp, "aero-id");
 
 	if (param_valuep  == NULL) {
@@ -739,7 +739,7 @@ static int DelAeroCluster(const _ha_request *reqp, _ha_response *resp,
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int NewVmdk(const _ha_request *reqp, _ha_response *resp, void *userp ) {
+static int NewVmdk(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 
 	if (param_valuep == NULL) {
@@ -805,7 +805,7 @@ static int NewVmdk(const _ha_request *reqp, _ha_response *resp, void *userp ) {
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int RemoveVmdk(const _ha_request *reqp, _ha_response *resp, void *userp ) {
+static int RemoveVmdk(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 
 	if (param_valuep == NULL) {
@@ -860,7 +860,7 @@ static int RemoveVmdk(const _ha_request *reqp, _ha_response *resp, void *userp )
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int VmdkStartPreload(const _ha_request *reqp, _ha_response *resp, void *userp ) {
+static int VmdkStartPreload(const _ha_request *reqp, _ha_response *resp, void *) {
 	if (GuardHandler()) {
 		SetErrMsg(resp, STORD_ERR_MAX_LIMIT, "Too many requests already pending");
 		return HA_CALLBACK_CONTINUE;
@@ -891,7 +891,7 @@ static int VmdkStartPreload(const _ha_request *reqp, _ha_response *resp, void *u
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *) {
 
 	LOG(ERROR) << "NewScanReq start";
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
@@ -945,7 +945,7 @@ static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *userp) 
 }
 
 
-static int NewScanStatusReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+static int NewScanStatusReq(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "aero-cluster-id");
 	if (param_valuep == NULL) {
 		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -998,7 +998,7 @@ static int NewScanStatusReq(const _ha_request *reqp, _ha_response *resp, void *u
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *) {
 
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 	if (param_valuep == NULL) {
@@ -1052,7 +1052,7 @@ static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *userp)
 }
 
 static int
-NewPrepareCkpt(const _ha_request *reqp, _ha_response *resp, void *userp) {
+NewPrepareCkpt(const _ha_request *reqp, _ha_response *resp, void *) {
 
 	LOG(ERROR) << __func__ << " Start..";
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
@@ -1097,7 +1097,7 @@ NewPrepareCkpt(const _ha_request *reqp, _ha_response *resp, void *userp) {
 }
 
 static int
-NewSetCkptBitMapReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+NewSetCkptBitMapReq(const _ha_request *reqp, _ha_response *resp, void *) {
 
 	LOG(ERROR) << __func__ << " Start..";
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
@@ -1161,7 +1161,7 @@ NewSetCkptBitMapReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
 }
 
 static int
-NewCommitCkpt(const _ha_request *reqp, _ha_response *resp, void *userp) {
+NewCommitCkpt(const _ha_request *reqp, _ha_response *resp, void *) {
 
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 	if (param_valuep == NULL) {
@@ -1202,7 +1202,7 @@ NewCommitCkpt(const _ha_request *reqp, _ha_response *resp, void *userp) {
 }
 
 
-static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 	if (param_valuep == NULL) {
 		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -1341,7 +1341,7 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int NewAeroCacheStatReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+static int NewAeroCacheStatReq(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 	if (param_valuep == NULL) {
 		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -1396,7 +1396,7 @@ static int NewAeroCacheStatReq(const _ha_request *reqp, _ha_response *resp, void
 }
 
 static int AeroSetCleanup(const _ha_request *reqp, _ha_response *resp,
-	void *userp ) {
+	void *) {
 
 	auto param_valuep = ha_parameter_get(reqp, "aero-id");
 	if (param_valuep == NULL) {
@@ -1441,7 +1441,7 @@ static int AeroSetCleanup(const _ha_request *reqp, _ha_response *resp,
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *) {
 
 	auto param_valuep = ha_parameter_get(reqp, "vmdk-id");
 	if (param_valuep == NULL) {
@@ -1526,7 +1526,7 @@ static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *us
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int NewFlushHistoryReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+static int NewFlushHistoryReq(const _ha_request *reqp, _ha_response *resp, void *) {
 
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 	if (param_valuep == NULL) {
@@ -1588,7 +1588,7 @@ static int NewFlushHistoryReq(const _ha_request *reqp, _ha_response *resp, void 
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int ReadAheadStatsReq(const _ha_request *reqp, _ha_response *resp, void *userp) {
+static int ReadAheadStatsReq(const _ha_request *reqp, _ha_response *resp, void *) {
 
 	auto param_valuep = ha_parameter_get(reqp, "vmdk-id");
 	if (param_valuep == NULL) {
@@ -1650,7 +1650,7 @@ static int ReadAheadStatsReq(const _ha_request *reqp, _ha_response *resp, void *
  * HTTP Response: 200(OK) if successful else a http error code
  ************************************************************************ 
 */
-static int GetUnflushedCheckpoints(const _ha_request *reqp, _ha_response *resp, void *userp) {
+static int GetUnflushedCheckpoints(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
     if (param_valuep == NULL) {
         SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -1686,7 +1686,7 @@ static int GetUnflushedCheckpoints(const _ha_request *reqp, _ha_response *resp, 
  * HTTP Response: 200(OK) if successful else a http error code
  ***************************************************************************** 
 */
-static int PrepareFlush(const _ha_request *reqp, _ha_response *resp, void *userp) {
+static int PrepareFlush(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
     if (param_valuep == NULL) {
         SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -1710,7 +1710,7 @@ static int PrepareFlush(const _ha_request *reqp, _ha_response *resp, void *userp
  * HTTP Response: 202(Accepted) if successful else a http error code
  ***************************************************************************** 
 */
-static int AsyncStartFlush(const _ha_request *reqp, _ha_response *resp, void *userp) {
+static int AsyncStartFlush(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
     if (param_valuep == NULL) {
         SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -1747,7 +1747,7 @@ static int AsyncStartFlush(const _ha_request *reqp, _ha_response *resp, void *us
  * HTTP Response: 200(OK) if successful else a http error code
  ***************************************************************************** 
 */
-static int SerializeCheckpoints(const _ha_request *reqp, _ha_response *resp, void *userp) {
+static int SerializeCheckpoints(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
     if (param_valuep == NULL) {
         SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -1784,7 +1784,7 @@ static int SerializeCheckpoints(const _ha_request *reqp, _ha_response *resp, voi
  * HTTP Response: 202(Accepted) if successful else a http error code
  ***************************************************************************** 
 */
-static int AsyncStartMoveStage(const _ha_request *reqp, _ha_response *resp, void *userp) {
+static int AsyncStartMoveStage(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
     if (param_valuep == NULL) {
         SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -1807,7 +1807,7 @@ static int AsyncStartMoveStage(const _ha_request *reqp, _ha_response *resp, void
  * HTTP Response: 200(OK) if successful else a http error code
  ***************************************************************************** 
 */
-static int DeleteSnapshots(const _ha_request *reqp, _ha_response *resp, void *userp) {
+static int DeleteSnapshots(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
     if (param_valuep == NULL) {
         SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -1844,7 +1844,7 @@ static int DeleteSnapshots(const _ha_request *reqp, _ha_response *resp, void *us
  * HTTP Response: 200(OK) if successful else a http error code
  ***************************************************************************** 
 */
-static int GetMoveStatus(const _ha_request *reqp, _ha_response *resp, void *userp) {
+static int GetMoveStatus(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
     if (param_valuep == NULL) {
         SetErrMsg(resp, STORD_ERR_INVALID_PARAM,

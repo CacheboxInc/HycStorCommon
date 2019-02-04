@@ -6,7 +6,7 @@
 using namespace pio;
 using namespace pio::config;
 
-int main(int argc, char* argv[]) {
+int main(int, char*[]) {
 	AeroConfig config;
 	std::string ips;
 	uint32_t port;

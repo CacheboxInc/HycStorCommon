@@ -172,7 +172,7 @@ int SuccessHandler::ReadNowCommon(ActiveVmdk* vmdkp,
 	return 0;
 }
 
-int SuccessHandler::ReadNow(ActiveVmdk *vmdkp, Request *reqp,
+int SuccessHandler::ReadNow(ActiveVmdk *vmdkp, Request *,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	return ReadNowCommon(vmdkp, process, failed);
@@ -208,8 +208,8 @@ folly::Future<int> SuccessHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	return folly::makeFuture(rc);
 }
 
-int SuccessHandler::WriteNow(ActiveVmdk *vmdkp, Request *reqp,
-		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
+int SuccessHandler::WriteNow(ActiveVmdk *, Request *,
+		CheckPointID, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	failed.clear();
 	for (auto blockp : process) {
@@ -281,9 +281,9 @@ folly::Future<int> SuccessHandler::BulkWriteDelayed(ActiveVmdk* vmdkp,
 	return write_work->promise_.getFuture();
 }
 
-int SuccessHandler::BulkWriteNow(ActiveVmdk* vmdkp,
-		::ondisk::CheckPointID ckpt,
-		const std::vector<std::unique_ptr<Request>>& requests,
+int SuccessHandler::BulkWriteNow(ActiveVmdk*,
+		::ondisk::CheckPointID,
+		const std::vector<std::unique_ptr<Request>>&,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 	failed.clear();
@@ -326,7 +326,7 @@ folly::Future<int> SuccessHandler::BulkReadDelayed(ActiveVmdk* vmdkp,
 }
 
 int SuccessHandler::BulkReadNow(ActiveVmdk* vmdkp,
-		const std::vector<std::unique_ptr<Request>>& requests,
+		const std::vector<std::unique_ptr<Request>>&,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 	return ReadNowCommon(vmdkp, process, failed);
