@@ -50,6 +50,25 @@ bool AeroClientLogCallback(as_log_level level, const char *func, const char *fil
 
 }
 
+void AeroClusterChangeEventFnPtr(as_cluster_event* event_data) {
+	std::string change_details;
+	switch(event_data->type) {
+		case AS_CLUSTER_ADD_NODE:
+			change_details="added";
+			break;
+		case AS_CLUSTER_REMOVE_NODE:
+			change_details="removed";
+			break;
+		case AS_CLUSTER_DISCONNECTED:
+			change_details="disconnected";
+			break;
+		default:
+			change_details="surprized";
+	}
+	LOG(ERROR) << "Cluster Node " << event_data->node_address << " got " 
+		<< change_details;
+}
+
 int AeroSpikeConn::Connect() {
 	static constexpr uint16_t kAeroEventLoops = 4;
 	static constexpr uint16_t kMaxCommandsInProgress = 128 / kAeroEventLoops;
@@ -158,6 +177,8 @@ int AeroSpikeConn::Connect() {
 	cfg.policies.query.base.total_timeout = 5000; // 5secs
 	cfg.policies.query.base.max_retries = 0;
 	cfg.policies.query.base.sleep_between_retries = 300; // 300ms 
+
+	as_config_set_cluster_event_callback(&cfg, AeroClusterChangeEventFnPtr, nullptr);
 
 	aerospike_init(&this->as_, &cfg);
 	if (aerospike_connect(&this->as_, &err) != AEROSPIKE_OK) {
