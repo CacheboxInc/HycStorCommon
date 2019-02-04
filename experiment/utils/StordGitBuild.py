@@ -6,6 +6,8 @@ import shlex
 import subprocess
 import os
 import re
+import time
+import signal
 
 program_name = sys.argv[0]
 branch = sys.argv[1:]
@@ -230,6 +232,9 @@ class StordBuild:
         self._git.Clone()
         self._git.CheckoutBranch()
 
+    def HasNewCommit(self):
+        return self._git.HasNewCommit()
+
     def Build(self, build_dir_name):
         path = self.RepoDir() + build_dir_name + "/"
         commit = self._git.GetHeadCommitHash(self._branch)
@@ -258,6 +263,9 @@ class HycCommonBuild:
         self._git.Clone()
         self._git.CheckoutBranch()
 
+    def HasNewCommit(self):
+        return self._git.HasNewCommit()
+
     def Build(self, build_dir_name):
         path = self.RepoDir() + "/" + build_dir_name + "/"
         commit = self._git.GetHeadCommitHash(self._branch)
@@ -282,6 +290,9 @@ class TgtBuild:
     def RepoDir(self):
         return self._git.RepoDir()
 
+    def HasNewCommit(self):
+        return self._git.HasNewCommit() or self._hyc_common_build.HasNewCommit()
+
     def Build(self, build_dir_name):
         path = self.RepoDir() + "/" + build_dir_name + "/"
         self._hyc_common_build.Build(build_dir_name)
@@ -294,12 +305,156 @@ class TgtBuild:
         build = HaLibBuild(path)
         build.Compile()
 
+class Process(object):
+    def __init__(self):
+        self._pid = 0
+        self._is_running = False
+
+    def Pid(self):
+        return self._pid
+
+	def WaitpidResult(self, results):
+        print("results: %s" % (str(results)))
+        print("core: %r continued: %r stopped: %r signaled: %r exited %r" %
+            (
+                os.WCOREDUMP(results[1]),
+                os.WIFCONTINUED(results[1]),
+                os.WIFSTOPPED(results[1]),
+                os.WIFSIGNALED(results[1]),
+                os.WIFEXITED(results[1]))
+            )
+        if os.WIFEXITED(results[1]):
+            print("exit code: %r" % (os.WEXITSTATUS(results[1])))
+
+    def IsRunning(self):
+        if not self._is_running:
+            return False
+        try:
+            rc = os.waitpid(self._pid, os.WNOHANG)
+            WaitpidResult(rc)
+            if rc == (0, 0):
+                return False
+        except OSError as e:
+            return False
+
+    def ForkAndExec(self, program, args):
+        pid = os.fork()
+        if pid != 0:
+            return pid
+        os.execv(program, args)
+
+    def Run(self, program, args):
+        self._pid = self.ForkAndEexc(program, args)
+        self._is_running = True
+        return self._pid
+
+    def Crash(self):
+        if self._is_running:
+            try:
+                assert(self._pid)
+                os.kill(self._pid, signal.SIGKILL)
+                count = 0
+                while count < 5 and self.IsRunning():
+                    time.sleep(1)
+                    count += 1
+                if count == 5:
+                    raise Exception("Failed to stop stord")
+            except OSError as e:
+                pass
+        self._pid = 0
+        self._is_running = False
+
+class Stord(Process):
+    def __init__(self, directory, branch, build_type):
+        self._build = StordBuild(directory, branch, build)
+        super(Stord, self).__init__()
+
+    def Pid(self):
+        return self._pid
+
+    def Clone(self):
+        self._build.Clone()
+
+    def Build(self, build_dir_name):
+        self._build.Build(build_dir_name)
+
+    def HasNewCommit(self):
+        return self._build.HasNewCommit()
+
+    def Run(self, args):
+        program = self._build.ExecutablePath()
+        return super(Stord, self).Run(program, args)
+
+class Tgtd:
+    def __init__(self, directory, branch, build_type):
+        self._build = TgtBuild(directory, branch, build_type)
+        super(Tgtd, self).__init__()
+
+    def Clone(self):
+        self._build.Clone()
+
+    def Build(self):
+        self._build.Build(self._build_dir_name)
+
+    def HasNewCommit(self):
+        return self._build.HasNewCommit()
+
+    def Run(self, args):
+        program = self._build.ExecutablePath()
+        return super(Tgtd, self).Run(program, args)
+
+class Etcd(Process):
+    def __init__(self, path):
+        self._program = path
+        super(Etcd, self).__init__()
+
+    def Run(self, args):
+        return super(Etcd, self).Run(self._program, args)
+
+def BuildDirName():
+    return "build" + datetime.datetime.now().strftime("%Y-%m-%d-%H:%M")
+
 if __name__ == "__main__":
-    stord = StordBuild("/home/prasad/", "master", "Release")
-    build_dir_name = "build" + datetime.datetime.now().strftime("%Y-%m-%d-%H:%M")
+    build_dir_name = BuildDirName()
+    etcd = Etcd("location")
+    etcd.Run()
+
+    stord = Stord("/home/prasad/", "master", "Release", build_dir_name)
     stord.Clone()
     stord.Build(build_dir_name)
 
-    tgtd = TgtBuild("/home/prasad/", "master", "Release")
+    tgtd = Tgtd("/home/prasad/", "master", "Release", build_dir_name)
     tgtd.Clone()
     tgtd.Build(build_dir_name)
+
+    ConfigureLun(stord, tgtd)
+
+    iteration = 0
+    while True:
+        iteration += 1
+        print("Iteration = %d" % (iteration))
+        if not stord.IsRunning():
+            stord_pid = stord.Run()
+
+        if not tgtd.IsRunning():
+            tgtd_pid = tgtd.Run()
+
+        time.sleep(1 * 60 * 60)
+
+        build_dir_name = BuildDirName()
+        stord_rebuilt = False
+        '''
+        if stord.HasNewCommit() == True:
+            stord.Clone()
+            stord.Build(build_dir_name)
+            stord_rebuilt = True
+        '''
+
+        if tgtd.HasNewCommit() == True:
+            tgtd.Clone()
+            tgtd.Build(build_dir_name)
+
+        if stord_rebuilt:
+            stord.Crash()
+
+        tgtd.Crash()
