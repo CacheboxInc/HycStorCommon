@@ -1622,7 +1622,6 @@ static int ReadAheadStatsReq(const _ha_request *reqp, _ha_response *resp, void *
 	json_t *stat_params = json_object();
 	json_object_set_new(stat_params, "read_ahead_blks", json_integer(st_rh_stats.stats_rh_blocks_size_));
 	json_object_set_new(stat_params, "read_ahead_misses", json_integer(st_rh_stats.stats_rh_read_misses_));
-	json_object_set_new(stat_params, "read_ahead_ghb_calls", json_integer(st_rh_stats.stats_rh_ghb_lib_calls_));
 
 	auto *stat_params_str = json_dumps(stat_params, JSON_ENCODE_ANY);
 
