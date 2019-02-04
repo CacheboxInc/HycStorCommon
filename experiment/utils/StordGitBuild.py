@@ -8,6 +8,7 @@ import os
 import re
 import time
 import signal
+import multiprocessing
 
 program_name = sys.argv[0]
 branch = sys.argv[1:]
@@ -19,11 +20,22 @@ def RunCommand(directory, cmd):
     out_file = "/tmp/cmd.out"
     err_file = "/tmp/cmd.err"
 
+    cwd = os.getcwd()
+    print("cwd = %s" % cwd)
+
     args = shlex.split(cmd)
     out_fh = open(out_file, "w")
     err_fh = open(err_file, "w")
-    process = subprocess.Popen(args, cwd=directory, stdout=out_fh, stderr=err_fh)
-    process.wait()
+    try:
+        os.chdir(directory)
+        print("cwd = %s" % os.getcwd())
+        process = subprocess.Popen(args, cwd=directory, stdout=out_fh, stderr=err_fh)
+        process.wait()
+    except Exception as e:
+        os.chdir(cwd)
+        raise e
+    os.chdir(cwd)
+    print("cwd = %s" % os.getcwd())
     with open(out_file) as fh:
         o = fh.readlines()
     with open(err_file) as fh:
@@ -46,6 +58,10 @@ def RunCommand(cmd):
     Log(cmd, rc, o, e)
     return (rc, o, e)
 '''
+
+def IsExecutable(program):
+    print("is program executable %s" % (program))
+    return os.path.exists(program) and os.access(program, os.X_OK) and os.path.isfile(program)
 
 class Git:
     def __init__(self, directory, repo, branch):
@@ -224,6 +240,7 @@ class StordBuild:
         self._build_type = build_type
         self._git = Git(directory, self._repo, branch)
         self._parent_dir = directory
+        self._executable = None
 
     def RepoDir(self):
         return self._git.RepoDir()
@@ -235,13 +252,22 @@ class StordBuild:
     def HasNewCommit(self):
         return self._git.HasNewCommit()
 
+    def BuildDirPath(self, build_dir_name):
+        return self.RepoDir() + build_dir_name + "/"
+
     def Build(self, build_dir_name):
-        path = self.RepoDir() + build_dir_name + "/"
+        path = self.BuildDirPath(build_dir_name)
+        self._executable = path + "/src/stord/stord"
         commit = self._git.GetHeadCommitHash(self._branch)
         self.BuildHaLib()
-        build = CMakeBuildSystem(self._build_type, cmake_flags="-DUSE_NEP=OFF", directory=path, commit_hash=commit, cpus=2)
+        build = CMakeBuildSystem(self._build_type, cmake_flags="-DUSE_NEP=OFF", directory=path, commit_hash=commit, cpus=8)
         build.CMake()
         build.Compile()
+        self.ExecutablePath()
+
+    def ExecutablePath(self):
+        assert(self._executable and IsExecutable(self._executable))
+        return self._executable
 
     def BuildHaLib(self):
         path = self.RepoDir() + "/thirdparty/ha-lib/"
@@ -269,7 +295,7 @@ class HycCommonBuild:
     def Build(self, build_dir_name):
         path = self.RepoDir() + "/" + build_dir_name + "/"
         commit = self._git.GetHeadCommitHash(self._branch)
-        build = CMakeBuildSystem(self._build_type, cmake_flags="", directory=path, commit_hash=commit, cpus=2)
+        build = CMakeBuildSystem(self._build_type, cmake_flags="", directory=path, commit_hash=commit, cpus=7)
         build.CMake()
         build.Compile()
         build.Install()
@@ -282,6 +308,7 @@ class TgtBuild:
         self._git = Git(directory, self._repo, branch)
         self._parent_dir = directory
         self._hyc_common_build = HycCommonBuild(directory, branch, build_type)
+        self._executable = None
 
     def Clone(self):
         self._hyc_common_build.Clone()
@@ -293,12 +320,20 @@ class TgtBuild:
     def HasNewCommit(self):
         return self._git.HasNewCommit() or self._hyc_common_build.HasNewCommit()
 
+    def BuildDirPath(self, build_dir_name):
+        return self.RepoDir()
+
     def Build(self, build_dir_name):
-        path = self.RepoDir() + "/" + build_dir_name + "/"
+        self._executable = self.BuildDirPath(build_dir_name) + "/usr/tgtd"
         self._hyc_common_build.Build(build_dir_name)
         self.BuildHaLib()
         build = MakeBuildSystem(self.RepoDir(), 1)
         build.Make()
+        self.ExecutablePath()
+
+    def ExecutablePath(self):
+        assert(self._executable and IsExecutable(self._executable))
+        return self._executable
 
     def BuildHaLib(self):
         path = self.RepoDir() + "/thirdparty/ha-lib/"
@@ -307,70 +342,37 @@ class TgtBuild:
 
 class Process(object):
     def __init__(self):
-        self._pid = 0
-        self._is_running = False
-
-    def Pid(self):
-        return self._pid
-
-	def WaitpidResult(self, results):
-        print("results: %s" % (str(results)))
-        print("core: %r continued: %r stopped: %r signaled: %r exited %r" %
-            (
-                os.WCOREDUMP(results[1]),
-                os.WIFCONTINUED(results[1]),
-                os.WIFSTOPPED(results[1]),
-                os.WIFSIGNALED(results[1]),
-                os.WIFEXITED(results[1]))
-            )
-        if os.WIFEXITED(results[1]):
-            print("exit code: %r" % (os.WEXITSTATUS(results[1])))
-
-    def IsRunning(self):
-        if not self._is_running:
-            return False
-        try:
-            rc = os.waitpid(self._pid, os.WNOHANG)
-            WaitpidResult(rc)
-            if rc == (0, 0):
-                return False
-        except OSError as e:
-            return False
-
-    def ForkAndExec(self, program, args):
-        pid = os.fork()
-        if pid != 0:
-            return pid
-        os.execv(program, args)
+        self._process = None
 
     def Run(self, program, args):
-        self._pid = self.ForkAndEexc(program, args)
-        self._is_running = True
-        return self._pid
+        def RunProgram(program, args):
+            os.execv(program, args)
+        assert(not self._process or not self._process.is_alive())
+        self._process = multiprocessing.Process(target=RunProgram, args=(program, args))
+        self._process.start()
+
+    def IsRunning(self):
+        return self._process.is_alive()
 
     def Crash(self):
-        if self._is_running:
-            try:
-                assert(self._pid)
-                os.kill(self._pid, signal.SIGKILL)
-                count = 0
-                while count < 5 and self.IsRunning():
-                    time.sleep(1)
-                    count += 1
-                if count == 5:
-                    raise Exception("Failed to stop stord")
-            except OSError as e:
-                pass
-        self._pid = 0
-        self._is_running = False
+        if not self._process.is_alive():
+            return
+        self._process.terminate()
+        count = 0
+        while count < 5 and self._process.is_alive():
+            time.sleep(1)
+            count += 1
+        if count == 5 and self._process.is_alive():
+            raise Exception("Not able to stop STORD.")
 
 class Stord(Process):
-    def __init__(self, directory, branch, build_type):
-        self._build = StordBuild(directory, branch, build)
+    def __init__(self, directory, branch, build_type, args=()):
+        self._build = StordBuild(directory, branch, build_type)
+        self._args = args
         super(Stord, self).__init__()
 
-    def Pid(self):
-        return self._pid
+    def Run(self):
+        super(Stord, self).Run(self._build.ExecutablePath(), self._args)
 
     def Clone(self):
         self._build.Clone()
@@ -381,53 +383,51 @@ class Stord(Process):
     def HasNewCommit(self):
         return self._build.HasNewCommit()
 
-    def Run(self, args):
-        program = self._build.ExecutablePath()
-        return super(Stord, self).Run(program, args)
-
-class Tgtd:
-    def __init__(self, directory, branch, build_type):
+class Tgtd(Process):
+    def __init__(self, directory, branch, build_type, args=()):
         self._build = TgtBuild(directory, branch, build_type)
+        self._args = args
         super(Tgtd, self).__init__()
+
+    def Run(self):
+        super(Stord, self).Run(self._build.ExecutablePath(), self._args)
 
     def Clone(self):
         self._build.Clone()
 
-    def Build(self):
-        self._build.Build(self._build_dir_name)
+    def Build(self, build_dir_name):
+        self._build.Build(build_dir_name)
 
     def HasNewCommit(self):
         return self._build.HasNewCommit()
 
-    def Run(self, args):
-        program = self._build.ExecutablePath()
-        return super(Tgtd, self).Run(program, args)
-
 class Etcd(Process):
     def __init__(self, path):
         self._program = path
+        self._args = (" ", )
         super(Etcd, self).__init__()
 
-    def Run(self, args):
-        return super(Etcd, self).Run(self._program, args)
+    def Run(self):
+        super(Etcd, self).Run(self._program, self._args)
 
 def BuildDirName():
     return "build" + datetime.datetime.now().strftime("%Y-%m-%d-%H:%M")
 
 if __name__ == "__main__":
     build_dir_name = BuildDirName()
-    etcd = Etcd("location")
+    etcd = Etcd("/home/prasad/etcd/etcd")
     etcd.Run()
+    print("STARTED ETCD")
 
-    stord = Stord("/home/prasad/", "master", "Release", build_dir_name)
+    print("Building STORD")
+    stord = Stord("/home/prasad/", "master", "Release")
     stord.Clone()
     stord.Build(build_dir_name)
 
-    tgtd = Tgtd("/home/prasad/", "master", "Release", build_dir_name)
+    print("Building TGTD")
+    tgtd = Tgtd("/home/prasad/", "master", "Release")
     tgtd.Clone()
     tgtd.Build(build_dir_name)
-
-    ConfigureLun(stord, tgtd)
 
     iteration = 0
     while True:
@@ -439,16 +439,14 @@ if __name__ == "__main__":
         if not tgtd.IsRunning():
             tgtd_pid = tgtd.Run()
 
-        time.sleep(1 * 60 * 60)
+        time.sleep(60)
 
         build_dir_name = BuildDirName()
         stord_rebuilt = False
-        '''
         if stord.HasNewCommit() == True:
             stord.Clone()
             stord.Build(build_dir_name)
             stord_rebuilt = True
-        '''
 
         if tgtd.HasNewCommit() == True:
             tgtd.Clone()
