@@ -143,7 +143,9 @@ ReadAhead::RunPredictions(std::vector<int64_t>& offsets) {
 				if(not IsBlockSizeAlgined(offset, block_size)) {
 					offset = AlignDownToBlockSize(offset, block_size);
 				}
-				predictions.insert(std::pair<int64_t, bool>(offset, true));
+				if((int64_t)(offset + block_size) < max_offset_) {
+					predictions.insert(std::pair<int64_t, bool>(offset, true));
+				}
 			}
 		}
 	}
