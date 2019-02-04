@@ -32,6 +32,7 @@
 
 using namespace ::hyc_thrift;
 using namespace ::ondisk;
+const uint32_t kMaxFailureTolerateCnt = 102400;
 
 namespace pio {
 
@@ -1105,6 +1106,262 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id,
 	return aux_info_->failed_;
 }
 
+int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
+        uint32_t max_req_size, uint32_t max_pending_reqs) {
+
+	/*
+	 * TBD :- Since a fix number of requests can under process
+	 * at time, we can create those many records upfront to avoid
+	 * creating and destroying it again and again (slab)
+	 */
+
+	aux_info_->InitState(FlushAuxData::FlushStageType::kFlushStage);
+	aux_info_->FlushStartedAt_ = std::chrono::steady_clock::now();
+
+	auto ckptp = GetCheckPoint(ckpt_id);
+	log_assert(ckptp != nullptr);
+	log_assert(ckptp->IsFlushed() == false);
+
+	int64_t prev_block = -1, cur_block = -1, start_block = -1,
+			saved_start_block = -1, saved_prev_block = -1;
+	uint32_t block_cnt = 0, saved_block_cnt = 0;
+	auto vmdkid  = GetID();
+
+	LOG (ERROR) << __func__ << vmdkid << "::"
+			<< " Flush stage start"
+			<< ", max_pending_reqs::"
+			<< max_pending_reqs;
+
+	const auto& bitmap = ckptp->GetRoaringBitMap();
+	std::vector <FlushBlock> blocks, saved_blocks;
+	uint32_t acc_size = 0, saved_acc_size = 0;
+	auto blk_sz = BlockSize();
+
+	auto it = bitmap.begin();
+	auto eit = bitmap.end();
+	bool processing_failed = false;
+	bool done = false;
+	uint64_t failed_processed = 0;
+
+	while (true) {
+		aux_info_->lock_.lock();
+		if (pio_unlikely(!aux_info_->failed_list_.empty())) {
+			LOG(ERROR) << __func__ << "failed blocks processing";
+			processing_failed = true;
+
+			/* save current context */
+			saved_start_block = start_block;
+			saved_prev_block = prev_block;
+			saved_block_cnt = block_cnt;
+			saved_acc_size = acc_size;
+			saved_blocks = blocks;
+
+			/* TBD : Single call for front and pop_front */
+			blocks = aux_info_->failed_list_.front();
+			acc_size = 0;
+			block_cnt = 0;
+			for (auto elm = blocks.begin(); elm != blocks.end(); elm++) {
+				VLOG(5) << __func__ << vmdkid << "::" <<
+					" found in failed list, start block:"
+					<< elm->first << ", block_cnt:" << elm->second;
+				acc_size += elm->second * blk_sz;
+				block_cnt += elm->second;
+			}
+			failed_processed += acc_size;
+			aux_info_->failed_list_.pop_front();
+		} else if (pio_likely(it != eit)) {
+			auto block = *it;
+			if (pio_unlikely(start_block == -1)) {
+				start_block = block;
+			}
+
+			cur_block = block;
+			if (pio_unlikely(prev_block == -1)) {
+				/* initial, very first */
+				prev_block = cur_block;
+				block_cnt = 1;
+				++it;
+				aux_info_->lock_.unlock();
+				continue;
+			} else if (prev_block + 1 == cur_block) {
+				/* sequential, can we accomadate it */
+				if (blk_sz * (block_cnt + 1) < max_req_size) {
+					prev_block = cur_block;
+					block_cnt++;
+					++it;
+					aux_info_->lock_.unlock();
+					continue;
+				}
+			}
+
+			/* add this range in the list */
+			log_assert(block_cnt > 0);
+			VLOG(5) << __func__ << "Adding start_block:"
+					<< start_block << ", block_cnt:" << block_cnt;
+			blocks.push_back(std::make_pair(start_block, block_cnt));
+			acc_size += block_cnt * blk_sz;
+			block_cnt = 0;
+			if (acc_size < max_req_size) {
+				/* Start tracking other range */
+				start_block = cur_block;
+				prev_block = cur_block;
+				block_cnt = 1;
+				++it;
+				aux_info_->lock_.unlock();
+				continue;
+			}
+		} else if (it == eit && !done) { /* after itter end */
+			LOG(ERROR) << __func__ << "End of itterator, done flag is not set";
+			/* What already gathered */
+			if (pio_unlikely(block_cnt)) {
+				VLOG(5) << __func__ << "Adding last start_block:"
+					<< start_block << ", block_cnt:" << block_cnt;
+				blocks.push_back(std::make_pair(start_block, block_cnt));
+				acc_size += block_cnt * blk_sz;
+			}
+
+			block_cnt = 0;
+			done = true;
+		} else if (done) { /* Submitted all the blocks */
+			LOG(ERROR) << __func__ << "Done flag set";
+			if (aux_info_->failed_ == false && (aux_info_->pending_cnt_ || !aux_info_->failed_list_.empty())) {
+				aux_info_->sleeping_ = true;
+				aux_info_->rendez_.TaskSleep(&aux_info_->lock_);
+				if (!aux_info_->failed_) {
+					aux_info_->lock_.unlock();
+					continue;
+				}
+			}
+
+			LOG(ERROR) << __func__ << "Exiting..";
+			aux_info_->lock_.unlock();
+			break;
+		} else {
+			LOG(ERROR) << __func__ << "Should not be here";
+			log_assert(0);
+		}
+
+		if (aux_info_->failed_) {
+			LOG(ERROR) << __func__ << "::" << vmdkid << "::"
+				<< "found failed state set, quitting";
+			aux_info_->lock_.unlock();
+			break;
+		}
+
+		if (aux_info_->pending_cnt_ >= max_pending_reqs) {
+			/* Already submitted too much, wait for completion */
+			aux_info_->sleeping_ = true;
+			aux_info_->rendez_.TaskSleep(&aux_info_->lock_);
+			if (aux_info_->failed_) {
+				aux_info_->lock_.unlock();
+				break;
+			}
+		}
+
+		aux_info_->pending_cnt_++;
+		aux_info_->lock_.unlock();
+
+		BulkFlushStart(blocks, ckpt_id)
+		.then([this, vmdkid, acc_size = acc_size, blk_sz = blk_sz,
+				blocks = blocks] (int rc) mutable {
+			/* TBD : Free the created IO buffer */
+			this->aux_info_->lock_.lock();
+			VLOG(5) << __func__ << ", acc size is::"
+				<< acc_size << ", pending:"
+				<< aux_info_->pending_cnt_;
+			aux_info_->pending_cnt_--;
+
+			/* If some of the requests has failed then don't submit new ones */
+			if (pio_unlikely(rc)) {
+				LOG(ERROR) << __func__ <<
+					" flush request failed for vmdkid::" << vmdkid;
+				aux_info_->failure_cnt_++;
+				if (aux_info_->failure_cnt_ < kMaxFailureTolerateCnt) {
+					LOG(ERROR) << __func__ <<
+						" Retrying for failed flush request for vmdkid::" << vmdkid;
+					for (auto elm = blocks.begin(); elm != blocks.end(); elm++) {
+						VLOG(5) << __func__ 	<< "[" << aux_info_->failure_cnt_
+							<< "]Adding in failed list::" << elm->first
+							<< "::" << elm->second;
+					}
+					aux_info_->failed_list_.emplace_back(blocks);
+				} else {
+					LOG(ERROR) << __func__ <<
+						" Setting flush failed for vmdkid::" << vmdkid;
+					aux_info_->failed_ = true;
+				}
+			}
+
+			if (aux_info_->sleeping_) {
+
+				/*
+				 * Sleeping in done context then wakeup from
+				 * last completion otherwise wakeup to continue
+				 * the pipeline
+				 */
+
+				if (aux_info_->done_) {
+					if (!aux_info_->pending_cnt_) {
+						aux_info_->sleeping_ = false;
+						aux_info_->rendez_.TaskWakeUp();
+					}
+				} else {
+					aux_info_->sleeping_ = false;
+					aux_info_->rendez_.TaskWakeUp();
+				}
+			}
+
+			aux_info_->flushed_blks_+= acc_size / blk_sz;
+			aux_info_->lock_.unlock();
+		});
+
+		if (processing_failed) {
+			blocks = saved_blocks;
+			acc_size = saved_acc_size;
+			start_block = saved_start_block;
+			prev_block = saved_prev_block;
+			block_cnt = saved_block_cnt;
+			processing_failed = false;
+		} else if (!done) {
+			/* Adjust the values before moving ahead */
+			start_block = cur_block;
+			prev_block = cur_block;
+			block_cnt = 1;
+
+			/* Clear the elements of the vector */
+			blocks.clear();
+			acc_size = 0;
+			++it;
+		} else {
+			block_cnt = 0;
+			acc_size = 0;
+			blocks.clear();
+		}
+	}
+
+	/* Set done and wait for completion of all */
+	aux_info_->lock_.lock();
+	aux_info_->done_ = true;
+	if (aux_info_->pending_cnt_) {
+		aux_info_->sleeping_ = true;
+		aux_info_->rendez_.TaskSleep(&aux_info_->lock_);
+	}
+
+	log_assert(aux_info_->sleeping_ == false);
+	log_assert(aux_info_->pending_cnt_ == 0);
+
+	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
+		(std::chrono::steady_clock::now() - aux_info_->FlushStartedAt_);
+	aux_info_->lock_.unlock();
+
+	LOG (ERROR) << __func__ << vmdkid << "::"
+		<< "Flush stage End, total attempted flushed blocks count::"
+		<< aux_info_->flushed_blks_
+		<< ", status::" << aux_info_->failed_
+		<< ", failed_processed(in bytes)::" << failed_processed;
+	return aux_info_->failed_;
+}
+
 int ActiveVmdk::FlushStage_v2(CheckPointID ckpt_id,
         uint32_t max_req_size, uint32_t max_pending_reqs) {
 
@@ -1359,7 +1616,7 @@ int ActiveVmdk::FlushStages(CheckPointID ckpt_id, bool perform_flush,
 	if (pio_likely(perform_flush)) {
 
 #ifdef USE_FLUSH_VERSION2
-		rc = FlushStage_v2(ckpt_id, max_req_size, max_pending_reqs);
+		rc = FlushStage_v3(ckpt_id, max_req_size, max_pending_reqs);
 #else
 		rc = FlushStage(ckpt_id, max_req_size, max_pending_reqs);
 #endif

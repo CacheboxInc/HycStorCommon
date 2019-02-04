@@ -477,7 +477,7 @@ retry:
 
 #ifdef INJECT_WRITE_FAILURE
 		/* Fail every 3rd IO */
-		if (count++ > 3) {
+		if (++count >= 3) {
 			LOG(ERROR) << __func__ << "Injecting Write error, count::" << count;
 			count = 0;
 			return -EIO;

@@ -30,6 +30,7 @@ namespace pio {
 
 using PreloadBlock = std::pair<::ondisk::BlockID, uint16_t>;
 using FlushBlock = std::pair<::ondisk::BlockID, uint16_t>;
+using FailedElms = std::vector <FlushBlock>;
 
 /* forward declaration for Pimpl */
 namespace config {
@@ -106,6 +107,8 @@ public:
 	bool done_{false};
 	bool failed_{false};
 	std::atomic<uint64_t> reqid_{0};
+	uint32_t failure_cnt_{0};
+	std::list<FailedElms> failed_list_;
 
 	std::chrono::steady_clock::time_point FlushStartedAt_;
 	uint64_t FlushStageDuration_{0};
@@ -119,6 +122,8 @@ public:
 		sleeping_ = false;
 		done_ = false;
 		failed_ = false;
+		failure_cnt_ = 0;
+		failed_list_.clear();
 		if (type == FlushStageType::kFlushStage) {
 			flushed_blks_ = 0;
 			moved_blks_ = 0;
@@ -206,6 +211,7 @@ public:
 			bool perform_move, uint32_t, uint32_t);
 	int FlushStage(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
 	int FlushStage_v2(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
+	int FlushStage_v3(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
 	int MoveStage(::ondisk::CheckPointID check_point, uint32_t);
 	int MoveStage_v2(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
 	int MoveStage_v3(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
