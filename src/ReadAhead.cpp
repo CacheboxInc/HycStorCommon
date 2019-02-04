@@ -252,33 +252,31 @@ void ReadAhead::CoalesceRequests(/*[In]*/std::map<int64_t, bool>& predictions,
 }
 
 void ReadAhead::InitializeEssentials() {
-	// Initialize max_offset_ to check for disk boundary
-	max_offset_ = 0;
-	force_disable_read_ahead_ = true;
-	auto disk_size = vmdkp_->GetDiskSize();
-	auto block_size = vmdkp_->BlockSize();
-	// Unread Area = 1 * Predictability size + 2MB
-	int64_t adjust_safety = (2 * prefetch_depth_ * block_size) + (2 << 20);
-	if(disk_size > adjust_safety) {
+	// Initialize prefetch_depth_ for prediction
+    auto block_size = vmdkp_->BlockSize();
+    force_disable_read_ahead_ = false;
+    prefetch_depth_ = MAX_PREDICTION_SIZE / block_size;
+    if(prefetch_depth_ < 1) {
+		force_disable_read_ahead_ = true;
+        LOG(WARNING) << "For VmdkID = " << vmdkp_->GetID()  <<
+                 ", Prefetch Depth is < 1. ReadAhead disabled for this vmdk";
+        return;
+     }
+ 
+     // Initialize max_offset_ to check for disk boundary
+     max_offset_ = 0;
+     auto disk_size = vmdkp_->GetDiskSize();
+     // Unread Area = 1 * Predictability size + 2MB
+     int64_t adjust_safety = (2 * prefetch_depth_ * block_size) + (2 << 20);
+     if(disk_size > adjust_safety) {
 		max_offset_ = disk_size - adjust_safety;
-		if(not IsBlockSizeAlgined(max_offset_, block_size)) {
-			max_offset_ = AlignDownToBlockSize(max_offset_, block_size);
-		}
-		force_disable_read_ahead_ = false;
-	}
-	if(force_disable_read_ahead_) {
-		LOG(WARNING) << "For VmdkID = " << vmdkp_->GetID() << ", Disk Size = " << disk_size << 
-				" is too small to participate in ReadAhead. ReadAhead disabled for this vmdk";
+        if(not IsBlockSizeAlgined(max_offset_, block_size)) {
+        	max_offset_ = AlignDownToBlockSize(max_offset_, block_size);
+        }
+ 		
 		return;
 	}
-
-	// Initialize prefetch_depth_ for prediction
-	prefetch_depth_ = MAX_PREDICTION_SIZE / block_size;
-	if(prefetch_depth_ < 1) {
-		force_disable_read_ahead_ = true;
-	}
-	if(force_disable_read_ahead_) {
-		LOG(WARNING) << "For VmdkID = " << vmdkp_->GetID()  << 
-				", Prefetch Depth is < 1. ReadAhead disabled for this vmdk";
-	}
+    force_disable_read_ahead_ = true;
+    LOG(WARNING) << "For VmdkID = " << vmdkp_->GetID() << ", Disk Size = " << disk_size <<
+    		" is too small to participate in ReadAhead. ReadAhead disabled for this vmdk";
 }
