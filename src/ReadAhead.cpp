@@ -17,7 +17,8 @@ ghb_params_t ReadAhead::ghb_params_ = {};
 ghb_t ReadAhead::ghb_ = {};
 
 ReadAhead::ReadAhead(ActiveVmdk* vmdkp)
-		: vmdkp_(vmdkp), start_index_(32), loopback_(8), n_history_(MAX_PENDING_IOS_) {
+		: force_disable_read_ahead_(false), prefetch_depth_(0), start_index_(32),
+		loopback_(8), n_history_(MAX_PENDING_IOS_), max_offset_(0), vmdkp_(vmdkp) {
 	if(not vmdkp_) {
 		LOG(ERROR) <<  __func__  << "vmdkp is passed as nullptr, cannot construct ReadAhead object";
 		throw std::runtime_error("At __func__ vmdkp is passed as nullptr, cannot construct ReadAhead object");
@@ -55,6 +56,9 @@ ReadAhead::Run(ReqBlockVec& offsets, Request* request) {
 		return folly::makeFuture(std::move(results));
 	}
 	
+	// Update stats
+	UpdateTotalReadMissBlocks(offsets.size());
+
 	for(const auto& offset : offsets) {
 		int64_t an_offset = offset->GetOffset();
 		if(an_offset < max_offset_) {
@@ -85,6 +89,9 @@ ReadAhead::Run(ReqBlockVec& offsets, const std::vector<std::unique_ptr<Request>>
 	if(contains_rh_blocks) {
 		return folly::makeFuture(std::move(results));	
 	}
+	
+	// Update stats
+	UpdateTotalReadMissBlocks(offsets.size());
 	
 	for(const auto& offset : offsets) {
 		int64_t an_offset = offset->GetOffset();
@@ -126,14 +133,6 @@ ReadAhead::RunPredictions(std::vector<int64_t>& offsets) {
 	
 	RefreshGHB();
 	
-	auto local_offsets_size = local_offsets.size();	
-	if(st_read_ahead_stats_.stats_rh_read_misses_ + local_offsets_size >= ULONG_MAX - 10) {
-		LOG(INFO) << "Resetting stats_rh_read_misses_ counter, current value = [" 
-				<< st_read_ahead_stats_.stats_rh_read_misses_ << "].";
-		st_read_ahead_stats_.stats_rh_read_misses_ = 0;
-	}
-	st_read_ahead_stats_.stats_rh_read_misses_ += local_offsets_size;
-
 	uint64_t* prefetch_lbas = new uint64_t[prefetch_depth_];
 	for(auto it = local_offsets.begin(); it != local_offsets.end(); ++it) {
 		int n_prefetch = ghb_update_and_query(&ghb_, 1, it->first, prefetch_lbas);
@@ -143,7 +142,8 @@ ReadAhead::RunPredictions(std::vector<int64_t>& offsets) {
 				if(not IsBlockSizeAlgined(offset, block_size)) {
 					offset = AlignDownToBlockSize(offset, block_size);
 				}
-				if((int64_t)(offset + block_size) < max_offset_) {
+				if(((int64_t)(offset + block_size) < max_offset_) 
+					and (offset >= block_size)) {
 					predictions.insert(std::pair<int64_t, bool>(offset, true));
 				}
 			}
@@ -159,7 +159,6 @@ ReadAhead::RunPredictions(std::vector<int64_t>& offsets) {
 				predictions.erase(it_predictions);
 			}
 		}
-		
 		auto pred_size = predictions.size();
 		if(pred_size > (size_t)prefetch_depth_) {
 			// Should rarely occur
@@ -172,14 +171,8 @@ ReadAhead::RunPredictions(std::vector<int64_t>& offsets) {
 		pred_size = predictions.size();
 		assert((pred_size * block_size) <= MAX_PREDICTION_SIZE);
 		
-		auto stats_blocks = st_read_ahead_stats_.stats_rh_blocks_size_.load(std::memory_order_relaxed);
-		if(stats_blocks + pred_size >= ULONG_MAX - 10) {
-			LOG(INFO) << "Resetting stats_rh_blocks_size_ counter, current value = [" 
-					<< st_read_ahead_stats_.stats_rh_blocks_size_ << "].";
-			st_read_ahead_stats_.stats_rh_blocks_size_ = 0;
-			stats_blocks = 0;
-		}
-		st_read_ahead_stats_.stats_rh_blocks_size_ = stats_blocks + pred_size;
+		// Update stats
+		UpdateTotalReadAheadBlocks(pred_size);	
 		
 		return Read(predictions);
 	}
@@ -252,6 +245,13 @@ void ReadAhead::CoalesceRequests(/*[In]*/std::map<int64_t, bool>& predictions,
 }
 
 void ReadAhead::InitializeEssentials() {
+	auto disk_size = vmdkp_->GetDiskSize();
+	if(disk_size < MAX_DISK_SIZE_SUPPORTED) {
+    	force_disable_read_ahead_ = true;
+    	LOG(WARNING) << "For VmdkID = " << vmdkp_->GetID() << ", Disk Size = " << disk_size <<
+    			" is too small to participate in ReadAhead. ReadAhead disabled for this vmdk";
+		return;
+	}
 	// Initialize prefetch_depth_ for prediction
     auto block_size = vmdkp_->BlockSize();
     force_disable_read_ahead_ = false;
@@ -262,21 +262,36 @@ void ReadAhead::InitializeEssentials() {
                  ", Prefetch Depth is < 1. ReadAhead disabled for this vmdk";
         return;
      }
- 
      // Initialize max_offset_ to check for disk boundary
-     max_offset_ = 0;
-     auto disk_size = vmdkp_->GetDiskSize();
-     // Unread Area = 1 * Predictability size + 2MB
-     int64_t adjust_safety = (2 * prefetch_depth_ * block_size) + (2 << 20);
+     // Unread Area = Predictability size
+     int64_t adjust_safety = (prefetch_depth_ * block_size) + block_size;
      if(disk_size > adjust_safety) {
 		max_offset_ = disk_size - adjust_safety;
         if(not IsBlockSizeAlgined(max_offset_, block_size)) {
         	max_offset_ = AlignDownToBlockSize(max_offset_, block_size);
         }
- 		
+ 	
 		return;
 	}
     force_disable_read_ahead_ = true;
     LOG(WARNING) << "For VmdkID = " << vmdkp_->GetID() << ", Disk Size = " << disk_size <<
     		" is too small to participate in ReadAhead. ReadAhead disabled for this vmdk";
+}
+
+void ReadAhead::UpdateTotalReadMissBlocks(int64_t size) {
+	if(st_read_ahead_stats_.stats_rh_read_misses_ + size >= ULONG_MAX - 10) {
+		LOG(INFO) << "Resetting stats_rh_read_misses_ counter, current value = [" 
+				<< st_read_ahead_stats_.stats_rh_read_misses_ << "].";
+		st_read_ahead_stats_.stats_rh_read_misses_ = 0;
+	}
+	st_read_ahead_stats_.stats_rh_read_misses_ += size;
+}
+
+void ReadAhead::UpdateTotalReadAheadBlocks(int64_t size) {
+	if(st_read_ahead_stats_.stats_rh_blocks_size_ + size >= ULONG_MAX - 10) {
+		LOG(INFO) << "Resetting stats_rh_blocks_size_ counter, current value = [" 
+					<< st_read_ahead_stats_.stats_rh_blocks_size_ << "].";
+		st_read_ahead_stats_.stats_rh_blocks_size_ = 0;
+	}
+	st_read_ahead_stats_.stats_rh_blocks_size_ += size;
 }

@@ -55,18 +55,20 @@ public:
 	}
 
 private:
-	ActiveVmdk*		vmdkp_;
-	int				prefetch_depth_;
-	int				start_index_;
-	int				loopback_;
-	int				n_history_;
-	int64_t			max_offset_;
-	bool			force_disable_read_ahead_;
-
 	static const int64_t 	MAX_PENDING_IOS_ = 1024;
 	static const int64_t 	PENDING_IOS_SERVE_SIZE = 8;
-	static const int64_t	MAX_PREDICTION_SIZE = 1 << 20; 	// 1M
-	static const int64_t	MAX_PACKET_SIZE = 1 << 18; 		// 256K
+	static const int64_t	MAX_PREDICTION_SIZE = 1 << 20; 		// 1M
+	static const int64_t	MAX_PACKET_SIZE = 1 << 18; 			// 256K
+	static const int64_t	MAX_DISK_SIZE_SUPPORTED = 1 << 30; 	// 1GB
+	
+	bool		force_disable_read_ahead_;
+	int			prefetch_depth_;
+	int			start_index_;
+	int			loopback_;
+	int			n_history_;
+	int64_t		max_offset_;
+	ActiveVmdk*	vmdkp_;
+	
 	std::map<int64_t, bool> pending_ios_;
 	std::mutex 				pending_ios_mutex_; 
 	static std::mutex		prediction_mutex_;
@@ -86,5 +88,7 @@ private:
 	folly::Future<std::unique_ptr<ReadResultVec>>
 	RunPredictions(std::vector<int64_t>& offsets);
 	void InitializeEssentials();
+	void UpdateTotalReadMissBlocks(int64_t size);
+	void UpdateTotalReadAheadBlocks(int64_t size);
 };
 }
