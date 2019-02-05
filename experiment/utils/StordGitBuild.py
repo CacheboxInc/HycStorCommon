@@ -351,7 +351,14 @@ class Process(object):
         self._process = multiprocessing.Process(target=RunProgram, args=(program, args))
         self._process.start()
 
+    def Pid(self):
+        if not self.IsRunning():
+            return -1
+        return self._process.pid
+
     def IsRunning(self):
+        if self._process == None:
+            return False
         return self._process.is_alive()
 
     def Crash(self):
@@ -390,7 +397,7 @@ class Tgtd(Process):
         super(Tgtd, self).__init__()
 
     def Run(self):
-        super(Stord, self).Run(self._build.ExecutablePath(), self._args)
+        super(Tgtd, self).Run(self._build.ExecutablePath(), self._args)
 
     def Clone(self):
         self._build.Clone()
@@ -413,6 +420,8 @@ class Etcd(Process):
 def BuildDirName():
     return "build" + datetime.datetime.now().strftime("%Y-%m-%d-%H:%M")
 
+tgtd_args = '-f -e "http://127.0.0.1:2379" -s "tgt_svc" -v "v1.0" -p 9001 -D "127.0.0.1" -P 9876'.split()
+stord_args = '-etcd_ip="http://127.0.0.1:2379" -stord_version="v1.0" -svc_label="stord_svc" -ha_svc_port=9000 -v 1'.split()
 if __name__ == "__main__":
     build_dir_name = BuildDirName()
     etcd = Etcd("/home/prasad/etcd/etcd")
@@ -420,12 +429,12 @@ if __name__ == "__main__":
     print("STARTED ETCD")
 
     print("Building STORD")
-    stord = Stord("/home/prasad/", "master", "Release")
+    stord = Stord("/home/prasad/", "master", "Release", stord_args)
     stord.Clone()
     stord.Build(build_dir_name)
 
     print("Building TGTD")
-    tgtd = Tgtd("/home/prasad/", "master", "Release")
+    tgtd = Tgtd("/home/prasad/", "master", "Release", tgtd_args)
     tgtd.Clone()
     tgtd.Build(build_dir_name)
 
@@ -434,11 +443,12 @@ if __name__ == "__main__":
         iteration += 1
         print("Iteration = %d" % (iteration))
         if not stord.IsRunning():
-            stord_pid = stord.Run()
+            stord.Run()
 
         if not tgtd.IsRunning():
-            tgtd_pid = tgtd.Run()
+            tgtd.Run()
 
+        print("TGTD = %d, STORD = %d ETCD = %d" % (tgtd.Pid(), stord.Pid(), etcd.Pid()))
         time.sleep(60)
 
         build_dir_name = BuildDirName()
