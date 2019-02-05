@@ -1083,6 +1083,7 @@ RequestID StordVmdk::ScheduleRead(const void* privatep, char* bufferp,
 		return kInvalidRequestID;
 	}
 
+	now = true;
 	if (now) {
 		auto basep = connectp_->GetEventBase();
 		auto clientp = connectp_->GetRpcClient();
@@ -1100,6 +1101,7 @@ RequestID StordVmdk::ScheduleWrite(const void* privatep, char* bufferp,
 		return kInvalidRequestID;
 	}
 
+	now = true;
 	if (now) {
 		auto basep = connectp_->GetEventBase();
 		auto clientp = connectp_->GetRpcClient();
@@ -1118,6 +1120,7 @@ RequestID StordVmdk::ScheduleWriteSame(const void* privatep, char* bufferp,
 		return kInvalidRequestID;
 	}
 
+	now = true;
 	if (now) {
 		auto basep = connectp_->GetEventBase();
 		auto clientp = connectp_->GetRpcClient();
