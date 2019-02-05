@@ -96,14 +96,15 @@ class Git:
         local = self.GetHeadCommitHash(self._branch)
         remote = self.GetHeadCommitHash(remote_branch)
         (rc, base, e) = RunCommand(self.RepoDir(), "git merge-base %s %s" % (self._branch, remote_branch))
+        assert(len(base) == 1)
 
         if local == remote:
             # already up-to-date
             return False
-        elif local == base:
+        elif local == base[0]:
             # need a pull
             return True
-        elif remote == base:
+        elif remote == base[0]:
             # we need a push from here
             return False
         else:
