@@ -155,10 +155,10 @@ static void WriteListener(as_error *errp, void *datap, as_event_loop*) {
 #ifdef INJECT_AERO_WRITE_ERROR
 	/* if not already failed */
 	if (!wrp->status_) {
-		if (batchp->retry_cnt_ > 2) {
+		if (batchp->retry_cnt_ > 1) {
 			wrp->status_ = AEROSPIKE_ERR_TIMEOUT;
 			LOG(ERROR) << __func__ << "::Injecting AEROSPIKE_ERR_TIMEOUT error, retry_cnt :: " << batchp->retry_cnt_;
-		} else if (batchp->retry_cnt_ == 2) {
+		} else if (batchp->retry_cnt_ == 1) {
 			wrp->status_ = AEROSPIKE_ERR_CLUSTER;
 			LOG(ERROR) << __func__ << "::Injecting AEROSPIKE_ERR_CLUSTER error, retry_cnt :: " << batchp->retry_cnt_;
 		}
@@ -861,10 +861,10 @@ static void DelListener(as_error *errp, void *datap, as_event_loop*) {
 #ifdef INJECT_AERO_DEL_ERROR
 	/* if not already failed */
 	if (!drp->status_) {
-		if (batchp->retry_cnt_ > 2) {
+		if (batchp->retry_cnt_ > 1) {
 			drp->status_ = AEROSPIKE_ERR_TIMEOUT;
 			LOG(ERROR) << __func__ << "Injecting AEROSPIKE_ERR_TIMEOUT error, retry_cnt ::" << batchp->retry_cnt_;
-		} else if (batchp->retry_cnt_ == 2) {
+		} else if (batchp->retry_cnt_ == 1) {
 			drp->status_ = AEROSPIKE_ERR_CLUSTER;
 			LOG(ERROR) << __func__ << "Injecting AEROSPIKE_ERR_CLUSTER error, retry_cnt ::" << batchp->retry_cnt_;
 		}

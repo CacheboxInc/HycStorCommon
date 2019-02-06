@@ -146,35 +146,41 @@ int AeroSpikeConn::Connect() {
 
 	/* TODO: See if we need to set for all types of policies */
 	/* Timeout setting */
-	cfg.policies.write.base.total_timeout = 5000;// 5secs
+	/* we are setting total_timeout to 0 so that we would wait inifinitely
+	 * till transaction is completed on server side. This makes assumption on 
+	 * server side that for single record transactions would be completed in 1 sec
+	 * Hopefully after we bring in replication factor, we see no timeouts in 
+	 * aerospike server log file. Hint: ticker.c
+	 */
+	cfg.policies.write.base.total_timeout = 0;
 	cfg.policies.write.base.max_retries = 0;
 	cfg.policies.write.base.sleep_between_retries = 300; // 300ms 
 
-	cfg.policies.read.base.total_timeout = 5000; // 5secs
+	cfg.policies.read.base.total_timeout = 0;
 	cfg.policies.read.base.max_retries = 10;
 	cfg.policies.read.base.sleep_between_retries = 300; // 300ms 
 
-	cfg.policies.operate.base.total_timeout = 5000; // 5secs
+	cfg.policies.operate.base.total_timeout = 0;
 	cfg.policies.operate.base.max_retries = 10;
 	cfg.policies.operate.base.sleep_between_retries = 300; // 300ms 
 
-	cfg.policies.remove.base.total_timeout = 5000; // 5secs
+	cfg.policies.remove.base.total_timeout = 0;
 	cfg.policies.remove.base.max_retries = 0;
 	cfg.policies.remove.base.sleep_between_retries = 300; // 300ms 
 
-	cfg.policies.batch.base.total_timeout = 5000; // 5secs
+	cfg.policies.batch.base.total_timeout = 0;
 	cfg.policies.batch.base.max_retries = 10;
 	cfg.policies.batch.base.sleep_between_retries = 300; // 300ms 
 
-	cfg.policies.apply.base.total_timeout = 5000; // 5secs
+	cfg.policies.apply.base.total_timeout = 0;
 	cfg.policies.apply.base.max_retries = 0;
 	cfg.policies.apply.base.sleep_between_retries = 300; // 300ms 
 
-	cfg.policies.scan.base.total_timeout = 5000; // 5secs
+	cfg.policies.scan.base.total_timeout = 0;
 	cfg.policies.scan.base.max_retries = 0;
 	cfg.policies.scan.base.sleep_between_retries = 300; // 300ms 
 
-	cfg.policies.query.base.total_timeout = 5000; // 5secs
+	cfg.policies.query.base.total_timeout = 0;
 	cfg.policies.query.base.max_retries = 0;
 	cfg.policies.query.base.sleep_between_retries = 300; // 300ms 
 

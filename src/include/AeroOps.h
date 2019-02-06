@@ -25,7 +25,7 @@ namespace pio {
 const std::string kAsNamespaceMeta = "META";
 const std::string kAsCacheBin = "data_map";
 const std::string kAsMetaBin = "meta_map";
-const auto kMaxRetryCnt = 5;
+const auto kMaxRetryCnt = 1;
 
 struct WriteBatch;
 struct WriteRecord {
