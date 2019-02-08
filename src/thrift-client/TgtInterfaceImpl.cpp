@@ -750,6 +750,7 @@ std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 	request->offset = offset;
 
 	auto reqp = request.get();
+	reqp->timer.Start();
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
 	bool schedule_now = requests_.scheduled_.empty() or
 		latency_avg_.Average() > kExpectedWanLatency;
