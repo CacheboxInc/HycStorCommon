@@ -13,6 +13,8 @@
 #include "cksum.h"
 #endif
 
+#define MAYBE_UNUSED(x) [[maybe_unused]]x
+
 namespace pio {
 
 using namespace hyc;
@@ -58,7 +60,7 @@ int NetworkTargetHandler::Open() {
 	return 0;
 }
 
-folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
+folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, MAYBE_UNUSED(Request *reqp),
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	failed.clear();
@@ -124,8 +126,8 @@ folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 }
 
 folly::Future<int> NetworkTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
-		::ondisk::CheckPointID ckpt,
-		const std::vector<std::unique_ptr<Request>>& requests,
+		MAYBE_UNUSED(::ondisk::CheckPointID ckpt),
+		MAYBE_UNUSED(const std::vector<std::unique_ptr<Request>>& requests),
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 	failed.clear();
@@ -165,7 +167,7 @@ folly::Future<int> NetworkTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
 }
 
 folly::Future<int> NetworkTargetHandler::BulkRead(ActiveVmdk* vmdkp,
-		const std::vector<std::unique_ptr<Request>>& requests,
+		MAYBE_UNUSED(const std::vector<std::unique_ptr<Request>>& requests),
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 	failed.clear();
@@ -222,16 +224,19 @@ folly::Future<int> NetworkTargetHandler::BulkRead(ActiveVmdk* vmdkp,
 
 }
 
-folly::Future<int> NetworkTargetHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
-		const std::vector<std::unique_ptr<Request>>& requests,
-		const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock*>& failed) {
+folly::Future<int> NetworkTargetHandler::BulkReadPopulate(
+		MAYBE_UNUSED(ActiveVmdk* vmdkp),
+		MAYBE_UNUSED(const std::vector<std::unique_ptr<Request>>& requests),
+		MAYBE_UNUSED(const std::vector<RequestBlock*>& process),
+		MAYBE_UNUSED(std::vector<RequestBlock*>& failed)) {
 	log_assert(0);
 	return -ENODEV;
 }
 
-folly::Future<int> NetworkTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
-		::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
+folly::Future<int> NetworkTargetHandler::Write(ActiveVmdk *vmdkp,
+		MAYBE_UNUSED(Request *reqp),
+		MAYBE_UNUSED(::ondisk::CheckPointID ckpt),
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	failed.clear();
 	std::shared_ptr<hyc::IO> io = std::make_shared<IO>(WRITEDIR);
@@ -278,14 +283,16 @@ folly::Future<int> NetworkTargetHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 	});
 }
 
-int NetworkTargetHandler::IOProcessed(IOSession *session, std::shared_ptr<IO> io) {
+int NetworkTargetHandler::IOProcessed(MAYBE_UNUSED(IOSession *session),
+		std::shared_ptr<IO> io) {
 	auto promise = reinterpret_cast<folly::Promise<int>*>(io->GetOpaque());
 	promise->setValue(io->GetStatus());
 	return 0;
 }
 
-folly::Future<int> NetworkTargetHandler::ReadPopulate(ActiveVmdk *vmdkp,
-		Request *reqp,
+folly::Future<int> NetworkTargetHandler::ReadPopulate(
+		MAYBE_UNUSED(ActiveVmdk *vmdkp),
+		MAYBE_UNUSED(Request *reqp),
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	failed.clear();
@@ -294,7 +301,8 @@ folly::Future<int> NetworkTargetHandler::ReadPopulate(ActiveVmdk *vmdkp,
 	return -ENODEV;
 }
 
-int NetworkTargetHandler::RegisterIOProcessor(IOProcessor *io_processor, bool preferred,
+int NetworkTargetHandler::RegisterIOProcessor(IOProcessor *io_processor,
+		MAYBE_UNUSED(bool preferred),
 		int srcid, int destid) {
 
 	io_session_ = new IOSession(this, io_processor, srcid, destid);
