@@ -70,7 +70,11 @@ public:
 	}
 
 	T Average() const noexcept {
-		return total_ / std::min(nsamples_, N);
+		auto div = std::min(nsamples_, N);
+		if (not div) {
+			return 0;
+		}
+		return total_ / div;
 	}
 
 private:
