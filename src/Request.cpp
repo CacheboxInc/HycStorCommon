@@ -78,30 +78,44 @@ Request::Request(RequestID id, ActiveVmdk *vmdkp, Request::Type type, void *buff
 		size_t buffer_size, size_t transfer_size, Offset offset) : vmdkp_(vmdkp),
 		in_(id, type, bufferp, buffer_size, transfer_size, offset) {
 	if (pio_unlikely(id == StorRpc_constants::kInvalidRequestID())) {
-		throw std::invalid_argument("Invalid RequestID");
+		constexpr char kInvalReqID[] = "Invalid RequestID ";
+		LOG(ERROR) << kInvalReqID << id;
+		throw std::invalid_argument(kInvalReqID);
 	}
 	if (pio_unlikely(not IsBlockSizeAlgined(transfer_size, kSectorSize) ||
 			not IsBlockSizeAlgined(buffer_size, kSectorSize))) {
-		throw std::invalid_argument("Invalid transfer_size or buffer_size");
+		constexpr char kInvalIOSize[] = "Invalid transfer_size or buffer_size ";
+		LOG(ERROR) << kInvalIOSize << transfer_size << " " << buffer_size;
+		throw std::invalid_argument(kInvalIOSize);
 	}
 	if (pio_unlikely(transfer_size >= kMaxIoSize)) {
-		throw std::invalid_argument("transfer_size too large");
+		constexpr char kIOTooLarge[] = "transfer_size too large ";
+		LOG(ERROR) << kIOTooLarge << transfer_size;
+		throw std::invalid_argument(kIOTooLarge);
 
 	}
 	if (pio_unlikely(not IsBlockSizeAlgined(offset, kSectorSize))) {
-		throw std::invalid_argument("Invalid Offset");
+		constexpr char kInvalOffset[] = "Invalid Offset ";
+		LOG(ERROR) << kInvalOffset << offset;
+		throw std::invalid_argument(kInvalOffset);
 	}
 
 	switch (in_.type_) {
 	case Request::Type::kWriteSame:
 		if (pio_unlikely(transfer_size < buffer_size)) {
-			throw std::invalid_argument("Invalid transfer_size");
+			constexpr char kInvalTransferSize[] = "Invalid transfer_size ";
+			LOG(ERROR) << kInvalTransferSize << transfer_size
+				<< " " << buffer_size;
+			throw std::invalid_argument(kInvalTransferSize);
 		}
 		InitWriteSameBuffer();
 		break;
 	default:
 		if (pio_unlikely(buffer_size != transfer_size)) {
-			throw std::invalid_argument("buffer_size != transfer_size");
+			constexpr char kSizeDoNotMatch[] = "buffer_size != transfer_size ";
+			LOG(ERROR) << kSizeDoNotMatch << transfer_size
+				<< " " << buffer_size;
+			throw std::invalid_argument(kSizeDoNotMatch);
 		}
 		break;
 	}
@@ -384,12 +398,14 @@ void RequestBuffer::InitBuffer() {
 		auto rc = ::posix_memalign(reinterpret_cast<void**>(&payloadp_),
 			kPageSize, size_);
 		if (pio_unlikely(rc < 0)) {
+			LOG(ERROR) << "Memory allocation failed";
 			throw std::bad_alloc();
 		}
 		break;
 	}
 
 	if (payloadp_ == nullptr) {
+		LOG(ERROR) << "Memory allocation failed";
 		throw std::bad_alloc();
 	}
 }
