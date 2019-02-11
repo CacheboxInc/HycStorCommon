@@ -30,13 +30,59 @@
 static std::string StordIp = "127.0.0.1";
 static uint16_t StordPort = 9876;
 
+using namespace std::chrono_literals;
+static size_t kExpectedWanLatency = std::chrono::microseconds(20ms).count();
+
 namespace hyc {
 using namespace apache::thrift;
 using namespace apache::thrift::async;
 using namespace hyc_thrift;
 using namespace folly;
+
 class StordVmdk;
 class StordConnection;
+
+std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
+
+template <typename T, uint64_t N>
+class MovingAverage {
+public:
+	MovingAverage() = default;
+	~MovingAverage() = default;
+
+	MovingAverage(const MovingAverage& rhs) = delete;
+	MovingAverage(MovingAverage&& rhs) = delete;
+	MovingAverage& operator ==(const MovingAverage& rhs) = delete;
+	MovingAverage& operator ==(MovingAverage&& rhs) = delete;
+
+	T Add(T sample) {
+		std::lock_guard<std::mutex> lock(mutex_);
+		if (nsamples_ < N) {
+			samples_[nsamples_++] = sample;
+			total_ += sample;
+		} else {
+			T& oldest = samples_[nsamples_++ % N];
+			total_ -= oldest;
+			total_ += sample;
+			oldest = sample;
+		}
+		return Average();
+	}
+
+	T Average() const noexcept {
+		auto div = std::min(nsamples_, N);
+		if (not div) {
+			return 0;
+		}
+		return total_ / div;
+	}
+
+private:
+	std::mutex mutex_;
+	T samples_[N];
+	T total_{0};
+	uint64_t nsamples_{0};
+};
 
 class ReschedulingTimeout : public AsyncTimeout {
 public:
@@ -366,6 +412,14 @@ void StordConnection::SetPingTimeout() {
 	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(s).count();
 	ping_.timeout_ = std::make_unique<ReschedulingTimeout>(base_.get(), ms);
 	ping_.timeout_->ScheduleTimeout([this] () {
+		std::vector<StordVmdk*> vmdks;
+		GetRegisteredVmdks(vmdks);
+		if (not vmdks.empty()) {
+			for (StordVmdk* vmdkp : vmdks) {
+				LOG(ERROR) << *vmdkp;
+			}
+		}
+
 		auto fut = client_->future_Ping()
 		.then([] (const std::string& result) {
 			return 0;
@@ -557,6 +611,8 @@ private:
 		std::vector<std::unique_ptr<Request>> complete_;
 	} requests_;
 
+	MovingAverage<uint64_t, 128> latency_avg_{};
+	MovingAverage<uint64_t, 128> bulk_depth_avg_{};
 	VmdkStats stats_;
 
 	std::atomic<RequestID> requestid_{0};
@@ -584,7 +640,10 @@ std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk) {
 		<< " VmdkHandle " << vmdk.vmdk_handle_
 		<< " eventfd " << vmdk.eventfd_
 		<< " pending " << vmdk.stats_.pending_
-		<< " requestid " << vmdk.requestid_;
+		<< " requestid " << vmdk.requestid_
+		<< " latency avg " << vmdk.latency_avg_.Average()
+		<< " Bulk IODepth avg " << vmdk.bulk_depth_avg_.Average()
+		;
 	return os;
 }
 
@@ -712,16 +771,18 @@ std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 
 	auto reqp = request.get();
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
-	auto empty = requests_.scheduled_.empty();
+	bool schedule_now = requests_.scheduled_.empty() or
+		latency_avg_.Average() > kExpectedWanLatency;
 	requests_.scheduled_.emplace(request->id, std::move(request));
 	requests_.pending_.emplace_back(reqp);
-	return std::make_pair(reqp, empty);
+	return std::make_pair(reqp, schedule_now);
 }
 
 void StordVmdk::UpdateStats(Request* reqp) {
 	--stats_.pending_;
 	log_assert(stats_.rpc_requests_scheduled_ >= 0);
 	auto latency = reqp->timer.GetMicroSec();
+	latency_avg_.Add(latency);
 	switch (reqp->type) {
 	case Request::Type::kRead:
 		++stats_.read_requests_;
@@ -797,7 +858,8 @@ void StordVmdk::RequestComplete(Request* reqp) {
 	{
 		std::lock_guard<std::mutex> lock(requests_.mutex_);
 		RequestComplete(reqp->id, reqp->result);
-		post = requests_.scheduled_.empty();
+		post = requests_.scheduled_.empty() or
+			requests_.complete_.size() >= bulk_depth_avg_.Average();
 	}
 
 	if (post) {
@@ -1015,6 +1077,9 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp
 		std::lock_guard<std::mutex> lock(requests_.mutex_);
 		requests_.pending_.swap(pending);
 		requests_.pending_.reserve(32);
+		if (not pending.empty()) {
+			bulk_depth_avg_.Add(pending.size());
+		}
 	};
 
 	std::vector<Request*> pending;
@@ -1033,6 +1098,7 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp
 		uint32_t nreads = 0;
 
 		for (auto reqp : pending) {
+			reqp->timer.Start();
 			switch (reqp->type) {
 			case Request::Type::kRead:
 				if (nreads++ == 0) {
@@ -1390,4 +1456,12 @@ void HycDumpVmdk(VmdkHandle handle) {
 		LOG(ERROR) << "Invalid VMDK " << handle;
 	}
 
+}
+
+void HycSetExpectedWanLatency(uint32_t latency) {
+	LOG(ERROR) << "Changing expecting WAN latency from "
+		<< kExpectedWanLatency
+		<< " to " << latency
+		<< " (all units in micro-seconds)";
+	kExpectedWanLatency = latency;
 }
