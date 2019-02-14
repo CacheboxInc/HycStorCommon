@@ -1127,7 +1127,7 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 	uint32_t block_cnt = 0, saved_block_cnt = 0;
 	auto vmdkid  = GetID();
 
-	LOG (ERROR) << __func__ << vmdkid << "::"
+	VLOG (5) << __func__ << vmdkid << "::"
 			<< " Flush stage start"
 			<< ", max_pending_reqs::"
 			<< max_pending_reqs;
@@ -1211,7 +1211,7 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 				continue;
 			}
 		} else if (it == eit && !done) { /* after itter end */
-			LOG(ERROR) << __func__ << "End of itterator, done flag is not set";
+			VLOG(5) << __func__ << "End of itterator, done flag is not set";
 			/* What already gathered */
 			if (pio_unlikely(block_cnt)) {
 				VLOG(5) << __func__ << "Adding last start_block:"
@@ -1223,7 +1223,7 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 			block_cnt = 0;
 			done = true;
 		} else if (done) { /* Submitted all the blocks */
-			LOG(ERROR) << __func__ << "Done flag set";
+			VLOG(5) << __func__ << "Done flag set";
 			if (aux_info_->failed_ == false && (aux_info_->pending_cnt_ || !aux_info_->failed_list_.empty())) {
 				aux_info_->sleeping_ = true;
 				aux_info_->rendez_.TaskSleep(&aux_info_->lock_);
@@ -1233,7 +1233,7 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 				}
 			}
 
-			LOG(ERROR) << __func__ << "Exiting..";
+			VLOG(5) << __func__ << "Exiting..";
 			aux_info_->lock_.unlock();
 			break;
 		} else {
@@ -1352,7 +1352,7 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 
 	aux_info_->lock_.unlock();
 
-	LOG (ERROR) << __func__ << vmdkid << "::"
+	VLOG (5) << __func__ << vmdkid << "::"
 		<< "Flush stage End, total attempted flushed blocks count::"
 		<< aux_info_->flushed_blks_
 		<< ", status::" << aux_info_->failed_
@@ -1997,7 +1997,7 @@ int ActiveVmdk::SetCkptBitmap(CheckPointID ckpt_id,
 		 */
 
 		if (pio_unlikely(checkpoint->IsSerialized())) {
-			LOG(ERROR) << __func__ << " Resetting the Serialized flag for VMDKID:" << GetID();
+			VLOG(5) << __func__ << " Resetting the Serialized flag for VMDKID:" << GetID();
 			checkpoint->UnsetSerialized();
 		}
 
@@ -2243,7 +2243,7 @@ int ActiveVmdk::MoveStage_v3(CheckPointID ckpt_id,
 	uint32_t block_cnt = 0;
 	auto vmdkid  = GetID();
 
-	LOG (ERROR) << __func__ << vmdkid << "::"
+	VLOG (5) << __func__ << vmdkid << "::"
 			<< " Move stage start"
 			<< ", max_pending_reqs::"
 			<< max_pending_reqs;
@@ -2370,7 +2370,7 @@ int ActiveVmdk::MoveStage_v3(CheckPointID ckpt_id,
 		acc_size += block_cnt * blk_sz;
 	}
 
-	LOG (ERROR) << __func__ << "::" << vmdkid << "::"
+	VLOG (5) << __func__ << "::" << vmdkid << "::"
 		<< " Outside loop, remaining blocks::"
 		<< acc_size / blk_sz
 		<< " In blocks:" << blocks.size() ;
@@ -2440,7 +2440,7 @@ int ActiveVmdk::MoveStage_v3(CheckPointID ckpt_id,
 	aux_info_->MoveStageDuration_ = duration.count();
 	aux_info_->lock_.unlock();
 
-	LOG (ERROR) << __func__ << vmdkid << "::"
+	VLOG (5) << __func__ << vmdkid << "::"
 		<< "Move stage End, total attempted moved blocks count::"
 		<< aux_info_->moved_blks_
 		<< ", status::" << aux_info_->failed_;
@@ -2492,7 +2492,7 @@ folly::Future<int> ActiveVmdk::TakeCheckPoint(CheckPointID ckpt_id) {
 
 folly::Future<int> ActiveVmdk::CommitCheckPoint(CheckPointID ckpt_id) {
 
-	LOG(ERROR) << __func__ << " Commit on checkpoint ID:" << ckpt_id;
+	VLOG(5) << __func__ << " Commit on checkpoint ID:" << ckpt_id;
 	auto checkpoint = GetCheckPoint(ckpt_id);
 	if (pio_unlikely(not checkpoint)) {
 		return -ENOMEM;
@@ -2508,7 +2508,7 @@ folly::Future<int> ActiveVmdk::CommitCheckPoint(CheckPointID ckpt_id) {
 		LOG(ERROR) << __func__ << " Serialized flag is already set for VMDKID:" << GetID();
 		return 0;
 	} else {
-		LOG(ERROR) << __func__ << " Serialized flag is false for VMDKID:" << GetID();
+		VLOG(5) << __func__ << " Serialized flag is false for VMDKID:" << GetID();
 	}
 
 	auto json = checkpoint->Serialize();

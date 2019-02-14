@@ -349,7 +349,6 @@ uint64_t GetObjectCount(char *res) {
 		return 0;
 
 	std::string strNew = temp.substr(first + 1, last - (first + 1));
-	LOG(ERROR) << __func__ << "strNew:::-" << strNew.c_str();
 	return stol(strNew);
 }
 
@@ -358,15 +357,12 @@ int VirtualMachine::AeroCacheStats(AeroStats *aero_statsp, AeroSpikeConn *aerop)
 	std::ostringstream os_dirty;
 	auto tgtname = GetJsonConfig()->GetTargetName();
 	os_dirty << "sets/DIRTY/" << tgtname;
-	LOG(ERROR) << __func__ << "Dirty cmd is::" << os_dirty.str();
 
 	std::ostringstream os_clean;
 	os_clean << "sets/CLEAN/" << tgtname;
-	LOG(ERROR) << __func__ << "Clean cmd is::" << os_clean.str();
 
 	auto aeroconf = aerop->GetJsonConfig();
 	std::string node_ips = aeroconf->GetAeroIPs();
-	LOG(ERROR) << __func__ << "ips are::" << node_ips.c_str();
 
 	std::vector<std::string> results;
 	boost::split(results, node_ips, boost::is_any_of(","));
@@ -378,15 +374,14 @@ int VirtualMachine::AeroCacheStats(AeroStats *aero_statsp, AeroSpikeConn *aerop)
 	as_error err;
 	std::ostringstream os_parent;
 	for (auto node_ip : results) {
-		LOG(ERROR) << __func__ << "Node ip is::" << node_ip.c_str();
 		res = NULL;
 		if (aerospike_info_host(&aerop->as_, &err, NULL, node_ip.c_str(), port, os_dirty.str().c_str(), &res) != AEROSPIKE_OK) {
 			LOG(ERROR) << __func__ << " aerospike_info_host failed";
 			rc = -ENOMEM;
 			break;
 		} else if (res) {
-			LOG(ERROR) << __func__ << " aerospike_info_host command completed successfully for DIRTY ns, res::" << res;
-			LOG(ERROR) << __func__ << "Dirty block count ::" << GetObjectCount(res);
+			VLOG(5) << __func__ << " aerospike_info_host command completed successfully for DIRTY ns, res::" << res;
+			VLOG(5) << __func__ << "Dirty block count ::" << GetObjectCount(res);
 			aero_statsp->dirty_cnt_ += GetObjectCount(res);
 			free(res);
 		}
@@ -397,8 +392,8 @@ int VirtualMachine::AeroCacheStats(AeroStats *aero_statsp, AeroSpikeConn *aerop)
 			rc = -ENOMEM;
 			break;
 		} else if (res) {
-			LOG(ERROR) << __func__ << " aerospike_info_host command completed successfully for CLEAN ns, res::" << res;
-			LOG(ERROR) << __func__ << "CLEAN block count ::" << GetObjectCount(res);
+			VLOG(5) << __func__ << " aerospike_info_host command completed successfully for CLEAN ns, res::" << res;
+			VLOG(5) << __func__ << "CLEAN block count ::" << GetObjectCount(res);
 			aero_statsp->clean_cnt_ += GetObjectCount(res);
 			free(res);
 		}
@@ -414,15 +409,14 @@ int VirtualMachine::AeroCacheStats(AeroStats *aero_statsp, AeroSpikeConn *aerop)
 			os_parent.str("");
 			os_parent.clear();
 			os_parent << "sets/CLEAN/" << parent_disk;
-			LOG(ERROR) << __func__ << "Parent set cmd is::" << os_parent.str();
 			if (aerospike_info_host(&aerop->as_, &err, NULL, node_ip.c_str(),
 					port, os_parent.str().c_str(), &res) != AEROSPIKE_OK) {
 				LOG(ERROR) << __func__ << " aerospike_info_host failed";
 				rc = -ENOMEM;
 				break;
 			} else if (res) {
-				LOG(ERROR) << __func__ << " aerospike_info_host command completed successfully for Parent ns, res::" << res;
-				LOG(ERROR) << __func__ << "Parent block count ::" << GetObjectCount(res);
+				VLOG(5) << __func__ << " aerospike_info_host command completed successfully for Parent ns, res::" << res;
+				VLOG(5) << __func__ << "Parent block count ::" << GetObjectCount(res);
 				aero_statsp->parent_cnt_ += GetObjectCount(res);
 				free(res);
 			}

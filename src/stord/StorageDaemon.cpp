@@ -1054,7 +1054,6 @@ static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *) {
 static int
 NewPrepareCkpt(const _ha_request *reqp, _ha_response *resp, void *) {
 
-	LOG(ERROR) << __func__ << " Start..";
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 	if (param_valuep == NULL) {
 		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -1063,7 +1062,6 @@ NewPrepareCkpt(const _ha_request *reqp, _ha_response *resp, void *) {
 	}
 
 	std::string vmid(param_valuep);
-	LOG(ERROR) << __func__ << " Vmid::" << vmid.c_str();
 
 	if (GuardHandler()) {
 		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
@@ -1081,7 +1079,6 @@ NewPrepareCkpt(const _ha_request *reqp, _ha_response *resp, void *) {
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	LOG(ERROR) << __func__ << "Calling PrepareCkpt";
 	auto ret = pio::PrepareCkpt(vm_handle);
 	if (ret) {
 		std::ostringstream es;
@@ -1099,7 +1096,6 @@ NewPrepareCkpt(const _ha_request *reqp, _ha_response *resp, void *) {
 static int
 NewSetCkptBitMapReq(const _ha_request *reqp, _ha_response *resp, void *) {
 
-	LOG(ERROR) << __func__ << " Start..";
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 	if (param_valuep == NULL) {
 		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -1108,7 +1104,6 @@ NewSetCkptBitMapReq(const _ha_request *reqp, _ha_response *resp, void *) {
 	}
 
 	std::string vmid(param_valuep);
-	LOG(ERROR) << __func__ << " Vmid::" << vmid.c_str();
 	param_valuep = ha_parameter_get(reqp, "vmdk-id");
 	if (param_valuep == NULL) {
 		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -1116,7 +1111,6 @@ NewSetCkptBitMapReq(const _ha_request *reqp, _ha_response *resp, void *) {
 		return HA_CALLBACK_CONTINUE;
 	}
 	std::string vmdkid(param_valuep);
-	LOG(ERROR) << __func__ << " VmdkID::" << vmdkid.c_str();
 
 	auto data = ha_get_data(reqp);
 	if (data == nullptr) {
@@ -1144,7 +1138,6 @@ NewSetCkptBitMapReq(const _ha_request *reqp, _ha_response *resp, void *) {
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	LOG(ERROR) << __func__ << "Calling SetCkptBitmap";
 	auto ret = pio::SetCkptBitmap(vm_handle, vmdkid, req_data);
 	if (ret) {
 		std::ostringstream es;
@@ -1178,7 +1171,6 @@ NewCommitCkpt(const _ha_request *reqp, _ha_response *resp, void *) {
 		return HA_CALLBACK_CONTINUE;
 	}
 	std::string ckptid(param_valuep);
-	LOG(ERROR) << __func__ << " ckpt-id::" << ckptid.c_str();
 
 	if (GuardHandler()) {
 		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
@@ -1267,7 +1259,7 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 			break;
 		}
 		if (itr->first == "-1") {
-			LOG(ERROR) << boost::format("%1% %2% %3% %4%")
+			VLOG(10) << boost::format("%1% %2% %3% %4%")
 				% "Start time:-" % (itr->second).first
 				% "Elapsed time:-" % (itr->second).second;
 		} else if (itr->first == "-2") {
@@ -1277,7 +1269,7 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 			flush_bytes = (itr->second).first;
 			move_bytes  = (itr->second).second;
 		} else {
-			LOG(ERROR) << boost::format("[LUN:%1%] %2% %3% %|20t|%4% %5%")
+			VLOG(10) << boost::format("[LUN:%1%] %2% %3% %|20t|%4% %5%")
 				% itr->first % "Flushed Blks:-" % (itr->second).first
 				% "Moved Blks:-" % (itr->second).second;
 			total_flushed_blks += (itr->second).first;

@@ -363,7 +363,6 @@ std::shared_ptr<AeroSpikeConn> GetAeroConnUsingVmID(VmID vmid) {
 
 int NewAeroCacheStatReq(VmID vmid, AeroStats *aero_statsp) {
 
-	LOG(ERROR) << __func__ << "START";
 	auto managerp = SingletonHolder<pio::VmManager>::GetInstance();
 	auto vmp = managerp->GetInstance(vmid);
 	if (pio_unlikely(not vmp)) {
@@ -379,9 +378,9 @@ int NewAeroCacheStatReq(VmID vmid, AeroStats *aero_statsp) {
 
 	auto rc = vmp->AeroCacheStats(aero_statsp, aero_conn.get());
 	if (!rc) {
-		LOG(ERROR) << __func__ << "Dirty cnt::" << aero_statsp->dirty_cnt_;
-		LOG(ERROR) << __func__ << "Clean cnt::" << aero_statsp->clean_cnt_;
-		LOG(ERROR) << __func__ << "Parent cnt::" << aero_statsp->parent_cnt_;
+		VLOG(5) << __func__ << "Dirty cnt::" << aero_statsp->dirty_cnt_;
+		VLOG(5) << __func__ << "Clean cnt::" << aero_statsp->clean_cnt_;
+		VLOG(5) << __func__ << "Parent cnt::" << aero_statsp->parent_cnt_;
 	} else {
 		LOG(ERROR) << __func__ << "Failed to get the Aero Stats...";
 		aero_statsp->dirty_cnt_ = 0;
@@ -460,7 +459,7 @@ int CommitCkpt(VmID vmid, std::string& ckpt_id) {
 	auto f = vmp->CommitCheckPoint(stol(ckpt_id));
 	f.wait();
 	auto rc = f.value();
-	LOG(ERROR) << __func__ << " Done with commit for Ckpt ID:"
+	VLOG(5) << __func__ << " Done with commit for Ckpt ID:"
 			<< ckpt_id << ", ret:" << rc;
 	return rc;
 }
@@ -607,7 +606,6 @@ int StartPreload(const ::ondisk::VmID& vmid, const ::ondisk::VmdkID& vmdkid) {
 
 int PrepareCkpt(VmHandle vm_handle) {
 
-	LOG(ERROR) << __func__ << "Start";
 	auto managerp = SingletonHolder<VmdkManager>::GetInstance();
 
 	auto vmp = SingletonHolder<pio::VmManager>::GetInstance()->GetInstance(vm_handle);
@@ -620,7 +618,6 @@ int PrepareCkpt(VmHandle vm_handle) {
 	auto cur_ckptid = vmp->GetCurCkptID();
 	if (pio_likely(cur_ckptid == MetaData_constants::kInvalidCheckPointID() + 1)) {
 
-		LOG(ERROR) << __func__ << " Creating first checkpoint";
 		auto f = vmp->TakeCheckPoint();
 		f.wait();
 		auto [id, rc] = f.value();
@@ -628,7 +625,6 @@ int PrepareCkpt(VmHandle vm_handle) {
 			return rc;
 		}
 		log_assert (id == MetaData_constants::kInvalidCheckPointID() + 1);
-		LOG(ERROR) << __func__ << "Checkpoint done";
 	}
 
 	return 0;
@@ -708,7 +704,7 @@ int SetCkptBitmap(VmHandle vm_handle, VmdkID vmdkid, const std::string& config) 
 
 	auto ckpt_id = MetaData_constants::kInvalidCheckPointID();
 	if(pio_likely(!configp->GetCkptID(ckpt_id))) {
-		LOG(ERROR) << __func__ << " Ckpt ID has not given as input, assuming ckpt id as 1";
+		VLOG(10) << __func__ << " Ckpt ID has not given as input, assuming ckpt id as 1";
 		//ckpt_id = vmp->GetCurCkptID() - 1;
 		ckpt_id = MetaData_constants::kInvalidCheckPointID() + 1;
 	}

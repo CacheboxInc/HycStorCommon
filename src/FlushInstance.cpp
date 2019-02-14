@@ -50,7 +50,7 @@ int FlushInstance::StartFlush(const VmID& vmid) {
 		return rc;
 	}
 
-	LOG(ERROR) << __func__ << " Checkpoint ID to flush:" << ckpt_id;
+	VLOG(5) << __func__ << " Checkpoint ID to flush:" << ckpt_id;
 	bool perform_move;
 	if (not GetJsonConfig()->GetMoveAllowedStatus(perform_move)) {
 		perform_move = true;
@@ -75,7 +75,7 @@ int FlushInstance::StartFlush(const VmID& vmid) {
 		max_req_size = kMaxFlushIoSize;
 	}
 
-	LOG(ERROR) << __func__ << " max_req_size:" << max_req_size  <<
+	VLOG(5) << __func__ << " max_req_size:" << max_req_size  <<
 			", max_pending_reqs:" << max_pending_reqs;
 
 	rc = vmp->FlushStart(ckpt_id, perform_flush, perform_move,
