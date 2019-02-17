@@ -127,6 +127,7 @@ struct Request {
 		kRead,
 		kWrite,
 		kWriteSame,
+		kTruncate,
 	};
 
 	RequestID id;
@@ -545,7 +546,8 @@ public:
 	StordVmdk& operator = (const StordVmdk& rhs) = delete;
 	StordVmdk& operator = (const StordVmdk&& rhs) = delete;
 public:
-	StordVmdk(std::string vmid, std::string vmdkid, int eventfd);
+	StordVmdk(std::string vmid, std::string vmdkid, uint64_t lun_size,
+		uint32_t lun_blk_size, int eventfd);
 	~StordVmdk();
 	void SetStordConnection(StordConnection* connectp) noexcept;
 	int32_t OpenVmdk();
@@ -556,6 +558,8 @@ public:
 		int64_t offset);
 	RequestID ScheduleWriteSame(const void* privatep, char* bufferp,
 		int32_t buf_sz, int32_t write_sz, int64_t offset);
+	RequestID ScheduleTruncate(const void* privatep, char* bufferp,
+		int32_t buf_sz);
 
 	uint32_t GetCompleteRequests(RequestResult* resultsp, uint32_t nresults,
 		bool *has_morep);
@@ -601,6 +605,8 @@ private:
 	std::string vmid_;
 	std::string vmdkid_;
 	::hyc_thrift::VmdkHandle vmdk_handle_{kInvalidVmdkHandle};
+	const uint64_t lun_size_{};
+	const uint32_t lun_blk_shift_{};
 	int eventfd_{-1};
 	StordConnection* connectp_{nullptr};
 
@@ -638,6 +644,8 @@ std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk) {
 	os << " VmID " << vmdk.vmid_
 		<< " VmdkID " << vmdk.vmdkid_
 		<< " VmdkHandle " << vmdk.vmdk_handle_
+		<< " Lun Size " << vmdk.lun_size_
+		<< " Lun BlkShift " << vmdk.lun_blk_shift_
 		<< " eventfd " << vmdk.eventfd_
 		<< " pending " << vmdk.stats_.pending_
 		<< " requestid " << vmdk.requestid_
@@ -647,8 +655,12 @@ std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk) {
 	return os;
 }
 
-StordVmdk::StordVmdk(std::string vmid, std::string vmdkid, int eventfd) :
-		vmid_(std::move(vmid)), vmdkid_(std::move(vmdkid)),
+StordVmdk::StordVmdk(std::string vmid, std::string vmdkid, uint64_t lun_size,
+		uint32_t lun_blk_shift, int eventfd) :
+		vmid_(std::move(vmid)),
+		vmdkid_(std::move(vmdkid)),
+		lun_size_(lun_size),
+		lun_blk_shift_(lun_blk_shift),
 		eventfd_(eventfd) {
 }
 
@@ -1071,6 +1083,82 @@ void StordVmdk::ScheduleBulkRead(folly::EventBase* basep,
 	++stats_.rpc_requests_scheduled_;
 }
 
+folly::Future<int> StordVmdk::ScheduleTruncate(StorRpcAsyncClient* clientp,
+		RequestID reqid, std::vector<TruncateReq>&& requests) {
+	return clientp->future_Truncate(vmdk_handle_, reqid, std::forward<TruncateReq>(requests))
+	.then([this] (const TruncateResult& result) {
+		--stats_.rpc_requests_scheduled_;
+		return result.get_result();
+	})
+	.onError([this] (const std::exception& e) {
+		--stats_.rpc_requests_scheduled_;
+		return -EIO;
+	});
+	++stats_.rpc_requests_scheduled_;
+}
+
+void StordVmdk::ScheduleTruncate(folly::EventBase* basep,
+		StorRpcAsyncClient* clientp, Request* reqp) {
+	log_assert(basep->isInEventBaseThread());
+
+	std::vector<folly::Future<int>> futures;
+	std::vector<::hyc_thrift::TruncateReq> truncate;
+
+	auto length = reqp->buf_sz;
+	char* bufp = reqp->bufferp;
+	for (; length >= 16; length -= 16, bufp += 16) {
+		uint64_t offset;
+		uint32_t len;
+
+		offset = BigEndian::DeserializeUInt<decltype(offset)>
+			(reinterpret_cast<const uint8_t*>(&bufp[0])) << lun_blk_shift_;
+		len = BigEndian::DeserializeUInt<decltype(len)>
+			(reinterpret_cast<const uint8_t*>(&bufp[8])) << lun_blk_shift_;
+		if (offset + len > lun_size_) {
+			LOG(ERROR) << "Truncate beyond EOD";
+			break;
+		} else if (len <= 0) {
+			continue;
+		}
+		
+		truncate.emplace_back(offset, len);
+		if (truncate.size() > 1024) {
+			futures.emplace_back(
+				ScheduleTruncate(client, reqp->id, std::move(truncate))
+			);
+		}
+	}
+
+	if (not truncate.empty()) {
+		futures.emplace_back(
+			ScheduleTruncate(client, reqp->id, std::move(truncate))
+		);
+	}
+
+	if (futures.empty()) {
+		RequestComplete(reqp, 0);
+		return 0;
+	}
+
+	folly::collectAll(std::move(futures))
+	.then([this, reqp] (const folly::Try<std::vector<int>>& tries) {
+		if (hyc_unlikely(tries.hasException())) {
+			RequestComplete(reqp, -EIO);
+			return;
+		}
+
+		auto vec = std::move(tries.value());
+		for (const auto& rc : vec) {
+			if (hyc_unlikely(rc)) {
+				RequestComplete(reqp, rc);
+				return;
+			}
+		}
+
+		RequestComplete(reqp, 0);
+	});
+}
+
 void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp) {
 	auto GetPending = [this] (std::vector<Request*>& pending) mutable {
 		pending.clear();
@@ -1120,6 +1208,9 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp
 			}
 			case Request::Type::kWriteSame:
 				ScheduleWriteSame(basep, clientp, reqp);
+				break;
+			case Request::Type::kTruncate:
+				ScheduleTruncate(basep, clientp, reqp);
 				break;
 			}
 		}
@@ -1193,13 +1284,32 @@ RequestID StordVmdk::ScheduleWriteSame(const void* privatep, char* bufferp,
 	return reqp->id;
 }
 
+RequestID StordVmdk::ScheduleTruncate(const void* privatep, char* bufferp,
+		int32_t buf_sz) {
+	if (hyc_unlikely(vmdk_handle_ == kInvalidVmdkHandle)) {
+		return kInvalidRequestID;
+	}
+	auto [reqp, now] = NewRequest(Request::Type::kTruncate, privatep, bufferp,
+		buf_sz, buf_sz, 0);
+	if (hyc_unlikely(not reqp)) {
+		return kInvalidRequestID;
+	}
+
+	if (now) {
+		auto basep = connectp_->GetEventBase();
+		auto clientp = connectp_->GetRpcClient();
+		ScheduleNow(basep, clientp);
+	}
+	return reqp->id;
+}
+
 class Stord {
 public:
 	~Stord();
 	int32_t Connect(uint32_t ping_secs = 30);
 	int32_t Disconnect(bool force = false);
-	int32_t OpenVmdk(const char* vmid, const char* vmdkid, int eventfd,
-		StordVmdk** vmdkpp);
+	int32_t OpenVmdk(const char* vmid, const char* vmdkid, uint64_t lun_size,
+		uint32_t lun_blk_shift,  int eventfd, StordVmdk** vmdkpp);
 	int32_t CloseVmdk(StordVmdk* vmdkp);
 	RequestID VmdkRead(StordVmdk* vmdkp, const void* privatep, char* bufferp,
 		int32_t buf_sz, int64_t offset);
@@ -1209,6 +1319,8 @@ public:
 		int32_t buf_sz, int64_t offset);
 	RequestID VmdkWriteSame(StordVmdk* vmdkp, const void* privatep,
 		char* bufferp, int32_t buf_sz, int32_t write_sz, int64_t offset);
+	RequestID VmdkTruncate(StordVmdk* vmdkp, const void* privatep,
+		char* bufferp, int32_t buf_sz);
 private:
 	StordVmdk* FindVmdk(::hyc_thrift::VmdkHandle handle);
 	StordVmdk* FindVmdk(const std::string& vmdkid);
@@ -1273,15 +1385,16 @@ StordVmdk* Stord::FindVmdk(const std::string& vmdkid) {
 	return it->second.get();
 }
 
-int32_t Stord::OpenVmdk(const char* vmid, const char* vmdkid, int eventfd,
-		StordVmdk** vmdkpp) {
+int32_t Stord::OpenVmdk(const char* vmid, const char* vmdkid, uint64_t lun_size,
+		uint32_t lun_blk_shift, int eventfd, StordVmdk** vmdkpp) {
 	*vmdkpp = nullptr;
 	auto vmdkp = FindVmdk(vmdkid);
 	if (hyc_unlikely(vmdkp)) {
 		return -EEXIST;
 	}
 
-	auto vmdk = std::make_unique<StordVmdk>(vmid, vmdkid, eventfd);
+	auto vmdk = std::make_unique<StordVmdk>(vmid, vmdkid, lun_size,
+			lun_blk_shift, eventfd);
 	if (hyc_unlikely(not vmdk)) {
 		return -ENOMEM;
 	}
@@ -1338,6 +1451,11 @@ RequestID Stord::VmdkWriteSame(StordVmdk* vmdkp, const void* privatep,
 	return vmdkp->ScheduleWriteSame(privatep, bufferp, buf_sz, write_sz, offset);
 }
 
+RequestID Stord::VmdkTruncate(StordVmdk* vmdkp, const void* privatep,
+		char* bufferp, int32_t buf_sz) {
+	return vmdkp->ScheduleTruncate(privatep, bufferp, buf_sz);
+}
+
 } // namespace hyc
 
 /*
@@ -1379,13 +1497,13 @@ int32_t HycStorRpcServerDisconnect(void) {
 	}
 }
 
-int32_t HycOpenVmdk(const char* vmid, const char* vmdkid, int eventfd,
-		VmdkHandle* handlep) {
+int32_t HycOpenVmdk(const char* vmid, const char* vmdkid, uint64_t lun_size,
+		uint32_t lun_blk_shift, int eventfd, VmdkHandle* handlep) {
 	log_assert(vmid != nullptr and vmdkid != nullptr and handlep);
 	*handlep = nullptr;
 	try {
 		::hyc::StordVmdk* vmdkp;
-		auto rc = g_stord.OpenVmdk(vmid, vmdkid, eventfd, &vmdkp);
+		auto rc = g_stord.OpenVmdk(vmid, vmdkid, lun_size, lun_blk_shift, eventfd, &vmdkp);
 		if (hyc_unlikely(rc < 0)) {
 			return rc;
 		}
@@ -1464,4 +1582,14 @@ void HycSetExpectedWanLatency(uint32_t latency) {
 		<< " to " << latency
 		<< " (all units in micro-seconds)";
 	kExpectedWanLatency = latency;
+}
+
+RequestID HycScheduleTruncate(VmdkHandle handle, const void* privatep,
+		char* bufferp, int32_t buf_sz) {
+	try {
+		auto vmdkp = reinterpret_cast<::hyc::StordVmdk*>(handle);
+		return g_stord.VmdkTruncate(vmdkp, privatep, bufferp, buf_sz);
+	} catch (std::exception& e) {
+		return kInvalidRequestID;
+	}
 }

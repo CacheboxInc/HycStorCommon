@@ -12,8 +12,8 @@ extern "C"  {
 void HycStorInitialize(int argc, char *argv[], char *stord_ip, uint16_t stord_port);
 int32_t HycStorRpcServerConnect(void);
 int32_t HycStorRpcServerDisconnect(void);
-int32_t HycOpenVmdk(const char* vmid, const char* vmdkid, int eventfd,
-		VmdkHandle* handlep);
+int32_t HycOpenVmdk(const char* vmid, const char* vmdkid, uint64_t lun_size,
+		uint32_t lun_blk_shift, int eventfd, VmdkHandle* handlep);
 int32_t HycCloseVmdk(VmdkHandle handle);
 RequestID HycScheduleRead(VmdkHandle handle, const void* privatep,
 		char* bufferp, int32_t buf_sz, int64_t offset);
