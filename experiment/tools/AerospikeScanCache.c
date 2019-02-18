@@ -20,22 +20,24 @@
 
 #define BLK_SZ 4096
 
-const char SHORT_OPTS[] = "h:p:n:s:v:c:b:";
+const char SHORT_OPTS[] = "h:p:n:s:v:c:b:t:";
 const struct option LONG_OPTS[] = {
 	{"hosts",     required_argument, 0, 'h'},
 	{"port",      optional_argument, 0, 'p'},
 	{"namespace", required_argument, 0, 'n'},
 	{"set",       required_argument, 0, 's'},
-	{"vmid",      required_argument, 0, 'v'},
+	{"vmdkid",    required_argument, 0, 'v'},
 	{"ckpt",      required_argument, 0, 'c'},
 	{"blk_sz",    optional_argument, 0, 'b'},
+	{"cache_type",optional_argument, 0, 't'},
 	{0, 0, 0, 0}
 };
 
 typedef struct vm_props {
-	int vmid;
+	int vmdkid;
 	int ckpt;
 	int blk_sz;
+	int cache_type;     // 0 for parent, 1 for child
 } key_props_t;
 
 int fd;
@@ -49,6 +51,9 @@ void get_value_from_rec(as_record* p_rec, key_props_t *props, uint64_t offset) {
 	char *tmp_buf = calloc(1, BLK_SZ);
 	int rc;
 
+	/*  Regardless of the size of block_size at Stord, blk_sz at Aerospike
+	 *  will always be 4k, unless changed in Aerospike config.
+	 */
 	rc = as_bytes_copy(as_record_get_bytes(p_rec, CACHE_BIN), 0, (uint8_t *)tmp_buf, BLK_SZ);
 	uint16_t cksum = crc_t10dif((const unsigned char *)tmp_buf, BLK_SZ);
 
@@ -66,27 +71,32 @@ void get_value_from_rec(as_record* p_rec, key_props_t *props, uint64_t offset) {
 void rec_to_process(key_props_t *props, as_record* p_rec) {
 
 	char *tmp, *tmp1;
-	int vmid, ckptid;
+	int vmdkid, ckptid;
 
 	tmp  = calloc(1, 128);
 
 	tmp1 = tmp;
-	vmid = ckptid = -1;
+	vmdkid = ckptid = -1;
 
 	char *key_str = as_val_tostring(p_rec->key.valuep);
 
 	/*Copying only key, original string has quotes with it*/
 	strncpy(tmp, (key_str) + 1, strlen(key_str) - 2);
 
-	/*Key (Vmid:ckptid:offset)*/
-	vmid = atoi(strsep(&tmp, ":"));
-	if (vmid != props->vmid) {
+	/*Key
+	  In case of child cache_type (Vmdkid:ckptid:offset)
+	  In case of parent cache_type (ParentDiskVmdkID:offset)
+	 */
+	vmdkid = atoi(strsep(&tmp, ":"));
+	if (vmdkid != props->vmdkid) {
 		goto out;
 	}
 
-	ckptid = atoi(strsep(&tmp, ":"));
-	if (props->ckpt && props->ckpt != ckptid) {
-		goto out;
+	if (props->cache_type) {
+		ckptid = atoi(strsep(&tmp, ":"));
+		if (props->ckpt && props->ckpt != ckptid) {
+			goto out;
+		}
 	}
 
 	uint64_t offset = atoi(strsep(&tmp, ":"));
@@ -163,11 +173,15 @@ void usage()
 {
 	printf("**********Usage***********\n");
 	printf("-h Aerospike host(s)\n");
-	printf("-p Aerospike port\n");
 	printf("-n Namespace to scan\n");
 	printf("-s Set to scan\n");
-	printf("-v Vmid to find while scanning\n");
+	printf("-v Vmdkid to find while scanning\n");
 	printf("-c Checkpoint to find while scanning\n");
+
+	printf("\n*********Optional args************\n");
+	printf("-p Aerospike port Default: 3000\n");
+	printf("-b Block size     Default: 4096\n");
+	printf("-t Cache type     Default: normal\n");
 
 	return;
 }
@@ -178,8 +192,9 @@ int main(int argc, char* argv[])
 	char *host = NULL;
 	char *namespace = NULL;
 	char *set = NULL;
+	char *cache_type = NULL;
 	int port;
-	int vmid;
+	int vmdkid;
 	int ckpt;
 	int blk_sz;
 
@@ -194,10 +209,10 @@ int main(int argc, char* argv[])
 		usage();
 		return 1;
 	}
-	rc   = 0;
-	vmid = 0;
-	ckpt = 0;
-	port = 3000;
+	rc     = 0;
+	vmdkid = 0;
+	ckpt   = 0;
+	port   = 3000;
 	blk_sz = BLK_SZ;
 
 	while ((c = getopt_long(argc, argv, SHORT_OPTS, LONG_OPTS, &i)) != -1) {
@@ -217,13 +232,16 @@ int main(int argc, char* argv[])
 				set = strdup(optarg);
 				break;
 			case 'v':
-				vmid = atoi(optarg);
+				vmdkid = atoi(optarg);
 				break;
 			case 'c':
 				ckpt = atoi(optarg);
 				break;
 			case 'b':
 				blk_sz = atoi(optarg);
+				break;
+			case 't':
+				cache_type = strdup(optarg);
 				break;
 
 			default:
@@ -233,20 +251,25 @@ int main(int argc, char* argv[])
 				goto out;
 		}
 	}
-	if (!vmid || !ckpt || host == NULL || namespace == NULL || set == NULL) {
+	if (!vmdkid || !ckpt || host == NULL || namespace == NULL || set == NULL) {
 		usage();
 		rc = 1;
 		goto out;
 	}
 
-	props.vmid = vmid;
+	if (cache_type) {
+		props.cache_type = 0; //implies cache_type is parent
+	} else {
+		props.cache_type = 1; //implies cache_type is child
+	}
+	props.vmdkid = vmdkid;
 	props.ckpt = ckpt;
 	props.blk_sz = blk_sz;
 
 	printf("*******************\n");
 	printf("Host: %s, port: %d\n", host, port);
 	printf("Namespace: %s and Set: %s\n", namespace, set);
-	printf("Vmid: %d\n", vmid);
+	printf("Vmdk_id: %d\n", vmdkid);
 	printf("*******************\n");
 
 	rc = connect_to_aerospike(&as, host, port);
