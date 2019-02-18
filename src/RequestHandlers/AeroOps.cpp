@@ -307,10 +307,11 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 			auto rec =  v_rec.get();
 			switch(rec->status_) {
 				default:
-					LOG(ERROR) << __func__ << rec->status_
-						<< "::failed write request::"
-						<< rec->status_;
-					batchp->failed_ = true;
+					LOG(ERROR) << __func__ << "::failed write request::"
+						<< rec->status_ << "::ns::" << rec->batchp_->ns_;
+					if (rec->batchp_->ns_ == kAsNamespaceCacheClean) {
+						batchp->failed_ = false;
+					}
 					batchp->retry_ = false;
 					break;
 				case AEROSPIKE_ERR_ASYNC_CONNECTION:
@@ -326,7 +327,22 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 					batchp->failed_ = true;
 					batchp->retry_ = true;
 					break;
-
+				case AEROSPIKE_ERR_SERVER_FULL:
+					if (rec->batchp_->ns_ == kAsNamespaceCacheDirty) {
+						batchp->failed_ = true;
+						batchp->retry_ = true;
+						LOG(ERROR) << __func__ << rec->status_
+							<< "::Retyring for failed write request"
+							<< ", retry cnt ::"
+							<< batchp->retry_cnt_;
+						break;
+					} else if (rec->batchp_->ns_ == kAsNamespaceCacheClean) {
+						LOG(ERROR) << "Don't treat ENOSPACE as error during"
+							<< " read populate";
+						batchp->failed_ = false;
+						batchp->retry_ = false;
+						rec->status_ = AEROSPIKE_OK;
+					}
 				case AEROSPIKE_OK:
 					break;
 			}
