@@ -14,11 +14,15 @@
 #include <aerospike/as_val.h>
 
 #include "../../src/include/cksum.h"
+#include "../../thirdparty/hyc-datapack/src/include/hyc_compress.h"
+#include "../../thirdparty/hyc-datapack/src/include/hyc_encrypt.h"
+#include "../../thirdparty/hyc-datapack/src/include/hyc_datapack.h"
 
 #define CACHE_BIN "data_map"
 #define OUTPUT_FILE "/tmp/aero_scan_output"
 
 #define BLK_SZ 4096
+#define IS_ENCRYPTED 1
 
 const char SHORT_OPTS[] = "h:p:n:s:v:c:b:t:";
 const struct option LONG_OPTS[] = {
@@ -38,6 +42,10 @@ typedef struct vm_props {
 	int ckpt;
 	int blk_sz;
 	int cache_type;     // 0 for parent, 1 for child
+#ifdef IS_ENCRYPTED
+	hyc_encrypt_ctx_t *ectx;
+	hyc_compress_ctx_t *ctx;
+#endif
 } key_props_t;
 
 int fd;
@@ -45,16 +53,42 @@ int fd;
 //==========================================================
 // Helper functions
 //
+int get_orig_data(char *in_buff, hyc_compress_ctx_t *ctx, hyc_encrypt_ctx_t *ectx,
+		uint32_t mod_size) {
+
+	int ret = -1;
+
+	//First decrypt
+	size_t plain_txtsz = hyc_encrypt_plain_bufsz(ectx, in_buff, mod_size);
+	char *eo_buf       = calloc(1, plain_txtsz);
+	size_t eo_buf_sz   = plain_txtsz;
+	ret = hyc_decrypt(ectx, in_buff, mod_size, eo_buf, &eo_buf_sz);
+
+	//Second uncompress
+	char *ubuf     = calloc(1, BLK_SZ);
+	size_t ubuf_sz = BLK_SZ;
+
+	ret = hyc_uncompress(ctx, eo_buf, eo_buf_sz, ubuf, &ubuf_sz);
+	memcpy(in_buff, ubuf, BLK_SZ);
+	return ret;
+}
+
 void get_value_from_rec(as_record* p_rec, key_props_t *props, uint64_t offset) {
 
 	char *buffer = calloc(1, 256);
-	char *tmp_buf = calloc(1, BLK_SZ);
+	char *tmp_buf = calloc(2, BLK_SZ);
 	int rc;
+	uint32_t bytes_copied;
 
 	/*  Regardless of the size of block_size at Stord, blk_sz at Aerospike
 	 *  will always be 4k, unless changed in Aerospike config.
 	 */
-	rc = as_bytes_copy(as_record_get_bytes(p_rec, CACHE_BIN), 0, (uint8_t *)tmp_buf, BLK_SZ);
+	bytes_copied = as_bytes_copy(as_record_get_bytes(p_rec, CACHE_BIN), 0,
+			(uint8_t *)tmp_buf, BLK_SZ);
+
+#ifdef IS_ENCRYPTED
+	rc = get_orig_data(tmp_buf, props->ctx, props->ectx, bytes_copied);
+#endif
 	uint16_t cksum = crc_t10dif((const unsigned char *)tmp_buf, BLK_SZ);
 
 	sprintf(buffer, "%ld:%d:%d\n", offset * 512 , props->blk_sz, cksum);
@@ -265,6 +299,22 @@ int main(int argc, char* argv[])
 	props.vmdkid = vmdkid;
 	props.ckpt = ckpt;
 	props.blk_sz = blk_sz;
+#ifdef IS_ENCRYPTED
+	//Encryption init
+	int encrypt_type = get_encrypt_type("aes128-gcm");
+	hyc_disk_uuid_t e_uuid = {0, 0};
+	hyc_encrypt_ctx_t *ectx = hyc_encrypt_ctx_init(e_uuid, encrypt_type);
+
+	props.ectx = ectx;
+
+	//Compresssion init
+	hyc_disk_uuid_t c_uuid = {0, 0};
+	int compress_type = get_compress_type("snappy");
+	hyc_compress_ctx_t *ctx = hyc_compress_ctx_init(c_uuid, compress_type, 2, 1);
+
+	props.ctx = ctx;
+#endif
+
 
 	printf("*******************\n");
 	printf("Host: %s, port: %d\n", host, port);
