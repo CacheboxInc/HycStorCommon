@@ -560,42 +560,51 @@ folly::Future<int> ActiveVmdk::WriteSame(Request* reqp, CheckPointID ckpt_id) {
 	return WriteCommon(reqp, ckpt_id);
 }
 
-int ActiveVmdk::WriteRequestComplete(Request* reqp, CheckPointID ckpt_id) {
-	auto rc = reqp->Complete();
-	if (pio_unlikely(rc < 0)) {
-		return rc;
-	}
-
-	auto[start, end] = reqp->Blocks();
-	std::vector<decltype(start)> modified(end - start + 1);
-	std::iota(modified.begin(), modified.end(), start);
+void ActiveVmdk::SetBlocksModified(CheckPointID ckpt_id, Request* reqp) {
+	auto [s, e] = reqp->Blocks();
+	auto range_iter = iter::Range(s, e+1);
 
 	std::lock_guard<std::mutex> lock(blocks_.mutex_);
 	auto it = blocks_.modified_.find(ckpt_id);
 	if (pio_unlikely(it == blocks_.modified_.end())) {
-		blocks_.modified_.insert(std::make_pair(ckpt_id,
-			std::unordered_set<BlockID>()));
-		it = blocks_.modified_.find(ckpt_id);
+		bool inserted{};
+		std::tie(it, inserted) = blocks_.modified_.insert(
+			std::make_pair(ckpt_id, std::unordered_set<BlockID>())
+		);
+		log_assert(inserted);
 	}
-	log_assert(it != blocks_.modified_.end());
-
-	it->second.insert(modified.begin(), modified.end());
-	return 0;
+	it->second.insert(range_iter.begin(), range_iter.end());
 }
 
-int ActiveVmdk::WriteComplete(Request* reqp, CheckPointID ckpt_id) {
+void ActiveVmdk::SetBlocksModified(CheckPointID ckpt_id,
+		const std::vector<std::unique_ptr<Request>>& requests) {
+	std::lock_guard<std::mutex> lock(blocks_.mutex_);
+	auto it = blocks_.modified_.find(ckpt_id);
+	if (pio_unlikely(it == blocks_.modified_.end())) {
+		bool inserted{};
+		std::tie(it, inserted) = blocks_.modified_.insert(
+			std::make_pair(ckpt_id, std::unordered_set<BlockID>())
+		);
+		log_assert(inserted);
+	}
+	for (const auto& request : requests) {
+		auto [s, e] = request->Blocks();
+		auto range_iter = pio::iter::Range(s, e+1);
+		it->second.insert(range_iter.begin(), range_iter.end());
+	}
+}
+
+int ActiveVmdk::WriteComplete(Request* reqp) {
 	--stats_.writes_in_progress_;
 	IncrWriteBytes(reqp->GetBufferSize());
-	return WriteRequestComplete(reqp, ckpt_id);
+	return reqp->Complete();
 }
 
-int ActiveVmdk::WriteComplete(
-		const std::vector<std::unique_ptr<Request>>& requests,
-		CheckPointID ckpt_id) {
+int ActiveVmdk::WriteComplete(const std::vector<std::unique_ptr<Request>>& requests) {
 	int ret = 0;
 	--stats_.writes_in_progress_;
 	for (auto& request : requests) {
-		auto rc = WriteRequestComplete(request.get(), ckpt_id);
+		auto rc = request->Complete();
 		if (pio_unlikely(rc < 0)) {
 			ret = rc;
 		}
@@ -611,12 +620,14 @@ folly::Future<int> ActiveVmdk::BulkWrite(::ondisk::CheckPointID ckpt_id,
 		return -ENXIO;
 	}
 
+	SetBlocksModified(ckpt_id, requests);
+
 	stats_.writes_in_progress_ += requests.size();
 	cache_stats_.total_writes_ += requests.size();
 	auto failed = std::make_unique<std::vector<RequestBlock*>>();
 
 	return headp_->BulkWrite(this, ckpt_id, requests, process, *failed)
-	.then([this, ckpt_id, &requests, failed = std::move(failed)]
+	.then([this, &requests, failed = std::move(failed)]
 			(folly::Try<int>& result) mutable {
 		auto failedp = failed.get();
 		auto Fail = [&requests, failedp] (int rc = -ENXIO, bool all = true)
@@ -642,7 +653,7 @@ folly::Future<int> ActiveVmdk::BulkWrite(::ondisk::CheckPointID ckpt_id,
 			}
 		}
 
-		return WriteComplete(requests, ckpt_id);
+		return WriteComplete(requests);
 	});
 }
 
@@ -671,6 +682,8 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 		return -ENXIO;
 	}
 
+	SetBlocksModified(ckpt_id, reqp);
+
 	auto failed = std::make_unique<std::vector<RequestBlock*>>();
 	auto process = std::make_unique<std::vector<RequestBlock*>>();
 	process->reserve(reqp->NumberOfRequestBlocks());
@@ -682,7 +695,7 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 	++stats_.writes_in_progress_;
 	++cache_stats_.total_writes_;
 	return headp_->Write(this, reqp, ckpt_id, *process, *failed)
-	.then([this, reqp, ckpt_id, process = std::move(process),
+	.then([this, reqp, process = std::move(process),
 			failed = std::move(failed)] (folly::Try<int>& result) mutable {
 		if (result.hasException<std::exception>()) {
 			reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
@@ -697,7 +710,7 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 			}
 		}
 
-		return WriteComplete(reqp, ckpt_id);
+		return WriteComplete(reqp);
 	});
 }
 

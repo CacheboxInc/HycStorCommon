@@ -324,15 +324,17 @@ public:
 private:
 	folly::Future<int> WriteCommon(Request* reqp, ::ondisk::CheckPointID ckpt_id);
 	int WriteRequestComplete(Request* reqp, ::ondisk::CheckPointID ckpt_id);
-	int WriteComplete(Request* reqp, ::ondisk::CheckPointID ckpt_id);
-	int WriteComplete(const std::vector<std::unique_ptr<Request>>& requests,
-		::ondisk::CheckPointID ckpt_id);
+	int WriteComplete(Request* reqp);
+	int WriteComplete(const std::vector<std::unique_ptr<Request>>& requests);
 	std::optional<std::unordered_set<::ondisk::BlockID>>
 		CopyDirtyBlocksSet(::ondisk::CheckPointID ckpt_id);
 	void RemoveDirtyBlockSet(::ondisk::CheckPointID ckpt_id);
 	::ondisk::CheckPointID GetModifiedCheckPoint(::ondisk::BlockID block,
 		const CheckPoints& min_max, bool& found) const;
 	void ComputePreloadBlocks();
+	void SetBlocksModified(CheckPointID ckpt_id,
+		const std::vector<std::unique_ptr<Request>>& requests);
+	void SetBlocksModified(CheckPointID ckpt_id, Request* reqp);
 public:
 	void SetReadCheckPointId(const std::vector<RequestBlock*>& blockps,
 		const CheckPoints& min_max) const;
