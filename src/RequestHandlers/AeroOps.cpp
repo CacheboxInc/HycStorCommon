@@ -1,21 +1,24 @@
 #include <cerrno>
 #include <iterator>
+#include <chrono>
+#include <string>
+
+#include <folly/fibers/Fiber.h>
+#include <folly/fibers/Baton.h>
+
+#include <aerospike/aerospike_key.h>
+#include <aerospike/aerospike_batch.h>
 
 #include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_types.h"
+#include "WorkScheduler.h"
 #include "Vmdk.h"
 #include "Request.h"
 #include "AeroOps.h"
 #include "ThreadPool.h"
-#include <folly/fibers/Fiber.h>
-#include <folly/fibers/Baton.h>
 #include "DaemonTgtInterface.h"
 #include "Singleton.h"
 #include "MetaDataKV.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <iostream>
-#include <string>
 
 #if 0
 #define INJECT_AERO_WRITE_ERROR 0
@@ -27,6 +30,7 @@
 #define MAX_R_IOS_IN_HISTORY 100000
 
 using namespace ::ondisk;
+using namespace std::chrono_literals;
 
 namespace pio {
 
@@ -35,11 +39,6 @@ AeroSpike::AeroSpike() {
 }
 
 AeroSpike::~AeroSpike() {}
-
-void add_delay(uint64_t ms) {
-	std::this_thread::sleep_for(std::chrono::milliseconds(ms));
-	return;
-}
 
 int AeroSpike::CacheIoWriteKeySet(ActiveVmdk *, WriteRecord* wrecp,
 		const std::string& ns,
@@ -273,7 +272,8 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 		fnp = WritePipeListener;
 	}
 
-	lp = as_event_loop_get();
+	AeroSpikeConn::ConfigTag tag;
+	batchp->aero_conn_->GetEventLoopAndTag(&lp, &tag);
 	log_assert(lp != NULL);
 
 	batchp->batch.nsent_ = 1;
@@ -292,7 +292,7 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 	}
 
 	return batchp->promise_->getFuture()
-	.then([this, batchp] (int) mutable {
+	.then([this, batchp, tag] (int) mutable {
 		log_assert(batchp->submitted_ == true);
 		batchp->submitted_ = 0;
 
@@ -314,10 +314,12 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 					}
 					batchp->retry_ = false;
 					break;
-				case AEROSPIKE_ERR_ASYNC_CONNECTION:
 				case AEROSPIKE_ERR_TIMEOUT:
-				case AEROSPIKE_ERR_RECORD_BUSY:
 				case AEROSPIKE_ERR_DEVICE_OVERLOAD:
+					batchp->aero_conn_->HandleServerOverload(tag);
+					[[fallthrough]];
+				case AEROSPIKE_ERR_ASYNC_CONNECTION:
+				case AEROSPIKE_ERR_RECORD_BUSY:
 				case AEROSPIKE_ERR_CLUSTER:
 				case AEROSPIKE_ERR_SERVER:
 					LOG(ERROR) << __func__ << rec->status_
@@ -356,9 +358,12 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 		if (pio_unlikely(batchp->failed_ && batchp->retry_ && batchp->retry_cnt_)) {
 			--batchp->retry_cnt_;
 			ResetWriteBatchState(batchp);
-			/* Wait for 100ms before retry */
-			add_delay(100);
-			return WriteBatchSubmit(batchp);
+			auto schedulerp = batchp->aero_conn_->GetWorkScheduler();
+			return schedulerp->ScheduleAsync(
+					(kMaxRetryCnt - batchp->retry_cnt_) * 128ms,
+					[this, batchp] () mutable {
+				return this->WriteBatchSubmit(batchp);
+			});
 		}
 
 		return folly::makeFuture(int(batchp->failed_));
@@ -574,7 +579,8 @@ folly::Future<int> AeroSpike::ReadBatchSubmit(ReadBatch *batchp) {
 	log_assert(batchp && batchp->failed_ == false);
 	log_assert(nreads > 0);
 
-	loopp = as_event_loop_get();
+	AeroSpikeConn::ConfigTag tag;
+	batchp->aero_conn_->GetEventLoopAndTag(&loopp, &tag);
 	log_assert(loopp != NULL);
 
 	s = aerospike_batch_read_async(&batchp->aero_conn_->as_, &err, NULL, batchp->aero_recordsp_,
@@ -588,17 +594,19 @@ folly::Future<int> AeroSpike::ReadBatchSubmit(ReadBatch *batchp) {
 	}
 
 	return batchp->promise_->getFuture()
-	.then([this, batchp] (int) mutable {
+	.then([this, batchp, tag] (int) mutable {
 		switch (batchp->as_result_) {
 			/* Record not found is not an error case*/
 			case AEROSPIKE_OK:
 			case AEROSPIKE_ERR_RECORD_NOT_FOUND:
 				break;
+			case AEROSPIKE_ERR_TIMEOUT:
+			case AEROSPIKE_ERR_DEVICE_OVERLOAD:
+				batchp->aero_conn_->HandleServerOverload(tag);
+				[[fallthrough]];
 			case AEROSPIKE_ERR_ASYNC_CONNECTION:
 			case AEROSPIKE_ERR_NO_MORE_CONNECTIONS:
-			case AEROSPIKE_ERR_TIMEOUT:
 			case AEROSPIKE_ERR_RECORD_BUSY:
-			case AEROSPIKE_ERR_DEVICE_OVERLOAD:
 			case AEROSPIKE_ERR_SERVER:
 			case AEROSPIKE_ERR_CLUSTER:
 				LOG(ERROR) << __func__ << "Retyring for failed aerospike_batch_read_async"
@@ -617,9 +625,12 @@ folly::Future<int> AeroSpike::ReadBatchSubmit(ReadBatch *batchp) {
 		if (pio_unlikely(batchp->failed_ && batchp->retry_ && batchp->retry_cnt_)) {
 			--batchp->retry_cnt_;
 			this->ResetReadBatchState(batchp);
-			/* Wait for 100ms before retry */
-			add_delay(100);
-			return this->ReadBatchSubmit(batchp);
+			auto schedulerp = batchp->aero_conn_->GetWorkScheduler();
+			return schedulerp->ScheduleAsync(
+					(kMaxRetryCnt - batchp->retry_cnt_) * 128ms,
+					[this, batchp] () mutable {
+				return this->ReadBatchSubmit(batchp);
+			});
 		}
 
 		as_batch_read_record *recp;
@@ -966,7 +977,8 @@ folly::Future<int> AeroSpike::DelBatchSubmit(DelBatch *batchp) {
 		fnp = DelPipeListener;
 	}
 
-	loopp = as_event_loop_get();
+	AeroSpikeConn::ConfigTag tag;
+	batchp->aero_conn_->GetEventLoopAndTag(&loopp, &tag);
 	log_assert(loopp != NULL);
 
 	s = aerospike_key_remove_async(&batchp->aero_conn_->as_, &err, NULL, kp,
@@ -983,7 +995,7 @@ folly::Future<int> AeroSpike::DelBatchSubmit(DelBatch *batchp) {
 	}
 
 	return batchp->promise_->getFuture()
-	.then([this, batchp] (int) mutable {
+	.then([this, batchp, tag] (int) mutable {
 		log_assert(batchp->submitted_ == true);
 		batchp->submitted_ = 0;
 
@@ -1005,10 +1017,12 @@ folly::Future<int> AeroSpike::DelBatchSubmit(DelBatch *batchp) {
 					batchp->failed_ = true;
 					batchp->retry_ = false;
 					break;
-				case AEROSPIKE_ERR_ASYNC_CONNECTION:
 				case AEROSPIKE_ERR_TIMEOUT:
-				case AEROSPIKE_ERR_RECORD_BUSY:
 				case AEROSPIKE_ERR_DEVICE_OVERLOAD:
+					batchp->aero_conn_->HandleServerOverload(tag);
+					[[fallthrough]];
+				case AEROSPIKE_ERR_ASYNC_CONNECTION:
+				case AEROSPIKE_ERR_RECORD_BUSY:
 				case AEROSPIKE_ERR_CLUSTER:
 				case AEROSPIKE_ERR_SERVER:
 					LOG(ERROR) << __func__ <<
@@ -1031,9 +1045,12 @@ folly::Future<int> AeroSpike::DelBatchSubmit(DelBatch *batchp) {
 		if (pio_unlikely(batchp->failed_ && batchp->retry_ && batchp->retry_cnt_)) {
 			--batchp->retry_cnt_;
 			ResetDelBatchState(batchp);
-			/* Wait for 100ms before retry */
-			add_delay(100);
-			return DelBatchSubmit(batchp);
+			auto schedulerp = batchp->aero_conn_->GetWorkScheduler();
+			return schedulerp->ScheduleAsync(
+					(kMaxRetryCnt - batchp->retry_cnt_) * 128ms,
+					[this, batchp] () mutable {
+				return this->DelBatchSubmit(batchp);
+			});
 		}
 		return folly::makeFuture(int(batchp->failed_));
 	});
@@ -1414,7 +1431,8 @@ folly::Future<int> AeroSpike::ReadSingleSubmit(ReadSingle *batchp) {
 	log_assert(nreads > 0);
 	log_assert(nreads == 1);
 
-	lp = as_event_loop_get();
+	AeroSpikeConn::ConfigTag tag;
+	batchp->aero_conn_->GetEventLoopAndTag(&lp, &tag);
 	log_assert(lp != NULL);
 
 	auto kp = &batchp->key_;
@@ -1430,7 +1448,7 @@ folly::Future<int> AeroSpike::ReadSingleSubmit(ReadSingle *batchp) {
 	}
 
 	return batchp->promise_->getFuture()
-	.then([this, batchp] (int) mutable {
+	.then([this, batchp, tag] (int) mutable {
 		switch (batchp->as_result_) {
 			/* Record not found is not an error case*/
 			case AEROSPIKE_OK:
@@ -1439,8 +1457,10 @@ folly::Future<int> AeroSpike::ReadSingleSubmit(ReadSingle *batchp) {
 				batchp->retry_ = false;
 				break;
 			case AEROSPIKE_ERR_TIMEOUT:
-			case AEROSPIKE_ERR_RECORD_BUSY:
 			case AEROSPIKE_ERR_DEVICE_OVERLOAD:
+				batchp->aero_conn_->HandleServerOverload(tag);
+				[[fallthrough]];
+			case AEROSPIKE_ERR_RECORD_BUSY:
 			case AEROSPIKE_ERR_SERVER:
 			case AEROSPIKE_ERR_CLUSTER:
 				LOG(ERROR) << __func__ << "retyring for failed Aerospike_batch_read_async"
@@ -1457,9 +1477,12 @@ folly::Future<int> AeroSpike::ReadSingleSubmit(ReadSingle *batchp) {
 		if (pio_unlikely(batchp->failed_ && batchp->retry_ && batchp->retry_cnt_)) {
 			--batchp->retry_cnt_;
 			this->ResetReadSingleState(batchp);
-			/* Wait for 100ms before retry */
-			add_delay(100);
-			return this->ReadSingleSubmit(batchp);
+			auto schedulerp = batchp->aero_conn_->GetWorkScheduler();
+			return schedulerp->ScheduleAsync(
+					(kMaxRetryCnt - batchp->retry_cnt_) * 128ms,
+					[this, batchp] () mutable {
+				return this->ReadSingleSubmit(batchp);
+			});
 		}
 		return folly::makeFuture(int(batchp->failed_));
 	});

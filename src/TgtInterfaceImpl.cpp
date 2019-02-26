@@ -132,7 +132,6 @@ void RemoveAeroCluster(AeroClusterID cluster_id) {
 
 AeroClusterHandle NewAeroCluster(AeroClusterID cluster_id,
 		const std::string& config) {
-
 	std::lock_guard<std::mutex> lock(g_aero_clusters.mutex_);
 	try {
 		auto it = g_aero_clusters.ids_.find(cluster_id);

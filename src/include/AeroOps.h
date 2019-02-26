@@ -20,12 +20,15 @@
 #include "MetaDataKV.h"
 #include <aerospike/aerospike_info.h>
 
+typedef struct as_batch_read_records_s as_batch_read_records;
+typedef struct as_batch_read_record_s as_batch_read_record;
+
 namespace pio {
 
 const std::string kAsNamespaceMeta = "META";
 const std::string kAsCacheBin = "data_map";
 const std::string kAsMetaBin = "meta_map";
-const auto kMaxRetryCnt = 1;
+const auto kMaxRetryCnt = 3;
 
 struct WriteBatch;
 struct WriteRecord {

@@ -8,6 +8,7 @@ add_executable(CommonTests
 	SingletonTests.cpp
 	RendezTests.cpp
 	BackGroundWorkTests.cpp
+	WorkSchedulerTests.cpp
 )
 
 target_link_libraries(CommonTests
