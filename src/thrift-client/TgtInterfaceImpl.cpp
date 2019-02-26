@@ -974,6 +974,7 @@ void StordVmdk::ScheduleWriteSame(folly::EventBase* basep,
 		StorRpcAsyncClient* clientp, Request* reqp) {
 	auto data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
 		reqp->bufferp, reqp->buf_sz);
+	++stats_.rpc_requests_scheduled_;
 	clientp->future_WriteSame(vmdk_handle_, reqp->id, data, reqp->buf_sz,
 		reqp->xfer_sz, reqp->offset)
 	.then([this, reqp, data = std::move(data)]
@@ -987,7 +988,6 @@ void StordVmdk::ScheduleWriteSame(folly::EventBase* basep,
 		RequestComplete(reqp);
 		--stats_.rpc_requests_scheduled_;
 	});
-	++stats_.rpc_requests_scheduled_;
 }
 
 void StordVmdk::ScheduleWrite(folly::EventBase* basep,
@@ -996,6 +996,7 @@ void StordVmdk::ScheduleWrite(folly::EventBase* basep,
 
 	auto data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
 		reqp->bufferp, reqp->buf_sz);
+	++stats_.rpc_requests_scheduled_;
 	clientp->future_Write(vmdk_handle_, reqp->id, data, reqp->buf_sz, reqp->offset)
 	.then([this, reqp, data = std::move(data)]
 			(const WriteResult& result) mutable {
@@ -1008,13 +1009,13 @@ void StordVmdk::ScheduleWrite(folly::EventBase* basep,
 		RequestComplete(reqp);
 		--stats_.rpc_requests_scheduled_;
 	});
-	++stats_.rpc_requests_scheduled_;
 }
 
 void StordVmdk::ScheduleBulkWrite(folly::EventBase* basep,
 		StorRpcAsyncClient* clientp,
 		std::unique_ptr<std::vector<::hyc_thrift::WriteRequest>> reqs) {
 	log_assert(basep->isInEventBaseThread());
+	++stats_.rpc_requests_scheduled_;
 	clientp->future_BulkWrite(vmdk_handle_, *reqs.get())
 	.then([this, reqs = std::move(reqs)]
 			(const folly::Try<std::vector<::hyc_thrift::WriteResult>>& trie)
@@ -1030,13 +1031,13 @@ void StordVmdk::ScheduleBulkWrite(folly::EventBase* basep,
 		RequestComplete(results);
 		--stats_.rpc_requests_scheduled_;
 	});
-	++stats_.rpc_requests_scheduled_;
 }
 
 void StordVmdk::ScheduleRead(folly::EventBase* basep,
 		StorRpcAsyncClient* clientp, Request* reqp) {
 	log_assert(reqp && basep->isInEventBaseThread());
 
+	++stats_.rpc_requests_scheduled_;
 	clientp->future_Read(vmdk_handle_, reqp->id, reqp->buf_sz, reqp->offset)
 	.then([this, reqp] (const ReadResult& result) mutable {
 		reqp->result = result.get_result();
@@ -1051,7 +1052,6 @@ void StordVmdk::ScheduleRead(folly::EventBase* basep,
 		RequestComplete(reqp);
 		--stats_.rpc_requests_scheduled_;
 	});
-	++stats_.rpc_requests_scheduled_;
 }
 
 void StordVmdk::BulkReadComplete(const std::vector<Request*>& requests,
@@ -1083,6 +1083,7 @@ void StordVmdk::ScheduleBulkRead(folly::EventBase* basep,
 		std::unique_ptr<std::vector<::hyc_thrift::ReadRequest>> thrift_requests) {
 	log_assert(basep->isInEventBaseThread());
 
+	++stats_.rpc_requests_scheduled_;
 	clientp->future_BulkRead(vmdk_handle_, *thrift_requests)
 	.then([this, thrift_requests = std::move(thrift_requests),
 			requests = std::move(requests)]
@@ -1099,11 +1100,11 @@ void StordVmdk::ScheduleBulkRead(folly::EventBase* basep,
 		BulkReadComplete(requests, result);
 		--stats_.rpc_requests_scheduled_;
 	});
-	++stats_.rpc_requests_scheduled_;
 }
 
 folly::Future<int> StordVmdk::ScheduleTruncate(StorRpcAsyncClient* clientp,
 		RequestID reqid, std::vector<TruncateReq>&& requests) {
+	++stats_.rpc_requests_scheduled_;
 	return clientp->future_Truncate(vmdk_handle_, reqid, std::forward<std::vector<TruncateReq>>(requests))
 	.then([this] (const TruncateResult& result) {
 		--stats_.rpc_requests_scheduled_;
@@ -1113,7 +1114,6 @@ folly::Future<int> StordVmdk::ScheduleTruncate(StorRpcAsyncClient* clientp,
 		--stats_.rpc_requests_scheduled_;
 		return -EIO;
 	});
-	++stats_.rpc_requests_scheduled_;
 }
 
 void StordVmdk::ScheduleTruncate(folly::EventBase* basep,
