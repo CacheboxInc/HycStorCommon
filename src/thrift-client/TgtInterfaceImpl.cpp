@@ -26,6 +26,7 @@
 #include "TgtInterface.h"
 #include "TimePoint.h"
 #include "Common.h"
+#include "Serialize.h"
 
 static std::string StordIp = "127.0.0.1";
 static uint16_t StordPort = 9876;
@@ -152,6 +153,9 @@ std::ostream& operator << (std::ostream& os, const Request::Type type) {
 		break;
 	case Request::Type::kWriteSame:
 		os << "writesame";
+		break;
+	case Request::Type::kTruncate:
+		os << "truncate";
 		break;
 	}
 	return os;
@@ -417,7 +421,7 @@ void StordConnection::SetPingTimeout() {
 		GetRegisteredVmdks(vmdks);
 		if (not vmdks.empty()) {
 			for (StordVmdk* vmdkp : vmdks) {
-				LOG(ERROR) << *vmdkp;
+				LOG(INFO) << *vmdkp;
 			}
 		}
 
@@ -535,6 +539,10 @@ struct VmdkStats {
 	std::atomic<int64_t> write_bytes_{0};
 	std::atomic<int64_t> write_latency_{0};
 
+	std::atomic<int64_t> truncate_requests_{0};
+	std::atomic<int64_t> truncate_failed_{0};
+	std::atomic<int64_t> truncate_latency_{0};
+
 	std::atomic<int64_t> pending_{0};
 	std::atomic<int64_t> rpc_requests_scheduled_{0};
 };
@@ -592,6 +600,10 @@ private:
 	void ScheduleBulkRead(folly::EventBase* basep,
 		StorRpcAsyncClient* clientp, std::vector<Request*> requests,
 		std::unique_ptr<std::vector<::hyc_thrift::ReadRequest>> thrift_requests);
+	folly::Future<int> ScheduleTruncate(StorRpcAsyncClient* clientp,
+		RequestID reqid, std::vector<TruncateReq>&& requests);
+	void ScheduleTruncate(folly::EventBase* basep, StorRpcAsyncClient* clientp,
+		Request* reqp);
 private:
 	void RequestComplete(RequestID id, int32_t result);
 	template <typename T = Request>
@@ -823,6 +835,13 @@ void StordVmdk::UpdateStats(Request* reqp) {
 			stats_.write_bytes_ += reqp->xfer_sz;
 		}
 		break;
+	case Request::Type::kTruncate:
+		++stats_.truncate_requests_;
+		if (hyc_unlikely(reqp->result)) {
+			++stats_.truncate_failed_;
+		} else {
+			stats_.truncate_latency_ += latency;
+		}
 	}
 }
 
@@ -1085,7 +1104,7 @@ void StordVmdk::ScheduleBulkRead(folly::EventBase* basep,
 
 folly::Future<int> StordVmdk::ScheduleTruncate(StorRpcAsyncClient* clientp,
 		RequestID reqid, std::vector<TruncateReq>&& requests) {
-	return clientp->future_Truncate(vmdk_handle_, reqid, std::forward<TruncateReq>(requests))
+	return clientp->future_Truncate(vmdk_handle_, reqid, std::forward<std::vector<TruncateReq>>(requests))
 	.then([this] (const TruncateResult& result) {
 		--stats_.rpc_requests_scheduled_;
 		return result.get_result();
@@ -1110,9 +1129,9 @@ void StordVmdk::ScheduleTruncate(folly::EventBase* basep,
 		uint64_t offset;
 		uint32_t len;
 
-		offset = BigEndian::DeserializeUInt<decltype(offset)>
+		offset = BigEndian::DeserializeInt<decltype(offset)>
 			(reinterpret_cast<const uint8_t*>(&bufp[0])) << lun_blk_shift_;
-		len = BigEndian::DeserializeUInt<decltype(len)>
+		len = BigEndian::DeserializeInt<decltype(len)>
 			(reinterpret_cast<const uint8_t*>(&bufp[8])) << lun_blk_shift_;
 		if (offset + len > lun_size_) {
 			LOG(ERROR) << "Truncate beyond EOD";
@@ -1120,42 +1139,45 @@ void StordVmdk::ScheduleTruncate(folly::EventBase* basep,
 		} else if (len <= 0) {
 			continue;
 		}
-		
-		truncate.emplace_back(offset, len);
+
+		truncate.emplace_back(apache::thrift::FragileConstructor(), offset, len);
 		if (truncate.size() > 1024) {
 			futures.emplace_back(
-				ScheduleTruncate(client, reqp->id, std::move(truncate))
+				ScheduleTruncate(clientp, reqp->id, std::move(truncate))
 			);
 		}
 	}
 
 	if (not truncate.empty()) {
 		futures.emplace_back(
-			ScheduleTruncate(client, reqp->id, std::move(truncate))
+			ScheduleTruncate(clientp, reqp->id, std::move(truncate))
 		);
 	}
 
 	if (futures.empty()) {
-		RequestComplete(reqp, 0);
-		return 0;
+		reqp->result = 0;
+		RequestComplete(reqp);
+		return;
 	}
 
 	folly::collectAll(std::move(futures))
-	.then([this, reqp] (const folly::Try<std::vector<int>>& tries) {
+	.then([this, reqp] (const folly::Try<std::vector<folly::Try<int>>>& tries) {
 		if (hyc_unlikely(tries.hasException())) {
-			RequestComplete(reqp, -EIO);
+			reqp->result = -EIO;
+			RequestComplete(reqp);
 			return;
 		}
 
 		auto vec = std::move(tries.value());
-		for (const auto& rc : vec) {
-			if (hyc_unlikely(rc)) {
-				RequestComplete(reqp, rc);
-				return;
+		for (const auto& trie : vec) {
+			if (hyc_unlikely(trie.hasException())) {
+				reqp->result = -EIO;
+			} else {
+				reqp->result = trie.value();
 			}
 		}
 
-		RequestComplete(reqp, 0);
+		RequestComplete(reqp);
 	});
 }
 

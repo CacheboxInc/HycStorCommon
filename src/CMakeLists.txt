@@ -33,6 +33,7 @@ set(LIBRARY_LIST
 	double-conversion
 	iberty
 	atomic
+	unwind
 	${ThriftLibs}
 )
 

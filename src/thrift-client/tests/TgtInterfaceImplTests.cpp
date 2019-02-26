@@ -217,7 +217,7 @@ TEST(TgtInterfaceImplTest, Read) {
 	EXPECT_EQ(rc, rc);
 
 	::VmdkHandle handle = nullptr;
-	rc = HycOpenVmdk("vmid", "vmdkid", -1, &handle);
+	rc = HycOpenVmdk("vmid", "vmdkid", -1, 1ull<<30, 12, &handle);
 	EXPECT_EQ(rc, 0);
 	EXPECT_NE(handle, nullptr);
 
