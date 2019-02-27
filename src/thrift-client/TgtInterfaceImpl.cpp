@@ -1134,7 +1134,11 @@ void StordVmdk::ScheduleTruncate(folly::EventBase* basep,
 		len = BigEndian::DeserializeInt<decltype(len)>
 			(reinterpret_cast<const uint8_t*>(&bufp[8])) << lun_blk_shift_;
 		if (offset + len > lun_size_) {
-			LOG(ERROR) << "Truncate beyond EOD";
+			LOG(ERROR) << "Truncate beyond EOD "
+				<< offset << ' '
+				<< len << ' '
+				<< lun_size_ << ' '
+				<< length;
 			break;
 		} else if (len <= 0) {
 			continue;
