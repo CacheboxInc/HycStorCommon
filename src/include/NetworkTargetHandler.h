@@ -16,6 +16,7 @@ namespace pio {
 using namespace hyc;
 class NetworkTargetHandler : public RequestHandler, public IORequestor {
 public:
+	static constexpr char kName[] = "NetworkHandler";
 	NetworkTargetHandler(const config::VmdkConfig* configp);
 	~NetworkTargetHandler();
 

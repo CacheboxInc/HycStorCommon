@@ -12,7 +12,8 @@ using namespace ::ondisk;
 
 namespace pio {
 CleanHandler::CleanHandler(const ActiveVmdk* vmdkp,
-		const config::VmdkConfig*) : RequestHandler(nullptr) {
+		const config::VmdkConfig*) :
+		RequestHandler(CleanHandler::kName, nullptr) {
 	aero_obj_ = std::make_unique<AeroSpike>();
 	aero_conn_ = pio::GetAeroConn(vmdkp);
 }

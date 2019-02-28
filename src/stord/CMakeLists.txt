@@ -21,6 +21,7 @@ target_link_libraries(stord
 	StorRpcLib
 	StorRpcMetaDataLib
 	StorageLayer
+	unwind
 	${HA_LIBS}
 	${COMPRESS_LIBS}
 	${LIBRARY_LIST}

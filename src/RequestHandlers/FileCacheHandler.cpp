@@ -22,7 +22,7 @@ using namespace ::ondisk;
 namespace pio {
 
 FileCacheHandler::FileCacheHandler(const config::VmdkConfig* configp) :
-		RequestHandler(nullptr) {
+		RequestHandler(FileCacheHandler::kName, nullptr) {
 	/* FileCacheHandler with encryption and compression not supported */
 	log_assert(not configp->IsCompressionEnabled());
 	log_assert(not configp->IsEncryptionEnabled());

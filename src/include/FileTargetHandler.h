@@ -11,6 +11,7 @@ namespace pio {
 
 class FileTargetHandler : public RequestHandler {
 public:
+	static constexpr char kName[] = "FileTarget";
 	FileTargetHandler(const config::VmdkConfig* configp);
 	virtual ~FileTargetHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,

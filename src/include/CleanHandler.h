@@ -6,6 +6,7 @@
 namespace pio {
 class CleanHandler : public RequestHandler {
 public:
+	static constexpr char kName[] = "CleanCache";
 	CleanHandler(const ActiveVmdk* vmdkp,
 		const config::VmdkConfig* configp);
 	~CleanHandler();

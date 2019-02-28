@@ -82,6 +82,9 @@ public:
 		std::vector<ReadRequest>::const_iterator eit,
 		bool trigger_read_ahead);
 
+	folly::Future<int> TruncateBlocks(ActiveVmdk* vmdkp,
+                RequestID reqid, const std::vector<TruncateReq>& requests);
+
 	friend std::ostream& operator << (std::ostream& os, const VirtualMachine& vm);
 public:
 	void AddVmdk(ActiveVmdk* vmdkp);

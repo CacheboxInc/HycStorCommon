@@ -14,7 +14,7 @@ using namespace ::ondisk;
 
 namespace pio {
 ErrorHandler::ErrorHandler(const config::VmdkConfig* configp) :
-		RequestHandler(nullptr) {
+		RequestHandler(ErrorHandler::kName, nullptr) {
 	enabled_ = configp->ErrorHandlerEnabled();
 	if (enabled_) {
 		throw_ = configp->ErrorHandlerShouldThrow();

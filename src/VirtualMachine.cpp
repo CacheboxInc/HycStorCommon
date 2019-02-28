@@ -819,6 +819,11 @@ VirtualMachine::BulkRead(ActiveVmdk* vmdkp,
 	});
 }
 
+folly::Future<int> VirtualMachine::TruncateBlocks(ActiveVmdk* vmdkp,
+		RequestID reqid, const std::vector<TruncateReq>& requests) {
+	return vmdkp->TruncateBlocks(reqid, checkpoint_.checkpoint_id_.load(), requests);
+}
+
 folly::Future<int> VirtualMachine::StartPreload(const ::ondisk::VmdkID& id) {
 	auto vmdkp = FindVmdk(id);
 	if (not vmdkp) {

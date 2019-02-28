@@ -9,6 +9,7 @@ namespace hyc {
 
 class EncryptHandler : public RequestHandler {
 public:
+	static constexpr char kName[] = "EncryptHandler";
 	EncryptHandler(const config::VmdkConfig* configp);
 	~EncryptHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,

@@ -420,6 +420,31 @@ public:
 			return folly::makeFuture(std::move(results));
 		});
 	}
+
+	folly::Future<std::unique_ptr<TruncateResult>> future_Truncate(
+			VmdkHandle vmdk, RequestID reqid,
+			std::unique_ptr<std::vector<TruncateReq>> requests) override {
+		auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdk);
+		if (pio_unlikely(not p)) {
+			LOG(ERROR) << "Invalid VMDK handle " << vmdk;
+			return folly::makeFuture<std::unique_ptr<TruncateResult>>(
+				std::invalid_argument("Invalid VMDK handle")
+			);
+		}
+		auto vmdkp = dynamic_cast<ActiveVmdk*>(p);
+		assert(pio_likely(vmdkp));
+
+		auto vmp = vmdkp->GetVM();
+		assert(vmp != nullptr);
+
+		return vmp->TruncateBlocks(vmdkp, reqid, *requests)
+		.then([reqid, requests = std::move(requests)] (int rc) mutable {
+			auto result = std::make_unique<TruncateResult>();
+			result->set_reqid(reqid);
+			result->set_result(rc);
+			return result;
+		});
+}
 private:
 	std::atomic<VmHandle> vm_handle_{0};
 	std::atomic<VmdkHandle> vmdk_handle_{0};

@@ -5,6 +5,7 @@ namespace pio {
 
 class FileCacheHandler : public RequestHandler {
 public:
+	static constexpr char kName[] = "FileCache";
 	FileCacheHandler(const config::VmdkConfig* configp);
 	virtual ~FileCacheHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,

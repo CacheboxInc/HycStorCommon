@@ -15,6 +15,7 @@ struct hyc_compress_ctx_;
 
 class SuccessHandler : public RequestHandler {
 public:
+	static constexpr char kName[] = "SuccessHandler";
 	SuccessHandler(const config::VmdkConfig* configp);
 	~SuccessHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,

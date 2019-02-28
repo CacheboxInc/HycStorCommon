@@ -15,9 +15,22 @@ using namespace ::ondisk;
 
 namespace pio {
 CacheTargetHandler::CacheTargetHandler(const ActiveVmdk* vmdkp,
-		const config::VmdkConfig* configp) : RequestHandler(nullptr) {
+		const config::VmdkConfig* configp) :
+		RequestHandler(CacheTargetHandler::kName, nullptr) {
 	InitializeRequestHandlers(vmdkp, configp);
 }
+
+RequestHandler* CacheTargetHandler::GetRequestHandler(const char* namep)
+		noexcept {
+	if (std::strncmp(CacheTargetHandler::kName, namep, std::strlen(namep)) == 0) {
+		return this;
+	}
+	if (pio_unlikely(not headp_)) {
+		return nullptr;
+	}
+	return headp_->GetRequestHandler(namep);
+}
+
 
 void CacheTargetHandler::InitializeRequestHandlers(const ActiveVmdk* vmdkp,
 		const config::VmdkConfig* configp) {
@@ -30,6 +43,12 @@ void CacheTargetHandler::InitializeRequestHandlers(const ActiveVmdk* vmdkp,
 
 CacheTargetHandler::~CacheTargetHandler() {
 
+}
+
+folly::Future<int> CacheTargetHandler::Delete(ActiveVmdk* vmdkp,
+		const ::ondisk::CheckPointID ckpt_id,
+		const std::pair<BlockID, BlockID> range) {
+	return headp_->Delete(vmdkp, ckpt_id, range);
 }
 
 folly::Future<int> CacheTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,

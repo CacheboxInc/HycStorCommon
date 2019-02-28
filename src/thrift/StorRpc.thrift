@@ -56,6 +56,16 @@ struct VmdkStats {
 	10: i64 write_latency;
 }
 
+struct TruncateReq {
+	1: i64 offset;
+	2: i64 length;
+}
+
+struct TruncateResult {
+	1: required RequestID reqid;
+	2: required i32 result;
+}
+
 service StorRpc {
 	string Ping() throws (1: ServiceException e);
 
@@ -77,4 +87,6 @@ service StorRpc {
 
 	list<WriteResult> BulkWrite(1: VmdkHandle vmdk, 2: list<WriteRequest> requests);
 	list<ReadResult> BulkRead(1: VmdkHandle vmdk, 2: list<ReadRequest> requests);
+
+	TruncateResult Truncate(1: VmdkHandle handle, 2: RequestID reqid, 3: list<TruncateReq> requests);
 }

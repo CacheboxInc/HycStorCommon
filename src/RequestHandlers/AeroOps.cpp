@@ -814,39 +814,28 @@ int AeroSpike::CacheIoDelKeySet(ActiveVmdk *, DelRecord* drecp,
 }
 
 int AeroSpike::DelBatchInit(ActiveVmdk *,
-	const std::vector<RequestBlock*>& process, DelBatch *d_batch_rec,
-	const std::string&) {
+		const std::vector<RequestBlock*>& process, DelBatch *batchp,
+		const std::string&) {
+	batchp->batch.recordsp_.reserve(process.size());
 
-	d_batch_rec->batch.recordsp_.reserve(process.size());
 	for (auto block : process) {
-		auto rec = std::make_unique<DelRecord>(block, d_batch_rec);
-		if (pio_unlikely(not rec)) {
-			LOG(ERROR) << "DelRecord allocation failed";
-			return -ENOMEM;
-		}
-
-		d_batch_rec->batch.recordsp_.emplace_back(std::move(rec));
+		auto offset = block->GetAlignedOffset();
+		std::ostringstream os;
+		os << batchp->pre_keyp_ << ":"
+			<< batchp->ckpt_ << ":"
+			<< (offset >> kSectorShift);
+		batchp->batch.recordsp_.emplace_back(batchp, batchp->ns_,
+			batchp->setp_, os.str());
 	}
-	d_batch_rec->batch.ndeletes_ = process.size();
-	d_batch_rec->promise_ = std::make_unique<folly::Promise<int>>();
+	batchp->batch.ndeletes_ = process.size();
+	batchp->promise_ = std::make_unique<folly::Promise<int>>();
 	return 0;
 }
 
 int AeroSpike::DelBatchPrepare(ActiveVmdk *vmdkp,
 		const std::vector<RequestBlock*>& process,
 		DelBatch *d_batch_rec, const std::string& ns) {
-	auto rc = DelBatchInit(vmdkp, process, d_batch_rec, ns);
-	if (pio_unlikely(rc < 0)) {
-		return rc;
-	}
-	for (auto& record : d_batch_rec->batch.recordsp_) {
-		auto rc = CacheIoDelKeySet(vmdkp, record.get(), ns,
-				d_batch_rec->setp_);
-		if (pio_unlikely(rc < 0)) {
-			return rc;
-		}
-	}
-	return 0;
+	return DelBatchInit(vmdkp, process, d_batch_rec, ns);
 }
 
 /*
@@ -873,7 +862,7 @@ static void DelListener(as_error *errp, void *datap, as_event_loop*) {
 		stop_pipeline = true;
 	}
 
-	if (pio_unlikely(errp)) {
+	if (pio_unlikely(errp and errp->code != AEROSPIKE_ERR_RECORD_NOT_FOUND)) {
 		drp->status_ = errp->code;
 		#if 0
 		LOG(ERROR) << __func__ << "::error msg:" <<
@@ -918,7 +907,7 @@ static void DelPipeListener(void *udatap, as_event_loop *lp) {
 	}
 	batchp->batch.nsent_++;
 
-	drp = (*(batchp->batch.rec_it_)).get();
+	drp = &(*batchp->batch.rec_it_);
 	std::advance(batchp->batch.rec_it_, 1);
 	if (batchp->batch.rec_it_ == (batchp->batch.recordsp_).end()) {
 		batchp->submitted_ = true;
@@ -964,7 +953,7 @@ folly::Future<int> AeroSpike::DelBatchSubmit(DelBatch *batchp) {
 
 	/* Get very first record from vector to process */
 	batchp->batch.rec_it_ = (batchp->batch.recordsp_).begin();
-	drp = (*(batchp->batch.rec_it_)).get();
+	drp = &(*batchp->batch.rec_it_);
 	std::advance(batchp->batch.rec_it_, 1);
 
 	batchp->batch.nsent_     = 1;
@@ -1007,13 +996,12 @@ folly::Future<int> AeroSpike::DelBatchSubmit(DelBatch *batchp) {
 		 * retry only failed request blocks
 		 */
 
-		for (auto& v_rec : batchp->batch.recordsp_) {
-			auto rec =  v_rec.get();
-			switch (rec->status_) {
+		for (auto& rec : batchp->batch.recordsp_) {
+			switch (rec.status_) {
 				default:
-					LOG(ERROR) << __func__ << rec->status_
+					LOG(ERROR) << __func__ << rec.status_
 						<< "::failed delete request::"
-						<< rec->status_;
+						<< rec.status_;
 					batchp->failed_ = true;
 					batchp->retry_ = false;
 					break;
@@ -1059,11 +1047,11 @@ folly::Future<int> AeroSpike::DelBatchSubmit(DelBatch *batchp) {
 folly::Future<int> AeroSpike::AeroDel(ActiveVmdk *vmdkp, CheckPointID ckpt,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>&, const std::string& ns,
+		const std::string& set,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
 	/* Create Batch write records */
-	auto batch = std::make_unique<DelBatch>(vmdkp->GetID(),
-			ns, (vmdkp->GetVM()->GetJsonConfig())->GetTargetName());
+	auto batch = std::make_unique<DelBatch>(vmdkp->GetID(), ns, set);
 	if (pio_unlikely(batch == nullptr)) {
 		LOG(ERROR) << "DelBatch allocation failed";
 		return -ENOMEM;
@@ -1088,13 +1076,14 @@ folly::Future<int> AeroSpike::AeroDelCmdProcess(ActiveVmdk *vmdkp,
 		CheckPointID ckpt,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
+		const std::string& set,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
 	if (pio_unlikely(process.empty())) {
 		return 0;
 	}
 
-	return AeroDel(vmdkp, ckpt, process, failed, ns, aero_conn);
+	return AeroDel(vmdkp, ckpt, process, failed, ns, set, aero_conn);
 }
 
 WriteRecord::WriteRecord(RequestBlock* blockp, WriteBatch* batchp,
@@ -1184,21 +1173,74 @@ ReadBatch::~ReadBatch() {
 	as_batch_read_destroy(aero_recordsp_);
 }
 
-DelBatch::DelBatch(const VmdkID& vmdkid, const std::string& ns, const std::string set)
+DelBatch::DelBatch(const VmdkID& vmdkid, const std::string& ns, const std::string& set)
 		: pre_keyp_(vmdkid), ns_(ns), setp_(set) {
 }
 
-DelRecord::DelRecord(RequestBlock* blockp, DelBatch* batchp) :
-		rq_block_(blockp), batchp_(batchp) {
-	std::ostringstream os;
-	os << batchp_->pre_keyp_ << ":"
-		<< std::to_string(batchp_->ckpt_) << ":"
-		<< std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
-	key_val_ = os.str();
+int DelBatch::Prepare(AeroSpikeConn* connp,
+		const ActiveVmdk* vmdkp,
+		const ::ondisk::CheckPointID ckpt_id,
+		const BlockID start,
+		const BlockID end) {
+	const size_t ndeletes = end - start + 1;
+	batch.recordsp_.reserve(ndeletes);
+
+	for (auto it = start; it <= end; ++it) {
+		std::ostringstream os;
+		os << pre_keyp_ << ":"
+			<< ckpt_id << ":"
+			<< ((it << vmdkp->BlockShift()) >> kSectorShift);
+
+		batch.recordsp_.emplace_back(this, ns_, setp_, os.str());
+	}
+	log_assert(ndeletes == batch.recordsp_.size());
+
+	batch.ndeletes_ = ndeletes;
+	promise_ = std::make_unique<folly::Promise<int>>();
+	aero_conn_ = connp;
+	ckpt_ = ckpt_id;
+	return 0;
 }
 
-DelRecord::~DelRecord() {
+DelRecord::DelRecord(DelBatch* batchp, const std::string& ns,
+			const std::string& set,
+			std::string&& key) noexcept :
+		batchp_(batchp), ns_(ns), set_(set),
+		key_val_(std::forward<std::string>(key)) {
+	[[maybe_unused]] auto kp = as_key_init(&key_, ns_.c_str(), set_.c_str(),
+		key_val_.c_str());
+	log_assert(kp == &key_);
+}
+
+DelRecord::~DelRecord() noexcept {
 	as_key_destroy(&key_);
+}
+
+DelRecord::DelRecord(DelRecord&& rhs) noexcept :
+		batchp_(rhs.batchp_), ns_(rhs.ns_), set_(rhs.set_),
+		key_val_(std::move(rhs.key_val_)) {
+	[[maybe_unused]] auto kp = as_key_init(&key_, ns_.c_str(), set_.c_str(),
+		key_val_.c_str());
+	log_assert(kp == &key_);
+}
+
+folly::Future<int> AeroSpike::Delete(AeroSpikeConn* connp,
+		const ActiveVmdk* vmdkp,
+		const ::ondisk::CheckPointID ckpt_id,
+		const std::pair<::ondisk::BlockID, ::ondisk::BlockID> range,
+		const std::string& ns,
+		const std::string& set) {
+	auto batch = std::make_unique<DelBatch>(vmdkp->GetID(), ns, set);
+	auto rc = batch->Prepare(connp, vmdkp, ckpt_id, range.first, range.second);
+	if (pio_unlikely(rc < 0)) {
+		return rc;
+	}
+
+	auto batchp = batch.get();
+	return DelBatchSubmit(batchp)
+	.then([batch = std::move(batch)] (int rc) mutable {
+		return rc;
+	});
 }
 
 /* META KV related functions */

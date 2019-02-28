@@ -5,6 +5,7 @@
 namespace pio {
 class ErrorHandler : public RequestHandler {
 public:
+	static constexpr char kName[] = "ErrorInjector";
 	ErrorHandler(const config::VmdkConfig* configp);
 	~ErrorHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,

@@ -246,6 +246,8 @@ public:
 	folly::Future<int> BulkRead(const CheckPoints& min_max,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process);
+	folly::Future<int> TruncateBlocks(RequestID reqid, CheckPointID ckpt_id,
+		const std::vector<TruncateReq>& requests);
 
 	int SetCkptBitmap(::ondisk::CheckPointID ckpt_id,
 		std::unordered_set<::ondisk::BlockID>& blocks);
@@ -335,6 +337,10 @@ private:
 	void SetBlocksModified(CheckPointID ckpt_id,
 		const std::vector<std::unique_ptr<Request>>& requests);
 	void SetBlocksModified(CheckPointID ckpt_id, Request* reqp);
+	int32_t RemoveModifiedBlocks(CheckPointID ckpt_id,
+		iter::Range<BlockID>::iterator begin,
+		iter::Range<BlockID>::iterator end,
+		std::vector<BlockID>& removed);
 public:
 	void SetReadCheckPointId(const std::vector<RequestBlock*>& blockps,
 		const CheckPoints& min_max) const;

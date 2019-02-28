@@ -65,6 +65,7 @@ target_link_libraries(AeroBench
 	ssl
 	z
 	iberty
+	unwind
 	boost_system
 	boost_context
 	${LIBRARY_LIST}
