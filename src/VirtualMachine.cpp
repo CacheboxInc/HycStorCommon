@@ -49,7 +49,8 @@ std::ostream& operator << (std::ostream& os, const VirtualMachine& vm) {
 VirtualMachine::VirtualMachine(VmHandle handle, VmID vm_id,
 		const std::string& config) : handle_(handle), vm_id_(std::move(vm_id)),
 		config_(std::make_unique<config::VmConfig>(config)),
-		timer_(kTickSeconds), analyzer_(vm_id_, kL1Ticks, kL2Ticks, kL3Ticks) {
+		analyzer_(vm_id_, kL1Ticks, kL2Ticks, kL3Ticks),
+		timer_(kTickSeconds) {
 	setname_ = config_->GetTargetName();
 	if (not config_->GetVmUUID(vm_uuid_)) {
 		throw std::invalid_argument("vm uuid is not set.");
