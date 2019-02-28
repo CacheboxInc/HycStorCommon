@@ -58,6 +58,8 @@ VirtualMachine::VirtualMachine(VmHandle handle, VmID vm_id,
 }
 
 VirtualMachine::~VirtualMachine() {
+	timer_.~RecurringTimer();
+	analyzer_.~Analyzer();
 }
 
 const VmID& VirtualMachine::GetID() const noexcept {

@@ -125,8 +125,8 @@ private:
 	std::atomic<RequestID> request_id_{0};
 	std::unique_ptr<config::VmConfig> config_;
 
-	RecurringTimer timer_;
 	Analyzer analyzer_;
+	RecurringTimer timer_;
 
 	struct {
 		std::atomic_flag in_progress_ = ATOMIC_FLAG_INIT;
