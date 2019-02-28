@@ -10,9 +10,12 @@ namespace config {
 
 class CacheTargetHandler : public RequestHandler {
 public:
+	static constexpr char kName[] = "CacheTarget";
+
 	CacheTargetHandler(const ActiveVmdk* vmdkp,
 		const config::VmdkConfig* configp);
 	~CacheTargetHandler();
+	virtual RequestHandler* GetRequestHandler(const char* namep) noexcept override;
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
@@ -43,6 +46,9 @@ public:
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) override;
+	virtual folly::Future<int> Delete(ActiveVmdk* vmdkp,
+		const ::ondisk::CheckPointID ckpt_id,
+		std::pair<::ondisk::BlockID, ::ondisk::BlockID> range) override;
 private:
 	void InitializeRequestHandlers(const ActiveVmdk* vmdkp,
 		const config::VmdkConfig* configp);

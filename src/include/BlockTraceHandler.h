@@ -8,6 +8,8 @@ class Analyzer;
 
 class BlockTraceHandler : public RequestHandler {
 public:
+	static constexpr char kName[] = "BlockTracer";
+
 	BlockTraceHandler(ActiveVmdk* vmdkp);
 	~BlockTraceHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
@@ -39,7 +41,6 @@ public:
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) override;
-
 private:
 	Analyzer* analyzerp_;
 	const ::ondisk::VmdkID vmdk_id_;

@@ -22,7 +22,7 @@ using namespace std;
 using req_buf_type = std::unique_ptr<RequestBuffer>;
 
 NetworkTargetHandler::NetworkTargetHandler(const config::VmdkConfig* configp) :
-	RequestHandler(nullptr) {
+	RequestHandler(NetworkTargetHandler::kName, nullptr) {
 	configp->GetVmId(vm_id_);
 	configp->GetVmdkId(vmdk_id_);
 	Open();

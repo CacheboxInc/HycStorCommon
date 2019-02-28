@@ -146,11 +146,19 @@ struct ReadSingle {
 
 struct DelBatch;
 struct DelRecord {
-	DelRecord(RequestBlock* blockp, DelBatch* batchp);
-	~DelRecord();
+	DelRecord(DelBatch* batchp, const std::string& ns,
+			const std::string& set,
+			std::string&& key) noexcept;
+	~DelRecord() noexcept;
+	DelRecord(DelRecord&& rhs) noexcept;
 
-	RequestBlock  *rq_block_{nullptr};
+	DelRecord(const DelRecord& rhs) = delete;
+	DelRecord& operator = (const DelRecord& rhs) = delete;
+	DelRecord& operator = (DelRecord&& rhs) = delete;
+
 	DelBatch *batchp_{nullptr};
+	const std::string& ns_;
+	const std::string& set_;
 	std::string key_val_;
 	as_key key_;
 	as_status status_{AEROSPIKE_ERR};
@@ -158,12 +166,16 @@ struct DelRecord {
 
 struct DelBatch {
 	DelBatch(const ::ondisk::VmdkID& vmdkid, const std::string& ns,
-			const std::string set);
+			const std::string& set);
+	int Prepare(AeroSpikeConn* connp,
+		const ActiveVmdk* vmdkp,
+		const ::ondisk::CheckPointID ckpt_id,
+		const ::ondisk::BlockID start, const ::ondisk::BlockID end);
 
 	struct {
 		std::mutex lock_;
-		std::vector<std::unique_ptr<DelRecord>> recordsp_;
-		std::vector<std::unique_ptr<DelRecord>>::iterator rec_it_;
+		std::vector<DelRecord> recordsp_;
+		std::vector<DelRecord>::iterator rec_it_;
 		uint16_t ndeletes_{0};
 		uint16_t nsent_{0};
 		uint16_t ncomplete_{0};
@@ -171,7 +183,7 @@ struct DelBatch {
 
 	const ::ondisk::VmdkID& pre_keyp_;
 	const std::string& ns_;
-	const std::string setp_;
+	const std::string& setp_;
 
 	::ondisk::CheckPointID ckpt_{
 		::ondisk::MetaData_constants::kInvalidCheckPointID()
@@ -252,11 +264,13 @@ public:
 	folly::Future<int> AeroDelCmdProcess(ActiveVmdk *vmdkp,
 		::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
+		const std::string& set,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	folly::Future<int> AeroDel(ActiveVmdk *vmdkp,
 		::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
+		const std::string& set,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	folly::Future<int> DelBatchSubmit(DelBatch *batchp);
@@ -268,6 +282,13 @@ public:
 	int DelBatchInit(ActiveVmdk *vmdkp,
 		const std::vector<RequestBlock*>& process,
 		DelBatch *d_batch_rec, const std::string& ns);
+
+	folly::Future<int> Delete(AeroSpikeConn* connp,
+		const ActiveVmdk* vmdkp,
+		const ::ondisk::CheckPointID ckpt_id,
+		const std::pair<::ondisk::BlockID, ::ondisk::BlockID> range,
+		const std::string& ns,
+		const std::string& set);
 
 	int CacheIoDelKeySet(ActiveVmdk *vmdkp, DelRecord* drecp,
 		const std::string& ns,

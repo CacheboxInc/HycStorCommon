@@ -19,7 +19,8 @@ using namespace ::ondisk;
 namespace pio {
 
 RamCacheHandler::RamCacheHandler(const config::VmdkConfig* configp) :
-		RequestHandler(nullptr), cache_(std::make_unique<RamCache>()) {
+		RequestHandler(RamCacheHandler::kName, nullptr),
+		cache_(std::make_unique<RamCache>()) {
 	enabled_ = configp->IsRamCacheEnabled();
 	if (enabled_) {
 		memory_mb_ = configp->GetRamCacheMemoryLimit();

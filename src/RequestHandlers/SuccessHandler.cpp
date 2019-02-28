@@ -113,7 +113,7 @@ void SuccessHandler::InitializeCompression(const config::VmdkConfig* configp) {
 }
 
 SuccessHandler::SuccessHandler(const config::VmdkConfig* configp) :
-		RequestHandler(nullptr), rd_(), gen_(rd_()) {
+		RequestHandler(SuccessHandler::kName, nullptr), rd_(), gen_(rd_()) {
 	delay_ = 0;
 	enabled_ = configp->IsSuccessHandlerEnabled();
 	if (enabled_) {

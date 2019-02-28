@@ -7,6 +7,7 @@ class RamCache;
 
 class RamCacheHandler : public RequestHandler {
 public:
+	static constexpr char kName[] = "RamCache";
 	RamCacheHandler(const config::VmdkConfig* configp);
 	virtual ~RamCacheHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,

@@ -97,6 +97,7 @@ set(LIBRARY_LIST
 	event
 	double-conversion
 	iberty
+	unwind
 	atomic
 	aio
 	ReadAhead

@@ -4,15 +4,18 @@
 
 #include "gen-cpp2/MetaData_types.h"
 #include "DaemonCommon.h"
+#include "DaemonUtils.h"
 
 namespace pio {
 class RequestHandler {
 public:
-	RequestHandler(void *udatap);
+	RequestHandler(const char* namep, void *udatap);
 	virtual ~RequestHandler();
+	virtual RequestHandler* GetRequestHandler(const char* namep) noexcept;
 
 	void RegisterNextRequestHandler(std::unique_ptr<RequestHandler> handlerp);
 
+	virtual std::string Name() const;
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) = 0;
@@ -52,15 +55,18 @@ public:
 		std::vector<RequestBlock *>& failed);
 	virtual int Cleanup(ActiveVmdk *vmdkp);
 
+	virtual folly::Future<int> Delete(ActiveVmdk* vmdkp,
+			const ::ondisk::CheckPointID ckpt_id,
+			const std::pair<::ondisk::BlockID, ::ondisk::BlockID> range) {
+		if (not nextp_) {
+			return 0;
+		}
+		return nextp_->Delete(vmdkp, ckpt_id, range);
+	}
+
 protected:
-	void *udatap_;
+	const char* namep_{};
+	void *udatap_{};
 	std::unique_ptr<RequestHandler> nextp_;
 };
-
-class NetworkHandler : public RequestHandler {
-public:
-	NetworkHandler();
-	~NetworkHandler();
-};
-
 }

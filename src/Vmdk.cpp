@@ -422,6 +422,89 @@ folly::Future<int> ActiveVmdk::BulkRead(const CheckPoints& min_max,
 	});
 }
 
+folly::Future<int> ActiveVmdk::TruncateBlocks([[maybe_unused]] RequestID reqid,
+		CheckPointID ckpt_id,
+		const std::vector<TruncateReq>& requests) {
+	auto TruncateLambda = [this, ckpt_id] (std::pair<BlockID, BlockID> range) mutable {
+		std::vector<::ondisk::BlockID> to_delete;
+		auto r = iter::Range(range.first, range.second);
+		auto erased = RemoveModifiedBlocks(ckpt_id, r.begin(), r.end(), to_delete);
+		if (erased == 0) {
+			return folly::makeFuture(0);
+		}
+
+		std::vector<folly::Future<int>> futures;
+		for (auto r : MergeConsecutive(to_delete, 256)) {
+			futures.emplace_back(
+				headp_->Delete(this, ckpt_id,
+					std::make_pair(r.first, r.first+r.second-1)
+				)
+			);
+		}
+		return folly::collectAll(std::move(futures))
+		.then([] (const folly::Try<std::vector<folly::Try<int>>>& tries) mutable {
+			if (pio_unlikely(tries.hasException())) {
+				return -EIO;
+			}
+			const auto& vec = tries.value();
+			for (const auto& tri : vec) {
+				if (pio_unlikely(tri.hasException())) {
+					return -EIO;
+				}
+				if (pio_unlikely(tri.value() < 0)) {
+					return tri.value();
+				}
+			}
+			return 0;
+		});
+	};
+
+	if (pio_unlikely(not headp_)) {
+		LOG(ERROR) << "IO Layers aren't registered";
+		return -ENODEV;
+	}
+
+	std::vector<folly::Future<int>> futures;
+	for (const auto& request : requests) {
+		int64_t offset = request.get_offset();
+		int64_t length = request.get_length();
+
+		auto [block_start, block_end] = GetBlockIDs(offset, length, BlockShift());
+		if (not IsBlockSizeAlgined(offset, BlockSize())) {
+			if (++block_start > block_end) {
+				continue;
+			}
+		}
+
+		auto [_, end_offset] = BlockFirstLastOffset(block_end, BlockShift());
+		if (end_offset != static_cast<uint64_t>(offset + length)) {
+			if (block_start >= block_end) {
+				continue;
+			}
+			--block_end;
+		}
+
+		log_assert(block_start <= block_end);
+
+		futures.emplace_back(TruncateLambda({block_start, block_end}));
+	}
+
+	return folly::collectAll(std::move(futures))
+	.then([] (const folly::Try<std::vector<folly::Try<int>>>& tries) {
+		if (pio_unlikely(tries.hasException())) {
+			return -EIO;
+		}
+		for (const auto& tri : tries.value()) {
+			if (pio_unlikely(tri.hasException())) {
+				return -EIO;
+			} else if (pio_unlikely(tri.value())) {
+				return tri.value();
+			}
+		}
+		return 0;
+	});
+}
+
 folly::Future<int> ActiveVmdk::Flush(Request* reqp, const CheckPoints& min_max) {
 	assert(reqp);
 
@@ -558,6 +641,31 @@ folly::Future<int> ActiveVmdk::Write(Request* reqp, CheckPointID ckpt_id) {
 
 folly::Future<int> ActiveVmdk::WriteSame(Request* reqp, CheckPointID ckpt_id) {
 	return WriteCommon(reqp, ckpt_id);
+}
+
+int32_t ActiveVmdk::RemoveModifiedBlocks(CheckPointID ckpt_id,
+		iter::Range<BlockID>::iterator begin,
+		iter::Range<BlockID>::iterator end,
+		std::vector<BlockID>& removed) {
+	removed.clear();
+	std::lock_guard<std::mutex> lock(blocks_.mutex_);
+	auto it = blocks_.modified_.find(ckpt_id);
+	if (pio_unlikely(it == blocks_.modified_.end())) {
+		return 0;
+	}
+
+	int32_t erased = 0;
+	auto modified_end = it->second.end();
+	for (; begin != end; ++begin) {
+		auto erase = it->second.find(*begin);
+		if (erase == modified_end) {
+			continue;
+		}
+		removed.emplace_back(*erase);
+		it->second.erase(erase);
+		++erased;
+	}
+	return erased;
 }
 
 void ActiveVmdk::SetBlocksModified(CheckPointID ckpt_id, Request* reqp) {

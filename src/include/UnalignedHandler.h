@@ -4,6 +4,7 @@ namespace pio {
 
 class UnalignedHandler : public RequestHandler {
 public:
+	static constexpr char kName[] = "UnalignedHandler";
 	UnalignedHandler();
 	virtual ~UnalignedHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,

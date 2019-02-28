@@ -18,7 +18,9 @@ using namespace ::ondisk;
 
 namespace pio {
 DirtyHandler::DirtyHandler(const ActiveVmdk* vmdkp,
-		const config::VmdkConfig*) : RequestHandler(nullptr) {
+		const config::VmdkConfig*) :
+		RequestHandler(DirtyHandler::kName, nullptr),
+		set_(vmdkp->GetVM()->GetJsonConfig()->GetTargetName()) {
 	aero_obj_ = std::make_unique<AeroSpike>();
 	aero_conn_ = pio::GetAeroConn(vmdkp);
 }
@@ -171,7 +173,7 @@ folly::Future<int> DirtyHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		}
 
 		return aero_obj_->AeroDelCmdProcess(vmdkp, ckpt, process, failed,
-			kAsNamespaceCacheClean, connect)
+			kAsNamespaceCacheClean, set_, connect)
 		.then([&process, &failed]  (int rc) mutable {
 			if (pio_unlikely(rc != 0)) {
 				return rc;
@@ -281,7 +283,7 @@ folly::Future<int> DirtyHandler::BulkMove(ActiveVmdk *vmdkp,
 
 			/* Delete record from DIRTY namespace */
 			return aero_obj_->AeroDelCmdProcess(vmdkp, ckpt_id,
-				process, failed, kAsNamespaceCacheDirty, connect)
+				process, failed, kAsNamespaceCacheDirty, set_, connect)
 			.then([&process, &failed]  (int rc) mutable {
 				if (pio_unlikely(rc)) {
 					LOG(ERROR) << __func__ << "Delete from DIRTY namespace failed, error code::" << rc;
@@ -373,7 +375,7 @@ folly::Future<int> DirtyHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 
 			/* Delete record from DIRTY namespace */
 			return aero_obj_->AeroDelCmdProcess(vmdkp, reqp->GetFlushCkptID(),
-				process, failed, kAsNamespaceCacheDirty, connect)
+				process, failed, kAsNamespaceCacheDirty, set_, connect)
 			.then([&process, &failed]  (int rc) mutable {
 				if (pio_unlikely(rc)) {
 					LOG(ERROR) << __func__ << "Delete from DIRTY namespace failed, error code::" << rc;
@@ -435,7 +437,7 @@ folly::Future<int> DirtyHandler::BulkWrite(ActiveVmdk* vmdkp,
 		}
 
 		return aero_obj_->AeroDelCmdProcess(vmdkp, ckpt, process, failed,
-			kAsNamespaceCacheClean, connect)
+			kAsNamespaceCacheClean, set_, connect)
 		.then([&process, &failed]  (int rc) mutable {
 			if (pio_unlikely(rc != 0)) {
 				return rc;
@@ -449,6 +451,17 @@ folly::Future<int> DirtyHandler::BulkWrite(ActiveVmdk* vmdkp,
 			return 0;
 		});
 	});
+}
+
+folly::Future<int> DirtyHandler::Delete(ActiveVmdk* vmdkp,
+		const ::ondisk::CheckPointID ckpt_id,
+		const std::pair<BlockID, BlockID> range) {
+	if (pio_unlikely(not aero_conn_)) {
+		return -ENODEV;
+	}
+
+	return aero_obj_->Delete(aero_conn_.get(), vmdkp, ckpt_id, range,
+		kAsNamespaceCacheDirty, set_);
 }
 
 }

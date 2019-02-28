@@ -18,6 +18,10 @@ uint64_t AlignUpToBlockSize(uint64_t offset, size_t block_size) {
 	return AlignDownToBlockSize(offset + block_size, block_size);
 }
 
+std::pair<uint64_t, uint64_t> BlockFirstLastOffset(BlockID block, size_t block_shift) {
+	return {block << block_shift, ((block+1) << block_shift)-1};
+}
+
 std::pair<BlockID, BlockID>
 GetBlockIDs(Offset offset, size_t size, size_t block_shift) {
 	BlockID s = offset >> block_shift;

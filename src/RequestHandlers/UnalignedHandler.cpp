@@ -15,7 +15,8 @@ using namespace ::ondisk;
 
 namespace pio {
 
-UnalignedHandler::UnalignedHandler() : RequestHandler(nullptr) {
+UnalignedHandler::UnalignedHandler() :
+		RequestHandler(UnalignedHandler::kName, nullptr) {
 
 }
 

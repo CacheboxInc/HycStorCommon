@@ -10,6 +10,7 @@ struct hyc_compress_ctx_;
 
 class CompressHandler : public RequestHandler {
 public:
+	static constexpr char kName[] = "CompressHandler";
 	CompressHandler(const config::VmdkConfig* configp);
 	~CompressHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,

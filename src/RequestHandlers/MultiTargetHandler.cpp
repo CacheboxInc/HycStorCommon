@@ -27,7 +27,8 @@ using namespace ::ondisk;
 
 namespace pio {
 MultiTargetHandler::MultiTargetHandler(const ActiveVmdk* vmdkp,
-		const config::VmdkConfig* configp) : RequestHandler(nullptr) {
+		const config::VmdkConfig* configp) :
+		RequestHandler(MultiTargetHandler::kName, nullptr) {
 	InitializeTargetHandlers(vmdkp, configp);
 }
 
@@ -80,6 +81,22 @@ void MultiTargetHandler::InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 }
 
 MultiTargetHandler::~MultiTargetHandler() {
+}
+
+RequestHandler* MultiTargetHandler::GetRequestHandler(const char* namep) noexcept {
+	if (std::strncmp(namep, namep_, std::strlen(namep))) {
+		return this;
+	}
+	for (auto& target : targets_) {
+		RequestHandler* handlerp = target->GetRequestHandler(namep);
+		if (handlerp) {
+			return handlerp;
+		}
+	}
+	if (nextp_) {
+		return nextp_->GetRequestHandler(namep);
+	}
+	return nullptr;
 }
 
 folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
@@ -401,5 +418,40 @@ folly::Future<int> MultiTargetHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 	return targets_[0]->BulkReadPopulate(vmdkp, requests, process, failed);
+}
+
+void MultiTargetHandler::RecursiveDelete(
+		ActiveVmdk* vmdkp,
+		const CheckPointID ckpt_id,
+		const std::pair<BlockID, BlockID> range,
+		std::vector<std::unique_ptr<pio::RequestHandler>>::iterator cur,
+		std::vector<std::unique_ptr<pio::RequestHandler>>::iterator end,
+		folly::Promise<int>&& promise) {
+	log_assert(cur != end);
+	(*cur)->Delete(vmdkp, ckpt_id, range)
+	.then([this, vmdkp, ckpt_id, range, cur, end,
+			promise = std::move(promise)] (int rc) mutable {
+		if (pio_unlikely(rc < 0)) {
+			LOG(ERROR) << "Delete on " << (*cur)->Name() << " failed";
+			promise.setValue(rc);
+			return;
+		}
+		if (++cur == end) {
+			promise.setValue(0);
+			return;
+		}
+		RecursiveDelete(vmdkp, ckpt_id, range, cur, end,
+			std::move(promise));
+	});
+}
+
+folly::Future<int> MultiTargetHandler::Delete(ActiveVmdk* vmdkp,
+		const CheckPointID ckpt_id,
+		const std::pair<BlockID, BlockID> range) {
+	folly::Promise<int> promise;
+	auto f = promise.getFuture();
+	RecursiveDelete(vmdkp, ckpt_id, range, targets_.begin(), targets_.end(),
+		std::move(promise));
+	return f;
 }
 }

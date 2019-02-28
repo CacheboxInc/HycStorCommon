@@ -15,7 +15,7 @@ using namespace pio::hyc;
 
 namespace pio {
 CompressHandler::CompressHandler(const config::VmdkConfig* configp) :
-		RequestHandler(nullptr) {
+		RequestHandler(CompressHandler::kName, nullptr) {
 	enabled_ = configp->IsCompressionEnabled();
 	if (not enabled_) {
 		return;

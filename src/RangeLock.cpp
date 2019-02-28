@@ -93,12 +93,16 @@ bool RangeLock::TryLock(const range_t& range) {
 	return true;
 }
 
-LockGuard::LockGuard(RangeLock* lockp, uint64_t start, uint64_t end) :
+LockGuard::LockGuard(RangeLock* lockp, uint64_t start, uint64_t end) noexcept :
 		lockp_(lockp) {
 	ranges_.emplace_back(start, end);
 }
 
-LockGuard::LockGuard(RangeLock* lockp, std::vector<range_t> ranges) :
+LockGuard::LockGuard(RangeLock* lockp, std::vector<range_t> ranges)
+#ifdef NDEBUG
+noexcept
+#endif
+:
 		lockp_(lockp), ranges_(std::move(ranges)) {
 	struct {
 		bool operator() (const range_t& f, const range_t& s) {
@@ -127,6 +131,14 @@ LockGuard::LockGuard(RangeLock* lockp, std::vector<range_t> ranges) :
 		prev = r;
 	}
 #endif
+}
+
+LockGuard::LockGuard(LockGuard&& rhs) noexcept :
+		lockp_(rhs.lockp_),
+		is_locked_(rhs.is_locked_),
+		ranges_(std::move(rhs.ranges_)) {
+	rhs.is_locked_ = false;
+	rhs.ranges_.clear();
 }
 
 LockGuard::~LockGuard() {

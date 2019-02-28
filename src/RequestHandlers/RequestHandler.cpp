@@ -8,12 +8,27 @@
 
 namespace pio {
 
-RequestHandler::RequestHandler(void *udatap) : udatap_(udatap) {
+RequestHandler::RequestHandler(const char* namep, void *udatap) : namep_(namep),
+		udatap_(udatap) {
 
 }
 
 RequestHandler::~RequestHandler() {
 
+}
+
+std::string RequestHandler::Name() const {
+	return namep_;
+}
+
+RequestHandler* RequestHandler::GetRequestHandler(const char* namep) noexcept {
+	if (std::strncmp(namep, namep_, std::strlen(namep)) == 0) {
+		return this;
+	}
+	if (not nextp_) {
+		return nullptr;
+	}
+	return nextp_->GetRequestHandler(namep);
 }
 
 void RequestHandler::RegisterNextRequestHandler(

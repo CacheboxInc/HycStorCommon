@@ -60,10 +60,16 @@ private:
 
 class LockGuard {
 public:
-	LockGuard(RangeLock* lockp, uint64_t start, uint64_t end);
-	LockGuard(RangeLock* lockp, std::vector<range_t> ranges);
+	LockGuard(RangeLock* lockp, uint64_t start, uint64_t end) noexcept;
+	LockGuard(RangeLock* lockp, std::vector<range_t> ranges)
+#ifdef NDEBUG
+noexcept
+#endif
+;
+
+	LockGuard(LockGuard&& rhs) noexcept;
+
 	LockGuard(LockGuard& rhs) = delete;
-	LockGuard(LockGuard&& rhs) = delete;
 	LockGuard& operator = (const LockGuard& rhs) = delete;
 	LockGuard& operator == (LockGuard&& rhs) = delete;
 

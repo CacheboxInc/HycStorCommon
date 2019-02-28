@@ -14,7 +14,7 @@ using namespace pio::hyc;
 
 namespace pio {
 EncryptHandler::EncryptHandler(const config::VmdkConfig* configp) :
-		RequestHandler(nullptr) {
+		RequestHandler(EncryptHandler::kName, nullptr) {
 	enabled_ = configp->IsEncryptionEnabled();
 	if (not enabled_) {
 		return;
