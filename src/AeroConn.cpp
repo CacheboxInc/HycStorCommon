@@ -1,19 +1,41 @@
 #include <cerrno>
-#include <iostream>
 #include <iterator>
-#include "AeroConn.h"
-#include <folly/futures/Future.h>
-#include "string.h"
-#include <stdlib.h>
 #include <algorithm>
+#include <chrono>
+
+#include <folly/futures/Future.h>
+
+#include <aerospike/aerospike_batch.h>
+#include <aerospike/aerospike_key.h>
+#include <aerospike/as_event.h>
+#include <aerospike/as_log.h>
+#include <AeroConfig.h>
+
+#include "AeroConn.h"
+#include "WorkScheduler.h"
 
 namespace pio {
+using namespace std::chrono_literals;
 
-AeroSpikeConn::AeroSpikeConn(AeroClusterID cluster_id, const std::string& config): 
-        cluster_id_(cluster_id), 
-        config_(std::make_unique<config::AeroConfig>(config)) {}
+static constexpr uint16_t kAeroEventLoops = 4;
+static constexpr uint16_t kMinCommandsInProgress = 4;
+static constexpr uint16_t kMaxCommandsInProgress = 1024 / kAeroEventLoops;
+static constexpr uint16_t kStartIoDepth = 128 / kAeroEventLoops;
+static constexpr auto kTickSeconds = 30s;
+
+AeroSpikeConn::AeroSpikeConn(AeroClusterID cluster_id,
+		const std::string& config) :
+		cluster_id_(std::move(cluster_id)),
+		reconfig_timer_(kTickSeconds),
+		config_(std::make_unique<config::AeroConfig>(config)) {
+	reconf_.io_depth_ = kStartIoDepth;
+	reconf_.prev_unthrottle_ = 1;
+	reconf_.gen_count_ = 1;
+}
 
 AeroSpikeConn::~AeroSpikeConn() {
+	reconfig_timer_.~RecurringTimer();
+	work_scheduler_ = nullptr;
 	this->Disconnect();
 }
 
@@ -70,8 +92,6 @@ void AeroClusterChangeEventFnPtr(as_cluster_event* event_data) {
 }
 
 int AeroSpikeConn::Connect() {
-	static constexpr uint16_t kAeroEventLoops = 4;
-	static constexpr uint16_t kMaxCommandsInProgress = 128 / kAeroEventLoops;
 	log_assert(as_started_ == false);
 
 	auto aeroconf = this->GetJsonConfig();
@@ -97,7 +117,7 @@ int AeroSpikeConn::Connect() {
 	as_error err;
 	as_policy_event policy;
 	as_policy_event_init(&policy);
-	policy.max_commands_in_process = kMaxCommandsInProgress;
+	policy.max_commands_in_process = reconf_.io_depth_;
 	auto status = as_create_event_loops(&err, &policy, kAeroEventLoops, nullptr);
 	if (pio_unlikely(status != AEROSPIKE_OK)) {
 		LOG (ERROR) << "Aerospike event loop creation failed.";
@@ -201,6 +221,13 @@ int AeroSpikeConn::Connect() {
 	//uncomment to enable aerospike client logs
 	//as_log_set_level(AS_LOG_LEVEL_INFO);
 	//as_log_set_callback(AeroClientLogCallback);
+
+	work_scheduler_ = std::make_unique<WorkScheduler>();
+	reconfig_timer_.AttachToEventBase(work_scheduler_->GetEventBase());
+	reconfig_timer_.ScheduleTimeout([this] () mutable {
+		this->UnthrottleClient();
+		return true;
+	});
 	return 0;
 }
 
@@ -224,5 +251,75 @@ int AeroSpikeConn::Disconnect() {
 	this->as_started_ = false;
 	VLOG(1) << "Aerospike Disconnection done";
 	return 0;
+}
+
+void AeroSpikeConn::GetEventLoopAndTag(as_event_loop** looppp, ConfigTag* tagp) const {
+	std::lock_guard<std::mutex> lock(reconf_.mutex_);
+	if (tagp) {
+		*tagp = reconf_.gen_count_;
+	}
+	if (looppp) {
+		*looppp = as_event_loop_get();
+	}
+}
+
+void AeroSpikeConn::SetEventLoopDepth(const uint32_t depth) const noexcept {
+	as_event_loop* loopp;
+	for (int i = 0; (loopp = as_event_loop_get_by_index(i)) != nullptr; ++i) {
+		loopp->max_commands_in_process = depth;
+	}
+}
+
+void AeroSpikeConn::HandleServerOverload(ConfigTag tag) {
+	std::lock_guard<std::mutex> lock(reconf_.mutex_);
+	if (reconf_.gen_count_ > tag) {
+		return;
+	}
+
+	reconf_.prev_unthrottle_ = 1;
+	const uint16_t old_depth = reconf_.io_depth_;
+	reconf_.io_depth_ = std::max(static_cast<uint16_t>(old_depth/2),
+		kMinCommandsInProgress);
+	if (old_depth == reconf_.io_depth_) {
+		return;
+	}
+
+	SetEventLoopDepth(reconf_.io_depth_);
+	++reconf_.gen_count_;
+	LOG(INFO) << "KV Store IODeth Reconfigured from " << old_depth
+		<< " to " << reconf_.io_depth_;
+}
+
+void AeroSpikeConn::UnthrottleClient() {
+	std::lock_guard<std::mutex> lock(reconf_.mutex_);
+	as_event_loop* loopp{};
+	bool delay_queue_empty = true;
+	for (int i = 0; (loopp = as_event_loop_get_by_index(i)) != nullptr; ++i) {
+		if (not as_queue_empty(&loopp->delay_queue)) {
+			delay_queue_empty = false;
+			break;
+		}
+	}
+	if (delay_queue_empty) {
+		return;
+	}
+
+	const auto old_depth = reconf_.io_depth_;
+	const auto increment = reconf_.prev_unthrottle_ << 1;
+	reconf_.io_depth_ = std::min(static_cast<uint16_t>(old_depth + increment),
+			kMaxCommandsInProgress);
+	if (reconf_.io_depth_ == old_depth) {
+		return;
+	}
+
+	reconf_.prev_unthrottle_ = increment;
+	SetEventLoopDepth(reconf_.io_depth_);
+	++reconf_.gen_count_;
+	LOG(INFO) << "KV Store IODeth Reconfigured from " << old_depth
+		<< " to " << reconf_.io_depth_;
+}
+
+WorkScheduler* AeroSpikeConn::GetWorkScheduler() noexcept {
+	return work_scheduler_.get();
 }
 }

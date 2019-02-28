@@ -10,6 +10,7 @@ set(CommonLibFiles
 	TimePoint.cpp
 	BackGroundWorker.cpp
 	RecurringTimer.cpp
+	WorkScheduler.cpp
 )
 
 add_library(CommonLib STATIC

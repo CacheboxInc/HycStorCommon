@@ -100,6 +100,7 @@ set(LIBRARY_LIST
 	atomic
 	aio
 	ReadAhead
+	unwind
 	${ThriftLibs}
 	${HYC_COMPRESS_LIBS}
 	${HYC_ENCRYPT_LIBS}

@@ -67,6 +67,7 @@ target_link_libraries(AeroBench
 	iberty
 	boost_system
 	boost_context
+	${LIBRARY_LIST}
 	-Wl,--end-group
 )
 
