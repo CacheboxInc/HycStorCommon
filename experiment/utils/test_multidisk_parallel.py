@@ -60,7 +60,7 @@ def new_vm(VmId, TargetName):
 
 	TargetID = VmId
 
-	vm_data = { "vmid": "%s" %VmId, "TargetID": "%s" %TargetID, "TargetName": "%s" %TargetName, "AeroClusterID":"%s" %AeroClusterID, "VmUUID":"1"} 
+	vm_data = { "vmid": "%s" %VmId, "TargetID": "%s" %TargetID, "TargetName": "%s" %TargetName, "AeroClusterID":"%s" %AeroClusterID, "VmUUID" : "%s" % VmId } 
 	r = requests.post("%s://%s/stord_svc/v1.0/new_vm/?vm-id=%s" %(h, StordUrl, VmId), data=json.dumps(vm_data), headers=headers, cert=cert, verify=False)
 	assert (r.status_code == 200)
 	print ("STORD: New VM added: %s" %VmId)
@@ -73,7 +73,7 @@ def new_vm(VmId, TargetName):
 def create_vmdk(VmId, LunID, DevName, DevPath, VmdkID, target, createfile = "false"):
 	TargetID = VmId
 
-	vmdk_data = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"4096","Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"true","MemoryInMB":"1024"},"FileCache":{"Enabled":"false", "Path":"/dev/shm/fil1.txt"},"SuccessHandler":{"Enabled":"true"}, "FileTarget":{"Enabled":"false", "CreateFile":"%s" %createfile, "TargetFilePath":"%s" %target, "TargetFileSize":"%s" %FileSize}, "VmUUID":"1", "VmdkUUID":"1", "ReadAhead":"false"}
+	vmdk_data = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"4096","Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"true","MemoryInMB":"1024"},"FileCache":{"Enabled":"false", "Path":"/dev/shm/fil1.txt"},"SuccessHandler":{"Enabled":"true"}, "FileTarget":{"Enabled":"false", "CreateFile":"%s" %createfile, "TargetFilePath":"%s" %target, "TargetFileSize":"%s" %FileSize}, "VmUUID": "%s" % VmId, "VmdkUUID" : "%s" % VmdkID, "ReadAhead":"false", "AeroSpikeCache" : { "Enabled" : "false" } }
 
 	r = requests.post("%s://%s/stord_svc/v1.0/new_vmdk/?vm-id=%s&vmdk-id=%s" % (h, StordUrl, VmId, VmdkID), data=json.dumps(vmdk_data), headers=headers, cert=cert, verify=False)
 	assert (r.status_code == 200)
@@ -118,7 +118,6 @@ def delete_vm(VmId):
 	r = requests.post("%s://%s/stord_svc/v1.0/vm_delete/?vm-id=%s" %(h, StordUrl, VmId))
 	assert (r.status_code == 200)
 	print ("STORD: target %s deleted" %VmId)
-
 
 def remove_aero():
 	# r = requests.post("%s://%s/stord_svc/v1.0/del_aero/?aero-id=%s" %(h, StordUrl, AeroClusterID), headers=headers, cert=cert, verify=False)
@@ -188,68 +187,56 @@ def find_devices_by_iqn(search_iqn):
 	print("Matched disks %s" % matched_disks)
 	return matched_disks
 
-def worker(counter, no_of_vmdks):
-
-	# Step1 :  Create vm, vmdk and login
+def CreateVm(counter):
 	vmid = counter.Next()
 	TargetName = "%s-%s" %(TargetNameStr, vmid)
 	new_vm(vmid, TargetName)
+	return (vmid, TargetName)
 
+def CreateVmdks(counter, vmid, nvmdks):
 	vmdkids = []
-	iqn = TargetName
-
-	for j in range(1, (no_of_vmdks + 1)):
-		DevName, DevPath = truncate_disk(vmid, j)
-		# DevName is iqn/IQN
+	for j in range(1, nvmdks+1):
+		dev_name, dev_path = truncate_disk(vmid, j)
 		vmdkid = counter.Next()
-		create_vmdk(vmid, j, DevName, DevPath, vmdkid, FileTarget, "true")
+		create_vmdk(vmid, j, dev_name, dev_path, vmdkid, FileTarget, "true")
 		vmdkids.append(vmdkid)
+	return vmdkids
 
+def LoginToVmdksAndGetDeviceNames(target_ip, iqn):
 	for repeat in range(0, 5):
-		cmd = "iscsiadm --mode discovery --type sendtargets --portal %s" %TargetIp
-		print (cmd)
+		cmd = "iscsiadm --mode discovery --type sendtargets --portal %s" % target_ip
 		os.system(cmd);
 
-		cmd = "iscsiadm -m node --target %s --portal %s --login " % (iqn, TargetIp)
-		print (cmd)
+		cmd = "iscsiadm -m node --target %s --portal %s --login " % (iqn, target_ip)
 		os.system(cmd);
 
 		time.sleep(5)
-		print (cmd)
 		os.system("lsblk")
 
 		devices = find_devices_by_iqn(iqn)
 		if devices and len(devices) > 0:
 			break
+	return find_devices_by_iqn(iqn)
 
-	devices = find_devices_by_iqn(iqn)
-	print ("device list : %s" % devices)
-	if devices is None or len(devices) == 0:
-		print ("Not able to find device")
-		return None
+def ConcatDeviceNames(devices, delim):
+	s = devices[0]
+	for i in range(1, len(devices)):
+		s += delim + devices[i]
+	return s
 
-	filename = ""
-	for device in devices:
-		if filename:
-			filename = filename + ':' + device
-		else:
-			filename = filename + str(device)
-	print (filename)
-
-	# Step 2 : Start FIO
+def RunFio(iqn, devices):
+	fio_device_names = ConcatDeviceNames(devices, ':')
+	assert(fio_device_names)
+	print ("fio device names ", fio_device_names)
 	run_time = random.randint(10, 60)
-	fio_cmd = "fio --name=hycPerf --ioengine=libaio --iodepth=1  --group_reporting --rw=randread --bs=16k --direct=1 --numjobs=1 --rwmixread=100 --randrepeat=0 --filename=%s --runtime=%ss --time_based=1 --norandommap --group_reporting --randrepeat=0 --output=%s.fio.log" % (filename, run_time, iqn)
-	print ("fio command is")
-	print (fio_cmd)
-
+	fio_cmd = "fio --name=hycPerf --ioengine=libaio --iodepth=1  --group_reporting --rw=randread --bs=16k --direct=1 --numjobs=1 --rwmixread=100 --randrepeat=0 --filename=%s --runtime=%ss --time_based=1 --norandommap --group_reporting --randrepeat=0 --output=%s.fio.log" % (fio_device_names, run_time, iqn)
 	status = os.system(fio_cmd)
 	if status is not 0:
 		print ("Fio run failed")
-		os.system("cat %s.fio.log" % filename)
+		os.system("cat %s.fio.log" % fio_device_names)
 
-
-	# Step 3 : Cleanup
-	cmd = "iscsiadm -m node --target %s --portal %s --logout" % (iqn, TargetIp)
+def LogoutTargets(iqn, target_ip):
+	cmd = "iscsiadm -m node --target %s --portal %s --logout" % (iqn, target_ip)
 	print (cmd)
 	os.system(cmd);
 
@@ -257,18 +244,42 @@ def worker(counter, no_of_vmdks):
 	print (cmd)
 	os.system(cmd);
 
+def DeleteVmdks(vmid, vmdkids):
 	disk_no = 0
 	for vmdkid in vmdkids:
 		disk_no += 1
 		delete_vmdk(vmid, disk_no, vmdkid)
-	delete_vm(vmid)
+
+def worker(tid, iterations, counter, no_of_vmdks):
+	for it in range(0, iterations):
+		print("################# TID = %d Iter %s #################" % (tid, it))
+		print("%d: Creating VM " % (tid))
+		(vmid, iqn) = CreateVm(counter);
+		print("%d VMID=%s Creating VMDKs " % (tid, vmid))
+		vmdkids = CreateVmdks(counter, vmid, no_of_vmdks)
+		print("%d VMID=%s Login to VMDKs " % (tid, vmid))
+		devices = LoginToVmdksAndGetDeviceNames(TargetIp, iqn)
+		if devices is None or len(devices) == 0:
+			print ("Not able to find device")
+			return None
+
+		print("%d VMID=%s Running FIO on VMDKs " % (tid, vmid))
+		RunFio(iqn, devices)
+
+		print("%d VMID=%s Logout VMDKs " % (tid, vmid))
+		LogoutTargets(iqn, TargetIp)
+
+		print("%d VMID=%s Delete VMDKs " % (tid, vmid))
+		DeleteVmdks(vmid, vmdkids)
+
+		print("%d VMID=%s Delete VM " % (tid, vmid))
+		delete_vm(vmid)
 
 if __name__ == '__main__':
 	if len(sys.argv) < 3:
 		print (len(sys.argv))
 		print("Usage: python3 test_multidisk.py <#VM> <#VMDK> <#Iters>\n")
 		sys.exit(1)
-
 
 	no_of_vms   = int(sys.argv[1])
 	no_of_vmdks = int(sys.argv[2])
@@ -296,14 +307,12 @@ if __name__ == '__main__':
 
 	counter = Counter()
 	threads = []
-	for m in range(1, (no_iters + 1)):
-		for n in range(1, (no_of_vms + 1)):
-			print("################# Iter %s #################" % m)
-			t = threading.Thread(target=worker, args=(counter, no_of_vmdks))
-			threads.append(t)
-			t.start()
-		for t in threads:
-			t.join()
+	for n in range(1, (no_of_vms + 1)):
+		t = threading.Thread(target=worker, args=(n, no_iters, counter, no_of_vmdks))
+		threads.append(t)
+		t.start()
+	for t in threads:
+		t.join()
 
 	remove_aero()
 	deinit_components()
