@@ -46,6 +46,7 @@ protected:
 		config.DisableSuccessHandler();
 		config.DisableFileTarget();
 		config.DisableNetworkTarget();
+		config.DisableAeroSpikeCache();
 		config.ConfigureFileCache("/var/tmp/file_cache_0");
 	}
 

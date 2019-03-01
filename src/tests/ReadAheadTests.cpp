@@ -79,6 +79,7 @@ protected:
 		config.DisableNetworkTarget();
 		config.EnableReadAhead();
 		config.SetDiskSize(kDiskSize);
+		config.DisableAeroSpikeCache();
 	}
 
 	typedef enum {

@@ -73,6 +73,7 @@ protected:
 		config.EnableSuccessHandler();
 		config.DisableFileTarget();
 		config.DisableNetworkTarget();
+		config.DisableAeroSpikeCache();
 	}
 
 	folly::Future<int> VmdkWrite(BlockID block, size_t skip, size_t size,

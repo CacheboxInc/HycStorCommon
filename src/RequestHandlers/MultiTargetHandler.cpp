@@ -54,8 +54,10 @@ void MultiTargetHandler::InitializeTargetHandlers(const ActiveVmdk* vmdkp,
 		targets_.push_back(std::move(file_cache));
 	}
 
-	auto cache_target = std::make_unique<CacheTargetHandler>(vmdkp, configp);
-	targets_.push_back(std::move(cache_target));
+	if (not configp->IsAeroSpikeCacheDisabled()) {
+		auto cache_target = std::make_unique<CacheTargetHandler>(vmdkp, configp);
+		targets_.push_back(std::move(cache_target));
+	}
 
 	if (configp->IsFileTargetEnabled()) {
 		auto file_target = std::make_unique<FileTargetHandler>(configp);

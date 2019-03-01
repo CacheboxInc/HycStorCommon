@@ -256,4 +256,31 @@ folly::Future<int> RamCacheHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
 
 	return nextp_->BulkReadPopulate(vmdkp, requests, process, failed);
 }
+
+folly::Future<int> RamCacheHandler::Delete(ActiveVmdk* vmdkp,
+		const ::ondisk::CheckPointID ckpt_id,
+		const std::pair<::ondisk::BlockID, ::ondisk::BlockID> range) {
+	if (pio_likely(not enabled_)) {
+		if (pio_unlikely(not nextp_)) {
+			return 0;
+		}
+		return nextp_->Delete(vmdkp, ckpt_id, range);
+	}
+
+	auto r = iter::Range(range.first, range.second+1);
+	std::vector<RamCache::Key> keys;
+	std::transform(r.begin(), r.end(), std::back_inserter(keys),
+		[shift = vmdkp->BlockShift()] (BlockID block) {
+			return block << shift;
+		});
+	cache_->Erase(keys.begin(), keys.end());
+	if (pio_unlikely(not nextp_)) {
+		return 0;
+	}
+	return nextp_->Delete(vmdkp, ckpt_id, range);
+}
+
+const RamCache* RamCacheHandler::Cache() const noexcept {
+	return cache_.get();
+}
 }

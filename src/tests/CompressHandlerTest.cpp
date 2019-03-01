@@ -58,6 +58,7 @@ public:
 			config.DisableEncryption();
 		config.ConfigureRamCache(1024);
 		config.DisableNetworkTarget();
+		config.DisableAeroSpikeCache();
 	}
 
 	virtual void SetUp() {

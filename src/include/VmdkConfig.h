@@ -81,6 +81,10 @@ public:
 	void DisableErrorHandler();
 	void ConfigureErrorHandler(ErrorType type, uint32_t frequency, int error);
 
+	void EnableAeroSpikeCache();
+	void DisableAeroSpikeCache();
+	bool IsAeroSpikeCacheDisabled() const;
+
 	bool IsSuccessHandlerEnabled() const;
 	void EnableSuccessHandler();
 	void DisableSuccessHandler();
@@ -202,6 +206,8 @@ public:
 	static const std::string kDelay;
 	static const std::string kSuccessCompressEnabled;
 
+	static const std::string kAeroCache;
+
 	static const std::string kTargetID;
 	static const std::string kLunID;
 	static const std::string kDevPath;
@@ -215,7 +221,7 @@ public:
 
 	static const std::string kPreload;
 	static const std::string kOffset;
-	
+
 	static const std::string kDiskSizeBytes;
 };
 

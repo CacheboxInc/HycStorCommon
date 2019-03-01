@@ -76,6 +76,7 @@ protected:
 		config.DisableRamCache();
 		config.ConfigureErrorHandler(type, 1, error);
 		config.DisableSuccessHandler();
+		config.DisableAeroSpikeCache();
 	}
 
 	folly::Future<int> VmdkWrite(BlockID block, size_t skip, size_t size,

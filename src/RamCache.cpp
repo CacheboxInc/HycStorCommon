@@ -39,4 +39,7 @@ void RamCache::Write(ActiveVmdk *, void *bufferp, Offset offset, size_t size) {
 	cache_.insert_or_assign(key, std::move(destp));
 }
 
+size_t RamCache::Size() const noexcept {
+	return cache_.size();
+}
 }

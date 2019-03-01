@@ -75,6 +75,8 @@ const std::string VmdkConfig::kPreload = "Preload";
 const std::string VmdkConfig::kOffset = "Offsets";
 const std::string VmdkConfig::kDiskSizeBytes = "DiskSizeBytes";
 
+const std::string VmdkConfig::kAeroCache = "AeroSpikeCache";
+
 VmdkConfig::VmdkConfig(const std::string& config) : JsonConfig(config) {
 }
 
@@ -140,6 +142,26 @@ void VmdkConfig::SetBlockSize(uint32_t size) {
 
 bool VmdkConfig::GetBlockSize(uint32_t& size) const {
 	return JsonConfig::GetKey(kBlockSize, size);
+}
+
+void VmdkConfig::DisableAeroSpikeCache() {
+	std::string key;
+	StringDelimAppend(key, '.', {kAeroCache, kEnabled});
+	JsonConfig::SetKey(key, false);
+}
+
+void VmdkConfig::EnableAeroSpikeCache() {
+	std::string key;
+	StringDelimAppend(key, '.', {kAeroCache, kEnabled});
+	JsonConfig::SetKey(key, true);
+}
+
+bool VmdkConfig::IsAeroSpikeCacheDisabled() const {
+	bool enabled;
+	std::string key;
+	StringDelimAppend(key, '.', {kAeroCache, kEnabled});
+	auto rc = JsonConfig::GetKey(key, enabled);
+	return rc ? not enabled : false;
 }
 
 void VmdkConfig::DisableCompression() {

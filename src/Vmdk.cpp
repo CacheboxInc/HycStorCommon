@@ -427,7 +427,7 @@ folly::Future<int> ActiveVmdk::TruncateBlocks([[maybe_unused]] RequestID reqid,
 		const std::vector<TruncateReq>& requests) {
 	auto TruncateLambda = [this, ckpt_id] (std::pair<BlockID, BlockID> range) mutable {
 		std::vector<::ondisk::BlockID> to_delete;
-		auto r = iter::Range(range.first, range.second);
+		auto r = iter::Range(range.first, range.second+1);
 		auto erased = RemoveModifiedBlocks(ckpt_id, r.begin(), r.end(), to_delete);
 		if (erased == 0) {
 			return folly::makeFuture(0);
@@ -477,7 +477,7 @@ folly::Future<int> ActiveVmdk::TruncateBlocks([[maybe_unused]] RequestID reqid,
 		}
 
 		auto [_, end_offset] = BlockFirstLastOffset(block_end, BlockShift());
-		if (end_offset != static_cast<uint64_t>(offset + length)) {
+		if (end_offset != static_cast<uint64_t>(offset + length - 1)) {
 			if (block_start >= block_end) {
 				continue;
 			}
