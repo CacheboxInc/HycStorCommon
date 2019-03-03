@@ -945,7 +945,7 @@ int32_t StordVmdk::AbortRequest(const void* privatep) {
 				return 0;
 			}
 		}
-	}	
+	}
 	return 0;
 }
 
