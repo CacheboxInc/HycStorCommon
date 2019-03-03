@@ -932,8 +932,8 @@ int32_t StordVmdk::AbortRequest(const void* privatep) {
 				return 0;
 			}
 		}
-	
 	}
+
 	auto eitScheduled = requests_.scheduled_.end();
 	auto sitScheduled = requests_.scheduled_.begin();
 	for (; sitScheduled != eitScheduled; ++sitScheduled) {
