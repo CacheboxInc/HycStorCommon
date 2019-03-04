@@ -204,7 +204,11 @@ void ActiveVmdk::ComputePreloadBlocks() {
 			blocks.emplace_back(v);
 		}
 	}
-	preload_blocks_ = MergeConsecutive(blocks, kBulkReadMaxSize >> BlockShift());
+
+	RemoveDuplicate(blocks);
+	MergeConsecutive(blocks.begin(), blocks.end(),
+		std::back_insert_iterator(preload_blocks_),
+		kBulkReadMaxSize >> BlockShift());
 	if (VLOG_IS_ON(2)) {
 		if (not preload_blocks_.empty()) {
 			LOG(INFO) << "List of blocks to preload ";
@@ -434,13 +438,15 @@ folly::Future<int> ActiveVmdk::TruncateBlocks([[maybe_unused]] RequestID reqid,
 		}
 
 		std::vector<folly::Future<int>> futures;
-		for (auto r : MergeConsecutive(to_delete, 256)) {
+		auto end = MergeConsecutiveIf(to_delete.begin(), to_delete.end(), 256,
+				[this, &futures, ckpt_id] (BlockID block, uint16_t nblocks) mutable {
 			futures.emplace_back(
-				headp_->Delete(this, ckpt_id,
-					std::make_pair(r.first, r.first+r.second-1)
-				)
+				headp_->Delete(this, ckpt_id, {block, block+nblocks-1})
 			);
-		}
+			return true;
+		});
+		log_assert(end == to_delete.end() and not futures.empty());
+
 		return folly::collectAll(std::move(futures))
 		.then([] (const folly::Try<std::vector<folly::Try<int>>>& tries) mutable {
 			if (pio_unlikely(tries.hasException())) {
@@ -483,7 +489,7 @@ folly::Future<int> ActiveVmdk::TruncateBlocks([[maybe_unused]] RequestID reqid,
 			}
 			--block_end;
 		}
-
+		(void) _;
 		log_assert(block_start <= block_end);
 
 		futures.emplace_back(TruncateLambda({block_start, block_end}));

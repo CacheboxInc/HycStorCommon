@@ -40,16 +40,21 @@ ForwardIt BinarySearch(ForwardIt first, ForwardIt last, const T& value,
 }
 
 template <typename T>
-std::vector<std::pair<T, uint16_t>>
-MergeConsecutive(std::vector<T>& numbers, const uint16_t max) {
-	/* remove duplicates */
-	std::sort(numbers.begin(), numbers.end());
-	auto delit = std::unique(numbers.begin(), numbers.end());
-	numbers.erase(delit, numbers.end());
+void RemoveDuplicate(std::vector<T>& numbers) {
+	auto begin = numbers.begin();
+	auto end = numbers.end();
+	if (not std::is_sorted(begin, end)) {
+		std::sort(begin, end);
+	}
+	numbers.erase(std::unique(begin, end), end);
+}
 
-	std::vector<std::pair<T, uint16_t>> result;
-	auto it = numbers.begin();
-	auto eit = numbers.end();
+template <typename InputIt, typename Lambda,
+	typename = typename std::enable_if_t<
+		std::is_arithmetic_v<typename InputIt::value_type>
+	>
+>
+InputIt MergeConsecutiveIf(InputIt it, InputIt eit, const uint16_t max, Lambda&& func) {
 	while (it != eit) {
 		const auto& start = *it;
 		auto i2 = std::adjacent_find(it, eit, [&] (auto& first, auto& next) {
@@ -57,13 +62,24 @@ MergeConsecutive(std::vector<T>& numbers, const uint16_t max) {
 		});
 		auto c = std::distance(it, i2);
 		if (i2 == eit) {
-			result.emplace_back(start, c);
-			break;
+			func(start, c);
+			return eit;
 		}
-		result.emplace_back(start, c+1);
+
+		if (not func(start, c+1)) {
+			return ++i2;
+		}
 		it = ++i2;
 	}
-	return result;
+	return eit;
+}
+
+template <typename InputIt, typename OutputIt>
+InputIt MergeConsecutive(InputIt it, InputIt eit, OutputIt oit, const uint16_t max) {
+	return MergeConsecutiveIf(it, eit, max, [&oit] (auto start, auto count) mutable {
+		*oit = std::make_pair(start, count);
+		return true;
+	});
 }
 
 namespace iter {
