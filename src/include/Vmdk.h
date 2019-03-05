@@ -28,9 +28,17 @@
 
 namespace pio {
 
-using PreloadBlock = std::pair<::ondisk::BlockID, uint16_t>;
 using FlushBlock = std::pair<::ondisk::BlockID, uint16_t>;
-using FailedElms = std::vector <FlushBlock>;
+const uint16_t kFlushRetryCnt = 10;
+
+struct TrackFlushBlocks {
+	std::vector <FlushBlock> blocks;
+	uint64_t id{0};
+	uint16_t retry_cnt{kFlushRetryCnt};
+};
+
+using PreloadBlock = std::pair<::ondisk::BlockID, uint16_t>;
+using FailedElms = std::vector <TrackFlushBlocks>;
 
 /* forward declaration for Pimpl */
 namespace config {
@@ -108,7 +116,7 @@ public:
 	bool failed_{false};
 	std::atomic<uint64_t> reqid_{0};
 	uint32_t failure_cnt_{0};
-	std::list<FailedElms> failed_list_;
+	std::list<TrackFlushBlocks> failed_list_;
 
 	std::chrono::steady_clock::time_point FlushStartedAt_;
 	uint64_t FlushStageDuration_{0};

@@ -32,7 +32,7 @@
 
 using namespace ::hyc_thrift;
 using namespace ::ondisk;
-const uint32_t kMaxFailureTolerateCnt = 102400;
+const uint32_t kMaxFailureTolerateCnt = 10240000;
 
 namespace pio {
 
@@ -583,7 +583,7 @@ folly::Future<int> ActiveVmdk::BulkFlush(const CheckPoints& min_max,
 		} else {
 			auto rc = result.value();
 			if (pio_unlikely(rc < 0 || not failedp->empty())) {
-				LOG(ERROR) << __func__ << "Error::" << rc;
+				VLOG(5) << __func__ << "Error::" << rc;
 				Fail(rc, not failedp->empty());
 				ret = rc;
 			}
@@ -836,7 +836,7 @@ folly::Future<int> ActiveVmdk::BulkFlush(const CheckPoints& min_max,
 	.then([requests = std::move(requests), process = std::move(process),
 			iobufs = std::move(iobufs)] (int rc) {
 		if (rc) {
-			LOG(ERROR) << __func__ << "Error::" << rc;
+			VLOG(5) << __func__ << "Error::" << rc;
 		}
 		return rc;
 	});
@@ -966,7 +966,7 @@ ActiveVmdk::BulkFlush(ActiveVmdk* vmdkp,
 		(const std::vector<folly::Try<int>>& results) -> folly::Future<int> {
 		for (auto& t : results) {
 			if (pio_likely(t.hasValue() and t.value() != 0)) {
-				LOG(ERROR) << __func__ << "Error::" << t.value();
+				VLOG(5) << __func__ << "Error::" << t.value();
 				return -EIO;
 			}
 		}
@@ -1242,6 +1242,7 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 	 * creating and destroying it again and again (slab)
 	 */
 
+	std::atomic<uint64_t> id = 0;
 	aux_info_->InitState(FlushAuxData::FlushStageType::kFlushStage);
 	aux_info_->FlushStartedAt_ = std::chrono::steady_clock::now();
 
@@ -1260,7 +1261,8 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 			<< max_pending_reqs;
 
 	const auto& bitmap = ckptp->GetRoaringBitMap();
-	std::vector <FlushBlock> blocks, saved_blocks;
+	TrackFlushBlocks cur_blocks, saved_blocks;
+	cur_blocks.id = id;
 	uint32_t acc_size = 0, saved_acc_size = 0;
 	auto blk_sz = BlockSize();
 
@@ -1281,13 +1283,13 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 			saved_prev_block = prev_block;
 			saved_block_cnt = block_cnt;
 			saved_acc_size = acc_size;
-			saved_blocks = blocks;
+			saved_blocks = cur_blocks;
 
 			/* TBD : Single call for front and pop_front */
-			blocks = aux_info_->failed_list_.front();
+			cur_blocks = aux_info_->failed_list_.front();
 			acc_size = 0;
 			block_cnt = 0;
-			for (auto elm = blocks.begin(); elm != blocks.end(); elm++) {
+			for (auto elm = cur_blocks.blocks.begin(); elm != cur_blocks.blocks.end(); elm++) {
 				VLOG(5) << __func__ << vmdkid << "::" <<
 					" found in failed list, start block:"
 					<< elm->first << ", block_cnt:" << elm->second;
@@ -1325,7 +1327,7 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 			log_assert(block_cnt > 0);
 			VLOG(5) << __func__ << "Adding start_block:"
 					<< start_block << ", block_cnt:" << block_cnt;
-			blocks.push_back(std::make_pair(start_block, block_cnt));
+			cur_blocks.blocks.push_back(std::make_pair(start_block, block_cnt));
 			acc_size += block_cnt * blk_sz;
 			block_cnt = 0;
 			if (acc_size < max_req_size) {
@@ -1343,7 +1345,7 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 			if (pio_unlikely(block_cnt)) {
 				VLOG(5) << __func__ << "Adding last start_block:"
 					<< start_block << ", block_cnt:" << block_cnt;
-				blocks.push_back(std::make_pair(start_block, block_cnt));
+				cur_blocks.blocks.push_back(std::make_pair(start_block, block_cnt));
 				acc_size += block_cnt * blk_sz;
 			}
 
@@ -1388,37 +1390,48 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 		aux_info_->pending_cnt_++;
 		aux_info_->lock_.unlock();
 
-		BulkFlushStart(blocks, ckpt_id)
+		BulkFlushStart(cur_blocks.blocks, ckpt_id)
 		.then([this, vmdkid, acc_size = acc_size, blk_sz = blk_sz,
-				blocks = blocks] (int rc) mutable {
+				cur_blocks = cur_blocks] (int rc) mutable {
 			/* TBD : Free the created IO buffer */
 			this->aux_info_->lock_.lock();
 			VLOG(5) << __func__ << ", acc size is::"
 				<< acc_size << ", pending:"
 				<< aux_info_->pending_cnt_;
-			aux_info_->pending_cnt_--;
 
 			/* If some of the requests has failed then don't submit new ones */
 			if (pio_unlikely(rc)) {
-				LOG(ERROR) << __func__ <<
-					" flush request failed for vmdkid::" << vmdkid;
+				VLOG(5) << __func__ <<
+					"[" << cur_blocks.id << "]" << " flush request failed for vmdkid::" << vmdkid
+					<< ", remaining retry is::" << cur_blocks.retry_cnt;
 				aux_info_->failure_cnt_++;
-				if (aux_info_->failure_cnt_ < kMaxFailureTolerateCnt) {
-					LOG(ERROR) << __func__ <<
-						" Retrying for failed flush request for vmdkid::" << vmdkid;
-					for (auto elm = blocks.begin(); elm != blocks.end(); elm++) {
-						VLOG(5) << __func__ 	<< "[" << aux_info_->failure_cnt_
+				if ((aux_info_->failure_cnt_ < kMaxFailureTolerateCnt || 1)
+							&& cur_blocks.retry_cnt) {
+					LOG(ERROR) << __func__ << "[" << cur_blocks.id << "]" <<
+						" Retrying for failed flush request for vmdkid::" << vmdkid
+						<< ", remaining retry is::" << cur_blocks.retry_cnt;
+					for (auto elm = cur_blocks.blocks.begin(); elm != cur_blocks.blocks.end(); elm++) {
+						VLOG(5) << __func__<< "[" << aux_info_->failure_cnt_
 							<< "]Adding in failed list::" << elm->first
 							<< "::" << elm->second;
 					}
-					aux_info_->failed_list_.emplace_back(blocks);
+					cur_blocks.retry_cnt--;
+					aux_info_->failed_list_.emplace_back(cur_blocks);
+
+					/* Add delay of 100 ms in case of error. We had seen
+					 * that on VMC->VM the network RTT is around 30 ms,
+					 * add extra on top of it */
+					usleep(100 * 1000);
 				} else {
 					LOG(ERROR) << __func__ <<
-						" Setting flush failed for vmdkid::" << vmdkid;
+						"[" << cur_blocks.id << "]" <<
+						" Setting flush failed for vmdkid::" << vmdkid
+						<< ", remaining retry for cur block is::" << cur_blocks.retry_cnt;
 					aux_info_->failed_ = true;
 				}
 			}
 
+			aux_info_->pending_cnt_--;
 			if (aux_info_->sleeping_) {
 
 				/*
@@ -1443,7 +1456,7 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 		});
 
 		if (processing_failed) {
-			blocks = saved_blocks;
+			cur_blocks = saved_blocks;
 			acc_size = saved_acc_size;
 			start_block = saved_start_block;
 			prev_block = saved_prev_block;
@@ -1456,13 +1469,17 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 			block_cnt = 1;
 
 			/* Clear the elements of the vector */
-			blocks.clear();
+			cur_blocks.blocks.clear();
+			cur_blocks.retry_cnt = kFlushRetryCnt;
+			cur_blocks.id = ++id;
 			acc_size = 0;
 			++it;
 		} else {
 			block_cnt = 0;
 			acc_size = 0;
-			blocks.clear();
+			cur_blocks.blocks.clear();
+			cur_blocks.retry_cnt = kFlushRetryCnt;
+			cur_blocks.id = ++id;
 		}
 	}
 

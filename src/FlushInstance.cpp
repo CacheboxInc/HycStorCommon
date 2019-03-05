@@ -19,8 +19,8 @@ using namespace ::ondisk;
 namespace pio {
 
 const std::string CheckPoint::kCheckPoint = "CheckPoint";
-const uint32_t kMaxPendingFlushReqs = 10;
-const uint32_t kMaxFlushIoSize = 1024 * 1024;
+const uint32_t kMaxPendingFlushReqs = 32;
+const uint32_t kMaxFlushIoSize = 256 * 1024;
 
 FlushInstance::FlushInstance(VmID vmid, const std::string& config):
 	vmid_(std::move(vmid)),
