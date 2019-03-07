@@ -48,10 +48,10 @@ public:
 private:
 	template <typename Func>
 	auto TakeLockAndInvoke(::ondisk::BlockID start, ::ondisk::BlockID end, Func&& func) {
-		RangeLock::LockGuard lock(range_lock_.get(), start, end);
-		return lock.Lock()
+		auto lock = std::make_unique<RangeLock::LockGuard>(range_lock_.get(), start, end);
+		return lock->Lock()
 		.then([lock = std::move(lock), func = std::forward<Func>(func)] (int rc) mutable {
-			if (pio_unlikely(not lock.IsLocked() or rc < 0)) {
+			if (pio_unlikely(not lock->IsLocked() or rc < 0)) {
 				LOG(ERROR) << "Failed to take lock";
 				return folly::makeFuture(rc ? rc : -EINVAL);
 			}
