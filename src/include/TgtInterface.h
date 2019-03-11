@@ -9,6 +9,28 @@ extern "C"  {
 #include <stdbool.h>
 #endif
 
+typedef struct vmdk_stats
+{
+	int64_t read_requests;
+	int64_t read_failed;
+	int64_t read_bytes;
+	int64_t read_latency;
+
+	int64_t write_requests;
+	int64_t write_failed;
+	int64_t write_same_requests;
+	int64_t write_same_failed;
+	int64_t write_bytes;
+	int64_t write_latency;
+
+	int64_t truncate_requests;
+	int64_t truncate_failed;
+	int64_t truncate_latency;
+
+	int64_t pending;
+	int64_t rpc_requests_scheduled;
+} vmdk_stats_t;
+
 void HycStorInitialize(int argc, char *argv[], char *stord_ip, uint16_t stord_port);
 int32_t HycStorRpcServerConnect(void);
 int32_t HycStorRpcServerDisconnect(void);
@@ -27,6 +49,7 @@ void HycDumpVmdk(VmdkHandle handle);
 void HycSetExpectedWanLatency(uint32_t latency);
 RequestID HycScheduleTruncate(VmdkHandle handle, const void* privatep,
 	char* bufferp, int32_t buf_sz);
+int HycGetVmdkStats(const char* vmdkid, vmdk_stats_t *vmdk_stats);
 
 #ifdef __cplusplus
 }
