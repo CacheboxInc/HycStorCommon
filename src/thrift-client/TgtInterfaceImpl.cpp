@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <cassert>
+#include <cerrno>
 
 #include <sys/eventfd.h>
 #include <thrift/lib/cpp/async/TAsyncSocket.h>
@@ -575,6 +576,8 @@ public:
 	::hyc_thrift::VmdkHandle GetHandle() const noexcept;
 	const std::string& GetVmdkId() const noexcept;
 	void ScheduleMore(folly::EventBase* basep, StorRpcAsyncClient* clientp);
+
+	const VmdkStats& GetVmdkStats() const noexcept;
 
 	friend std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
 private:
@@ -1329,6 +1332,10 @@ RequestID StordVmdk::ScheduleTruncate(const void* privatep, char* bufferp,
 	return reqp->id;
 }
 
+const VmdkStats& StordVmdk::GetVmdkStats() const noexcept {
+	return stats_;
+}
+
 class Stord {
 public:
 	~Stord();
@@ -1347,7 +1354,6 @@ public:
 		char* bufferp, int32_t buf_sz, int32_t write_sz, int64_t offset);
 	RequestID VmdkTruncate(StordVmdk* vmdkp, const void* privatep,
 		char* bufferp, int32_t buf_sz);
-private:
 	StordVmdk* FindVmdk(::hyc_thrift::VmdkHandle handle);
 	StordVmdk* FindVmdk(const std::string& vmdkid);
 private:
@@ -1619,3 +1625,35 @@ RequestID HycScheduleTruncate(VmdkHandle handle, const void* privatep,
 		return kInvalidRequestID;
 	}
 }
+
+int HycGetVmdkStats(const char* vmdkid, vmdk_stats_t *vmdk_stats)
+{
+	::hyc::StordVmdk *vmdkp = g_stord.FindVmdk(std::string(vmdkid));
+	if (!vmdkp) {
+		return -EINVAL;
+	}
+
+	const ::hyc::VmdkStats& stats = vmdkp->GetVmdkStats();
+
+	vmdk_stats->read_requests = stats.read_requests_;
+	vmdk_stats->read_failed = stats.read_failed_;
+	vmdk_stats->read_bytes = stats.read_bytes_;
+	vmdk_stats->read_latency = stats.read_latency_;
+
+	vmdk_stats->write_requests = stats.write_requests_;
+	vmdk_stats->write_failed = stats.write_failed_;
+	vmdk_stats->write_same_requests = stats.write_same_requests_;
+	vmdk_stats->write_same_failed = stats.write_same_failed_;
+	vmdk_stats->write_bytes = stats.write_bytes_;
+	vmdk_stats->write_latency = stats.write_latency_;
+
+	vmdk_stats->truncate_requests = stats.truncate_requests_;
+	vmdk_stats->truncate_failed = stats.truncate_failed_;
+	vmdk_stats->truncate_latency = stats.truncate_latency_;
+
+	vmdk_stats->pending = stats.pending_;
+	vmdk_stats->rpc_requests_scheduled = stats.rpc_requests_scheduled_;
+
+	return 0;
+}
+
