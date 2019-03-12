@@ -31,6 +31,7 @@ int NewFlushStatusReq(ondisk::VmID vmid, FlushStats &flush_stat);
 int FlushHistoryReq(ondisk::VmID vmid, json_t *history_param);
 int NewScanStatusReq(pio::AeroClusterID id, ScanStats &scan_stat);
 int NewAeroCacheStatReq(ondisk::VmID vmid, AeroStats *);
+int GlobalStats(ComponentStats* stats);
 
 int NewVmdkStatsReq(const std::string& vmdkid, VmdkCacheStats* vmdk_stats);
 VmdkHandle NewActiveVmdk(hyc_thrift::VmHandle vm_handle, ::ondisk::VmdkID vmdkid,

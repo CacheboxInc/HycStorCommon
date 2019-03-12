@@ -360,6 +360,48 @@ std::shared_ptr<AeroSpikeConn> GetAeroConnUsingVmID(VmID vmid) {
 	return  pio::AeroSpikeConnFromClusterID(aero_cluster_id);
 }
 
+
+int GlobalStats(ComponentStats* stats) {
+
+	auto vm_manager_p = SingletonHolder<pio::VmManager>::GetInstance();
+	std::vector<VirtualMachine*> vms = vm_manager_p->GetAllVMs();
+	for (auto vm : vms) {
+		AeroStats aero_cache_stats_;
+		::ondisk::VmID vm_id = vm->GetID();
+		int rc = NewAeroCacheStatReq(vm_id, &aero_cache_stats_);
+		if (rc) {
+			LOG(ERROR) << "failed to get aerospike cache stats for vm " << vm_id;
+		}
+		stats->aero_cache_stats_.dirty_cnt_ += aero_cache_stats_.dirty_cnt_;
+		stats->aero_cache_stats_.clean_cnt_ += aero_cache_stats_.clean_cnt_;
+		stats->aero_cache_stats_.parent_cnt_ += aero_cache_stats_.parent_cnt_;
+
+		std::vector ondisk_vmdk_ids = vm->GetVmdkIDs();
+		for (auto vmdkid : ondisk_vmdk_ids) {
+			VmdkCacheStats vmdk_stats;
+			auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdkid);
+			auto vmdkp = dynamic_cast<ActiveVmdk*>(p);
+			if (vmdkp == nullptr) {
+				LOG(ERROR) << "vmdk object not found for vmdkid " << vmdkid;
+				continue;
+			}
+			vmdkp->GetCacheStats(&vmdk_stats);
+			//Global read miss count for every single vmdk, its retrieved from 
+			//read ahead if its enabled
+			stats->vmdk_cache_stats_.read_miss_ += vmdk_stats.read_miss_;
+			stats->vmdk_cache_stats_.read_hits_ += vmdk_stats.read_hits_;
+			stats->vmdk_cache_stats_.total_reads_ += vmdk_stats.total_reads_;
+			stats->vmdk_cache_stats_.total_writes_ += vmdk_stats.total_writes_;
+			stats->vmdk_cache_stats_.total_bytes_reads_ += vmdk_stats.total_bytes_reads_;
+			stats->vmdk_cache_stats_.total_bytes_writes_ += vmdk_stats.total_bytes_writes_;
+			stats->vmdk_cache_stats_.read_failed_ += vmdk_stats.read_failed_;
+			stats->vmdk_cache_stats_.write_failed_ += vmdk_stats.write_failed_;
+		} //traverse on vmdk id's
+	}
+	return 0;
+}
+
+
 int NewAeroCacheStatReq(VmID vmid, AeroStats *aero_statsp) {
 
 	auto managerp = SingletonHolder<pio::VmManager>::GetInstance();

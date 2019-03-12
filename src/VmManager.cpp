@@ -42,6 +42,15 @@ VirtualMachine* VmManager::GetInstance(const VmID& vmid) {
 	return nullptr;
 }
 
+std::vector<VirtualMachine*> VmManager::GetAllVMs() {
+	std::vector<VirtualMachine*> vms;
+	std::lock_guard<SpinLock> lock(mutex_);
+	for (auto it: handles_) {
+		vms.push_back(it.second);
+	}
+	return vms;
+}
+
 VirtualMachine* VmManager::GetInstance(const VmHandle& handle) {
 	std::lock_guard<SpinLock> lock(mutex_);
 	if (auto it = handles_.find(handle); pio_likely(it != handles_.end())) {

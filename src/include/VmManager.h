@@ -17,6 +17,8 @@ public:
 	VirtualMachine* GetInstance(const ::ondisk::VmID& vmid);
 	VirtualMachine* GetInstance(const ::hyc_thrift::VmHandle& handle);
 	int FreeInstance(const ::hyc_thrift::VmHandle& handle);
+	std::vector<VirtualMachine*> GetAllVMs();
+	
 private:
 	SpinLock mutex_;
 	::hyc_thrift::VmHandle handle_{0};

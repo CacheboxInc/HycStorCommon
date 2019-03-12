@@ -1458,6 +1458,77 @@ static int AeroSetCleanup(const _ha_request *reqp, _ha_response *resp,
 	return HA_CALLBACK_CONTINUE;
 }
 
+json_t* GetElement(std::string key, uint64_t value, std::string desc) {
+	json_t *stat_array_elem = json_array();
+	json_array_append_new(stat_array_elem, json_string(key.c_str()));
+	json_array_append_new(stat_array_elem, json_integer(value));
+	json_array_append_new(stat_array_elem, json_string(desc.c_str()));
+	return stat_array_elem;
+}
+
+
+static int GlobalStats([[maybe_unused]] const _ha_request *reqp, _ha_response *resp, void *) {
+
+	LOG(INFO) << "inside Global stats";
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+				"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+
+	ComponentStats g_stats;
+	auto rc = pio::GlobalStats(&g_stats);
+	if (rc) {
+		LOG(ERROR) << "Failed to get global stats";
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	json_t *stat_params = json_array();
+
+	json_array_append_new(stat_params, GetElement("read_miss", 
+		g_stats.vmdk_cache_stats_.read_miss_, "number of read miss across of all vmdks"));
+	json_array_append_new(stat_params, GetElement("read_hits", 
+		g_stats.vmdk_cache_stats_.read_hits_, "number of read hits across of all vmdks"));
+	json_array_append_new(stat_params, GetElement("total_reads",
+		g_stats.vmdk_cache_stats_.total_reads_, "total number of reads across vmdks"));
+	json_array_append_new(stat_params, GetElement("total_writes",
+		g_stats.vmdk_cache_stats_.total_writes_, "total number of writes across vmdks"));
+	json_array_append_new(stat_params, GetElement("total_reads_in_bytes",
+		g_stats.vmdk_cache_stats_.total_bytes_reads_, "total bytes read across vmdks"));
+	json_array_append_new(stat_params, GetElement("total_writes_in_bytes",
+		g_stats.vmdk_cache_stats_.total_bytes_writes_, "total bytes written across vmdks"));
+	json_array_append_new(stat_params, GetElement("read_failed", 
+		g_stats.vmdk_cache_stats_.read_failed_, "number of read failed across all vmdks"));
+	json_array_append_new(stat_params, GetElement("write_failed", 
+		g_stats.vmdk_cache_stats_.write_failed_, "number of write failed across all vmdks"));
+	json_array_append_new(stat_params, GetElement("dirty_cnt", 
+		g_stats.aero_cache_stats_.dirty_cnt_, "number of dirty blocks across all vmdks"));
+	json_array_append_new(stat_params, GetElement("clean_cnt", 
+		g_stats.aero_cache_stats_.clean_cnt_, "number of clean blocks across all vmdks"));
+	json_array_append_new(stat_params, GetElement("parent_cnt", 
+		g_stats.aero_cache_stats_.parent_cnt_, "number of parent blocks across all vmdks"));
+
+
+	auto *stat_params_str = json_dumps(stat_params, JSON_ENCODE_ANY);
+	size_t index;
+	json_t *element;
+	json_array_foreach(stat_params, index, element) {
+		json_array_clear(element);
+	}
+	json_decref(stat_params);
+
+	LOG(INFO) << "done collecting global stats, about to return";
+	ha_set_response_body(resp, HTTP_STATUS_OK, stat_params_str,
+			strlen(stat_params_str));
+	::free(stat_params_str);
+
+	return HA_CALLBACK_CONTINUE;
+}
+
+
 static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *) {
 
 	auto param_valuep = ha_parameter_get(reqp, "vmdk-id");
@@ -1526,10 +1597,10 @@ static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *) 
 	json_object_set_new(stat_params, "aero_bytes_write", json_integer(vmdk_stats_p->aero_bytes_write_));
 	json_object_set_new(stat_params, "aero_bytes_read", json_integer(vmdk_stats_p->aero_bytes_read_));
 
-	json_object_set_new(stat_params, "bufsz_before_compress", json_integer(vmdk_stats->bufsz_before_compress));
-	json_object_set_new(stat_params, "bufsz_after_compress", json_integer(vmdk_stats->bufsz_after_compress));
-	json_object_set_new(stat_params, "bufsz_before_uncompress", json_integer(vmdk_stats->bufsz_before_uncompress));
-	json_object_set_new(stat_params, "bufsz_after_uncompress", json_integer(vmdk_stats->bufsz_after_uncompress));
+	json_object_set_new(stat_params, "bufsz_before_compress", json_integer(vmdk_stats_p->bufsz_before_compress));
+	json_object_set_new(stat_params, "bufsz_after_compress", json_integer(vmdk_stats_p->bufsz_after_compress));
+	json_object_set_new(stat_params, "bufsz_before_uncompress", json_integer(vmdk_stats_p->bufsz_before_uncompress));
+	json_object_set_new(stat_params, "bufsz_after_uncompress", json_integer(vmdk_stats_p->bufsz_after_uncompress));
 
 	auto *stat_params_str = json_dumps(stat_params, JSON_ENCODE_ANY);
 
@@ -1898,7 +1969,7 @@ RestHandlers GetRestCallHandlers() {
 		void* datap;
 	};
 
-	static constexpr std::array<RestEndPoint, 26> kHaEndPointHandlers = {{
+	static constexpr std::array<RestEndPoint, 27> kHaEndPointHandlers = {{
 		{POST, "new_vm", NewVm, nullptr},
 		{POST, "vm_delete", RemoveVm, nullptr},
 		{POST, "new_vmdk", NewVmdk, nullptr},
@@ -1929,7 +2000,8 @@ RestHandlers GetRestCallHandlers() {
 		{POST, "async_start_move_stage", AsyncStartMoveStage, nullptr},
 		{POST, "delete_snapshots", DeleteSnapshots, nullptr},
 		{GET, "move_status", GetMoveStatus, nullptr},
-		{GET, "read_ahead_stats", ReadAheadStatsReq, nullptr}
+		{GET, "read_ahead_stats", ReadAheadStatsReq, nullptr},
+		{GET, "get_component_stats", GlobalStats, nullptr}
 	}};
 
 	constexpr auto size = sizeof(ha_handlers) +

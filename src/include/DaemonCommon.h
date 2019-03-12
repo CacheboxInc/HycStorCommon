@@ -7,6 +7,7 @@
 #include <map>
 #include "CommonMacros.h"
 #include <chrono>
+#include "VmdkCacheStats.h"
 
 namespace pio {
 const std::string kAsNamespaceCacheClean = "CLEAN";
@@ -31,6 +32,14 @@ struct AeroStats {
 	uint64_t clean_cnt_{0};
 	uint64_t parent_cnt_{0};
 };
+
+struct ComponentStats {
+	pio::AeroStats aero_cache_stats_;
+	//pio::ReadAhead::ReadAheadStats read_ahead_stats_;
+	pio::VmdkCacheStats vmdk_cache_stats_;
+	//and list goes on 
+};
+
 
 struct ScanStats {
 	std::chrono::steady_clock::time_point start_time_;
