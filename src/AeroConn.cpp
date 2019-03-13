@@ -74,21 +74,32 @@ bool AeroClientLogCallback(as_log_level level, const char *func, const char *fil
 
 void AeroClusterChangeEventFnPtr(as_cluster_event* event_data) {
 	std::string change_details;
-	switch(event_data->type) {
-		case AS_CLUSTER_ADD_NODE:
-			change_details="added";
-			break;
-		case AS_CLUSTER_REMOVE_NODE:
-			change_details="removed";
-			break;
-		case AS_CLUSTER_DISCONNECTED:
-			change_details="disconnected";
-			break;
-		default:
-			change_details="surprized";
+	auto this_ptr_ = (reinterpret_cast<AeroSpikeConn *>(event_data->udata));
+
+	if(this_ptr_->as_started_ == false) {
+		LOG(INFO) << "Returning as we haven't yet connected to server";
+	} else {
+		LOG(INFO) << "Got cluster change event, about to take action accordingly";
+		switch(event_data->type) {
+			case AS_CLUSTER_ADD_NODE:
+				change_details="added";
+				this_ptr_->UnthrottleClient();
+				break;
+			case AS_CLUSTER_REMOVE_NODE:
+				change_details="removed";
+				AeroSpikeConn::ConfigTag tag;
+				this_ptr_->GetEventLoopAndTag(nullptr, &tag);
+				this_ptr_->HandleServerOverload(tag);
+				break;
+			case AS_CLUSTER_DISCONNECTED:
+				change_details="disconnected";
+				break;
+			default:
+				change_details="surprized";
+		}
+		LOG(INFO) << "Cluster Node " << event_data->node_address << " got " 
+			<< change_details;
 	}
-	LOG(ERROR) << "Cluster Node " << event_data->node_address << " got " 
-		<< change_details;
 }
 
 int AeroSpikeConn::Connect() {
@@ -204,7 +215,7 @@ int AeroSpikeConn::Connect() {
 	cfg.policies.query.base.max_retries = 0;
 	cfg.policies.query.base.sleep_between_retries = 300; // 300ms 
 
-	as_config_set_cluster_event_callback(&cfg, AeroClusterChangeEventFnPtr, nullptr);
+	as_config_set_cluster_event_callback(&cfg, AeroClusterChangeEventFnPtr, this);
 
 	aerospike_init(&this->as_, &cfg);
 	if (aerospike_connect(&this->as_, &err) != AEROSPIKE_OK) {
