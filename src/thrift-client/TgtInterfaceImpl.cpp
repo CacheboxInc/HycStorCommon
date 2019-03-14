@@ -613,6 +613,7 @@ private:
 		std::vector<std::unique_ptr<Request>> complete_;
 	} requests_;
 
+	mutable std::mutex send_rpc_mutex_;
 	MovingAverage<uint64_t, 128> latency_avg_{};
 	MovingAverage<uint64_t, 128> bulk_depth_avg_{};
 	VmdkStats stats_;
@@ -904,45 +905,37 @@ int StordVmdk::PostRequestCompletion() const {
 }
 
 int32_t StordVmdk::AbortRequest(const void* privatep) {
-	std::lock_guard<std::mutex> lock(requests_.mutex_);
-	struct Request *reqp;
+	std::lock_guard<std::mutex> lock(send_rpc_mutex_);
+	{
+		std::lock_guard<std::mutex> lock(requests_.mutex_);
 
-	auto eitPending = requests_.pending_.end();
-	auto sitPending = requests_.pending_.begin();
-	for (; sitPending != eitPending; ++sitPending) {
-		reqp = *sitPending;
-		{
+		for (auto reqp : requests_.pending_) {
 			std::lock_guard<std::mutex> lock(reqp->mutex_);
 			if (reqp->privatep == privatep) {
 				reqp->privatep = nullptr;
 				break;
 			}
 		}
-	}
 
-	auto eitComplete = requests_.complete_.end();
-	auto sitComplete = requests_.complete_.begin();
-	for (; sitComplete != eitComplete; ++sitComplete) {
-		reqp = sitComplete->get();
-		{
+		auto sit = requests_.complete_.begin();
+		for (auto& reqp : requests_.complete_) {
 			std::lock_guard<std::mutex> lock(reqp->mutex_);
 			if (reqp->privatep == privatep) {
 				reqp->privatep = nullptr;
-				requests_.complete_.erase(sitComplete);
+				requests_.complete_.erase(sit);
 				return 0;
 			}
+			sit++;
 		}
-	}
 
-	auto eitScheduled = requests_.scheduled_.end();
-	auto sitScheduled = requests_.scheduled_.begin();
-	for (; sitScheduled != eitScheduled; ++sitScheduled) {
-		reqp = sitScheduled->second.get();
-		{
-			std::lock_guard<std::mutex> lock(reqp->mutex_);
-			if (reqp->privatep == privatep) {
-				reqp->privatep = nullptr;
-				return 0;
+		for (auto& req_map : requests_.scheduled_) {
+			auto reqp = req_map.second.get();
+			{
+				std::lock_guard<std::mutex> lock(reqp->mutex_);
+				if (reqp->privatep == privatep) {
+					reqp->privatep = nullptr;
+					return 0;
+				}
 			}
 		}
 	}
@@ -1157,32 +1150,31 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp
 		uint32_t nwrites = 0;
 		uint32_t nreads = 0;
 
+		std::lock_guard<std::mutex> lock(send_rpc_mutex_);
 		for (auto reqp : pending) {
+			std::lock_guard<std::mutex> lock(reqp->mutex_);
+			if (reqp->privatep == nullptr) {
+				continue;
+			}
+
 			reqp->timer.Start();
 			switch (reqp->type) {
-			case Request::Type::kRead: {
-				std::lock_guard<std::mutex> lock(reqp->mutex_);
-				if (reqp->privatep != nullptr) {
-					if (nreads++ == 0) {
-						read = std::make_unique<std::vector<::hyc_thrift::ReadRequest>>();
-					}
-					read->emplace_back(apache::thrift::FragileConstructor(),
-						reqp->id, reqp->buf_sz, reqp->offset);
-					read_requests.emplace_back(reqp);
+			case Request::Type::kRead:
+				if (nreads++ == 0) {
+					read = std::make_unique<std::vector<::hyc_thrift::ReadRequest>>();
 				}
+				read->emplace_back(apache::thrift::FragileConstructor(),
+					reqp->id, reqp->buf_sz, reqp->offset);
+				read_requests.emplace_back(reqp);
 				break;
-			}
 			case Request::Type::kWrite: {
-				std::lock_guard<std::mutex> lock(reqp->mutex_);
-				if (reqp->privatep != nullptr) {
-					if (nwrites++ == 0) {
-						write = std::make_unique<std::vector<::hyc_thrift::WriteRequest>>();
-					}
-					auto data = std::make_unique<folly::IOBuf>
-						(folly::IOBuf::WRAP_BUFFER, reqp->bufferp, reqp->buf_sz);
-					write->emplace_back(apache::thrift::FragileConstructor(),
-						reqp->id, std::move(data), reqp->buf_sz, reqp->offset);
+				if (nwrites++ == 0) {
+					write = std::make_unique<std::vector<::hyc_thrift::WriteRequest>>();
 				}
+				auto data = std::make_unique<folly::IOBuf>
+					(folly::IOBuf::WRAP_BUFFER, reqp->bufferp, reqp->buf_sz);
+				write->emplace_back(apache::thrift::FragileConstructor(),
+					reqp->id, std::move(data), reqp->buf_sz, reqp->offset);
 				break;
 			}
 			case Request::Type::kWriteSame:
