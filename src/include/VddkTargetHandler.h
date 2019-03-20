@@ -1,26 +1,23 @@
 #pragma once
 
-#include "RequestHandler.h"
-
 namespace pio {
+
 /* forward declaration for pimpl */
-namespace config {
-	class VmdkConfig;
-}
+class ArmVddkLib;
 
-class VddkTargetHandler : public RequestHandler {
+class VddkTargetLibHandler : public RequestHandler {
 public:
-	static constexpr char kName[] = "VddkTarget";
-
-	VddkTargetHandler(const ActiveVmdk* vmdkp,
-		const config::VmdkConfig* configp);
-	~VddkTargetHandler();
-	virtual RequestHandler* GetRequestHandler(const char* namep) noexcept override;
+	static constexpr char kName[] = "VddkTargetLib";
+	VddkTargetLibHandler(const config::VmdkConfig* configp);
+	virtual ~VddkTargetLibHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 	virtual folly::Future<int> Write(ActiveVmdk *vmdkp, Request *reqp,
 		::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
+		std::vector<RequestBlock *>& failed) override;
+	virtual folly::Future<int> ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
+		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 	virtual folly::Future<int> BulkWrite(ActiveVmdk* vmdkp,
 		::ondisk::CheckPointID ckpt,
@@ -35,24 +32,17 @@ public:
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) override;
-	virtual folly::Future<int> ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
-		const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock *>& failed) override;
-	virtual folly::Future<int> Move(ActiveVmdk *vmdkp, Request *reqp,
-		const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock *>& failed) override;
-	virtual folly::Future<int> BulkMove(ActiveVmdk* vmdkp,
-		::ondisk::CheckPointID ckpt,
-		const std::vector<std::unique_ptr<Request>>& requests,
-		const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock*>& failed) override;
 	virtual folly::Future<int> Delete(ActiveVmdk* vmdkp,
 		const ::ondisk::CheckPointID ckpt_id,
-		std::pair<::ondisk::BlockID, ::ondisk::BlockID> range) override;
+		const std::pair<::ondisk::BlockID, ::ondisk::BlockID> range) override;
+
+	const VddkTargetLib* Cache() const noexcept;
 private:
-	void InitializeRequestHandlers(const ActiveVmdk* vmdkp,
-		const config::VmdkConfig* configp);
+	int ReadModifyWrite(ActiveVmdk* vmdkp, RequestBlock* blockp,
+		RequestBuffer* bufferp);
 private:
-	std::unique_ptr<RequestHandler> headp_;
+	std::unique_ptr<ArmVddkLib> target_;
+	bool enabled_{false};
 };
+
 }
