@@ -29,7 +29,7 @@ LD_FLAGS :=											\
       $(shell (sed -n '/^LD_FLAGS\ =/,/^$$/p' $(dir)/PATH_OPTS | sed '1d;/^$$/d'))))
 
 
-default: subdirs $(TARGET) tests
+default: subdirs $(TARGET) # tests
 
 $(TARGET): $(OBJECTS)
 	$(LD) -r $^ $(LD_FLAGS) -o $@
