@@ -27,7 +27,6 @@ typedef struct {
   int		n_index;	/* # of entries in index table */
   int		n_history;	/* # of entries in history buffer */
   int		n_lookback;	/* # of entries to look back in a stream */
-  int		prefetch_depth;	/* max # of recommendations */
 } ghb_params_t;
 
 typedef struct {
@@ -50,7 +49,6 @@ typedef struct {
   int		next_idx;	/* Next entry index into history buffer */
 } ghb_t;
 
-
 void ghb_init(ghb_t *ghb, ghb_params_t *gparams);
 void ghb_finalize(ghb_t *ghb);
 
@@ -60,8 +58,14 @@ void ghb_finalize(ghb_t *ghb);
  *   max number of recommendations (= prefetch_depth)
  * - return value = # of recommendations
  */
-int ghb_update_and_query(ghb_t *ghb, uint8_t ctx, uint64_t lba,
-			 uint64_t *prefetch_lbas);
+int ghb_update_and_query(ghb_t *ghb, uint8_t ctx, uint64_t lba, uint64_t *prefetch_lbas, 
+		int prefetch_depth, bool *is_strided);
+/*
+ * Public functions to provide granular control
+ */
+int get_index(ghb_t *ghb, uint8_t ctx, uint64_t lba);
+bool update_index_and_history(ghb_t *ghb, int idx, uint8_t ctx, uint64_t lba);
+int query_history(ghb_t *ghb, int idx, uint64_t *prefetch_lbas, int prefetch_depth, bool* is_strided);
 #ifdef __cplusplus
 }
 #endif

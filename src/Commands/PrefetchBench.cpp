@@ -18,7 +18,7 @@ constexpr int kContext = 1;
 constexpr size_t kNOps = 1 << 20ul;
 
 static ghb_params_t GetDefaultGhbParams() {
-	return {kIndexes, kHistory, kLookback, kPrefetchDepth};
+	return {kIndexes, kHistory, kLookback};
 }
 
 using GhbPtr = std::unique_ptr<ghb_t, void (*) (ghb_t*)>;
@@ -35,6 +35,7 @@ static GhbPtr NewGhb() {
 }
 
 static void TestGHB(bool create_handle, ghb_t* ghbp) {
+	bool is_strided = false;
 	auto ghb = NewGhb();
 	if (create_handle) {
 		ghbp = ghb.get();
@@ -43,7 +44,7 @@ static void TestGHB(bool create_handle, ghb_t* ghbp) {
 
 	uint64_t prefetch[kPrefetchDepth];
 	for (size_t lba = 0, count = 0; count < kNOps; ++count, lba += 512) {
-		auto nprefetch = ghb_update_and_query(ghbp, kContext, lba, prefetch);
+		auto nprefetch = ghb_update_and_query(ghbp, kContext, lba, prefetch, kPrefetchDepth, &is_strided);
 		(void) nprefetch;
 	}
 }

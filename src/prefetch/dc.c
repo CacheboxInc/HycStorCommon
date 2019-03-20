@@ -41,12 +41,11 @@ bool check_for_delta_match(dc_t *dc_struct,
  * -----------------------------------------------------------------------------
  */
 
-dc_t* dc_alloc_and_init(int n_lookback, int prefetch_depth) {
+dc_t* dc_alloc_and_init(int n_lookback) {
   dc_t *dc_struct = (dc_t *)malloc(sizeof(dc_t)); VALIDATE_MALLOC(dc_struct);
 
   memset(dc_struct, 0, sizeof(dc_t));
   dc_struct->n_lookback = n_lookback;
-  dc_struct->prefetch_depth = prefetch_depth;
   dc_struct->delta_buffer = (int *)malloc(sizeof(int)*dc_struct->n_lookback);
   dc_reset(dc_struct);
 
@@ -101,16 +100,19 @@ bool dc_add_record(dc_t *dc_struct, uint64_t lba) {
   return false;
 }
 
-int dc_get_requests(dc_t *dc_struct, uint64_t last_lba, uint64_t *prefetch_lbas) {
+int dc_get_requests(dc_t *dc_struct, uint64_t last_lba, uint64_t *prefetch_lbas, 
+int prefetch_depth, bool *is_strided) {
+  *is_strided = false;
   if (dc_struct->fixed_stride) {
+    *is_strided = true;
     int i;
     int stride = dc_struct->delta_buffer[0];
 
    // printf("--> fixed_stride: %d\n", stride);
 
-    for (i=0; i<dc_struct->prefetch_depth; i++)
+    for (i=0; i<prefetch_depth; i++)
       prefetch_lbas[i] = last_lba + (i+1)*stride;
-    return dc_struct->prefetch_depth;
+    return prefetch_depth;
   } else if (dc_struct->found_match) {
     int i = 0;
     /* Adjust index to skip deltas associated with the current correlation */
@@ -121,7 +123,7 @@ int dc_get_requests(dc_t *dc_struct, uint64_t last_lba, uint64_t *prefetch_lbas)
     // for (j=idx; j>=0; j--) printf("%d ", dc_struct->delta_buffer[j]);
    	 // printf("\n");
 
-    while ((idx >= 0) && (i < dc_struct->prefetch_depth)) {
+    while ((idx >= 0) && (i < prefetch_depth)) {
       /* Apply delta to compute the LBA */
       cur_lba += dc_struct->delta_buffer[idx];
       prefetch_lbas[i] = cur_lba;
@@ -132,7 +134,7 @@ int dc_get_requests(dc_t *dc_struct, uint64_t last_lba, uint64_t *prefetch_lbas)
 	idx = (dc_struct->next_idx - CORR_DEPTH - 1);
       i++;
     }
-    return dc_struct->prefetch_depth;
+    return prefetch_depth;
   }
 
   return 0;

@@ -2,8 +2,8 @@ CC = cc
 
 OPTFLAGS = -g
 INCLUDE_FLAGS = -I .. -I ../third_party/murmur3-master
-CLIENTLIB = ../libghb.a
-LD_FLAGS = -L .. -lghb
+CLIENTLIB = ../libReadAhead.a  ../third_party/murmur3-master
+LD_FLAGS = -L .. -lReadAhead -L ../third_party/murmur3-master -lmurmur3
 
 TARGETS = gtest
 

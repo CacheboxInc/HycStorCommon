@@ -95,12 +95,11 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 
 	config_->GetDiskSize(disk_size_bytes_);
 	LOG(INFO) << "VmdkID =  " << id << " Disk Size = " << disk_size_bytes_;
-
 	// Let this always be the last code block, pulling it up does not harm anything
 	// but just for the sake of rule, let this be the last code block
 	read_aheadp_ = NULL;
-	// To avail ReadAhead the disk size must be > 20MB
-	if(config_->IsReadAheadEnabled() && disk_size_bytes_ > (20 * 1024 * 1024)) {
+	if(config_->IsReadAheadEnabled() 
+	&& disk_size_bytes_ >= ReadAhead::MinDiskSizeSupported()) {
 		read_aheadp_ = std::make_unique<ReadAhead>(this);
 		if (not read_aheadp_) {
 			throw std::bad_alloc();

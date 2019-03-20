@@ -4,7 +4,6 @@
 typedef struct {
   /* Parameters */
   int		n_lookback;
-  int		prefetch_depth;
 
   /* Correlation trackers */
   uint64_t 	prev_lba;
@@ -25,7 +24,7 @@ typedef struct {
 } dc_t;
 
 
-dc_t* dc_alloc_and_init(int n_lookback, int prefetch_depth);
+dc_t* dc_alloc_and_init(int n_lookback);
 void dc_finalize_and_free(dc_t *dc_struct);
 
 void dc_reset(dc_t *dc_struct);
@@ -38,6 +37,7 @@ bool dc_add_record(dc_t *dc_struct, uint64_t lba);
 /* Retrieve prefetch recommendations
  * - return value = # of recommendations
  */
-int dc_get_requests(dc_t *dc_struct, uint64_t last_lba, uint64_t *prefetch_lbas);
+int dc_get_requests(dc_t *dc_struct, uint64_t last_lba, uint64_t *prefetch_lbas, 
+		int prefetch_depth, bool *is_strided);
 
 #endif	/* __DC_H__ */

@@ -46,7 +46,7 @@ void generate_accesses(pattern_t pattern, uint64_t lbas[]) {
     lbas[i] = generate_one_access(pattern, i);
 }
 
-main(int argc, char *argv[]) {
+int main(int argc, char *argv[]) {
   pattern_t	pattern = SEQUENTIAL;
   uint64_t	lbas[N_ACCESSES];
 
@@ -54,6 +54,7 @@ main(int argc, char *argv[]) {
   ghb_t		ghb;
   int		i, j, nprefetch;
   uint64_t	lba, prefetch_lbas[PREFETCH_DEPTH];
+  bool is_strided = false;
 
   if (argc > 1)
     pattern = atoi(argv[1]);
@@ -70,13 +71,12 @@ main(int argc, char *argv[]) {
   params.n_index = 32;
   params.n_history = 1024;
   params.n_lookback = 8;
-  params.prefetch_depth = PREFETCH_DEPTH;
 
   ghb_init(&ghb, &params);
   for (i=0; i<N_ACCESSES; i++) {
     lba = lbas[i];
     printf("[0x%" PRIx64 "]: ", lba);
-    nprefetch = ghb_update_and_query(&ghb, 1, lba, prefetch_lbas);
+    nprefetch = ghb_update_and_query(&ghb, 1, lba, prefetch_lbas, PREFETCH_DEPTH, &is_strided);
     printf("\t");
     for (j=0; j<nprefetch; j++)
       printf("0x%" PRIx64 ", ", prefetch_lbas[j]);
