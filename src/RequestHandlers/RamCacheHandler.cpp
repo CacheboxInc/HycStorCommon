@@ -19,8 +19,7 @@ using namespace ::ondisk;
 namespace pio {
 
 RamCacheHandler::RamCacheHandler(const config::VmdkConfig* configp) :
-		RequestHandler(RamCacheHandler::kName, nullptr),
-		cache_(std::make_unique<RamCache>()) {
+		RequestHandler(RamCacheHandler::kName, nullptr) {
 	enabled_ = configp->IsRamCacheEnabled();
 	if (enabled_) {
 		memory_mb_ = configp->GetRamCacheMemoryLimit();
@@ -33,6 +32,18 @@ RamCacheHandler::RamCacheHandler(const config::VmdkConfig* configp) :
 
 RamCacheHandler::~RamCacheHandler() {
 
+}
+
+RamCache* RamCacheHandler::GetRamCache(CheckPointID ckpt) {
+	std::lock_guard<std::mutex> lock(mutex_);
+	auto it = caches_.find(ckpt);
+	if (it == caches_.end()) {
+		bool inserted = false;
+		std::tie(it, inserted) = caches_.emplace(ckpt, std::make_unique<RamCache>());
+		log_assert(inserted);
+	}
+	log_assert(it != caches_.end());
+	return it->second.get();
 }
 
 folly::Future<int> RamCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
@@ -56,7 +67,8 @@ folly::Future<int> RamCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 	failed.clear();
 	auto missed = std::make_unique<std::vector<RequestBlock*>>();
 	for (auto blockp : process) {
-		auto [destp, found] = cache_->Read(vmdkp, blockp->GetAlignedOffset());
+		auto cachep = GetRamCache(blockp->GetReadCheckPointId());
+		auto [destp, found] = cachep->Read(vmdkp, blockp->GetAlignedOffset());
 		if (not found || not destp) {
 			blockp->SetResult(0, RequestStatus::kMiss);
 			missed->emplace_back(blockp);
@@ -64,6 +76,7 @@ folly::Future<int> RamCacheHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		}
 
 		blockp->PushRequestBuffer(std::move(destp));
+		blockp->SetResult(0, RequestStatus::kSuccess);
 	}
 
 	if (missed->empty()) {
@@ -105,10 +118,15 @@ folly::Future<int> RamCacheHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
 	}
 
+	auto cachep = GetRamCache(ckpt);
+	if (pio_unlikely(not cachep)) {
+		LOG(ERROR) << "RamCache: failed to allocate";
+		return -ENOMEM;
+	}
 	failed.clear();
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
-		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(),
+		cachep->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(),
 			srcp->PayloadSize());
 	}
 
@@ -139,10 +157,10 @@ folly::Future<int> RamCacheHandler::ReadPopulate(ActiveVmdk *vmdkp,
 
 	failed.clear();
 	for (auto blockp : process) {
+		auto cachep = GetRamCache(blockp->GetReadCheckPointId());
 		auto srcp = blockp->GetRequestBufferAtBack();
-		//log_assert(srcp->Size() == vmdkp->BlockSize());
 
-		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(),
+		cachep->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(),
 			srcp->PayloadSize());
 	}
 
@@ -169,11 +187,13 @@ folly::Future<int> RamCacheHandler::BulkWrite(ActiveVmdk* vmdkp,
 		return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
 	}
 
+	auto cachep = GetRamCache(ckpt);
+	log_assert(cachep);
+
 	failed.clear();
 	for (const auto blockp : process) {
 		const auto srcp = blockp->GetRequestBufferAtBack();
-		//log_assert(srcp->Size() == vmdkp->BlockSize());
-		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(),
+		cachep->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(),
 			srcp->PayloadSize());
 	}
 
@@ -201,7 +221,8 @@ folly::Future<int> RamCacheHandler::BulkRead(ActiveVmdk* vmdkp,
 
 	auto missed = std::make_unique<std::vector<RequestBlock*>>();
 	for (auto blockp : process) {
-		auto [destp, found] = cache_->Read(vmdkp, blockp->GetAlignedOffset());
+		auto cachep = GetRamCache(blockp->GetReadCheckPointId());
+		auto [destp, found] = cachep->Read(vmdkp, blockp->GetAlignedOffset());
 		if (not found || not destp) {
 			blockp->SetResult(0, RequestStatus::kMiss);
 			missed->emplace_back(blockp);
@@ -245,8 +266,9 @@ folly::Future<int> RamCacheHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
 	}
 
 	for (auto blockp : process) {
+		auto cachep = GetRamCache(blockp->GetReadCheckPointId());
 		auto srcp = blockp->GetRequestBufferAtBack();
-		cache_->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(),
+		cachep->Write(vmdkp, srcp->Payload(), blockp->GetAlignedOffset(),
 			srcp->PayloadSize());
 	}
 
@@ -267,20 +289,21 @@ folly::Future<int> RamCacheHandler::Delete(ActiveVmdk* vmdkp,
 		return nextp_->Delete(vmdkp, ckpt_id, range);
 	}
 
+	auto cachep = GetRamCache(ckpt_id);
 	auto r = iter::Range(range.first, range.second+1);
 	std::vector<RamCache::Key> keys;
 	std::transform(r.begin(), r.end(), std::back_inserter(keys),
 		[shift = vmdkp->BlockShift()] (BlockID block) {
 			return block << shift;
 		});
-	cache_->Erase(keys.begin(), keys.end());
+	cachep->Erase(keys.begin(), keys.end());
 	if (pio_unlikely(not nextp_)) {
 		return 0;
 	}
 	return nextp_->Delete(vmdkp, ckpt_id, range);
 }
 
-const RamCache* RamCacheHandler::Cache() const noexcept {
-	return cache_.get();
+const RamCache* RamCacheHandler::Cache(CheckPointID ckpt) noexcept {
+	return GetRamCache(ckpt);
 }
 }

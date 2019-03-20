@@ -119,7 +119,7 @@ TEST_F(TruncateTest, AlignedDeleteBlocks) {
 			write_futures.emplace_back(std::move(fut));
 		}
 		folly::collectAll(std::move(write_futures)).wait();
-		EXPECT_EQ(ramcache_handlerp_->Cache()->Size(), kNBlocks);
+		EXPECT_EQ(ramcache_handlerp_->Cache(ckpt_id)->Size(), kNBlocks);
 	};
 
 	{
@@ -127,7 +127,7 @@ TEST_F(TruncateTest, AlignedDeleteBlocks) {
 		SyncWriteAll();
 		VmdkTruncate({std::make_pair(0, kNBlocks * vmdkp->BlockSize())})
 		.wait();
-		EXPECT_EQ(ramcache_handlerp_->Cache()->Size(), 0);
+		EXPECT_EQ(ramcache_handlerp_->Cache(ckpt_id)->Size(), 0);
 	}
 
 	{
@@ -138,7 +138,7 @@ TEST_F(TruncateTest, AlignedDeleteBlocks) {
 			offsets.emplace_back(block << vmdkp->BlockShift(), vmdkp->BlockSize());
 		}
 		VmdkTruncate(offsets).wait();
-		EXPECT_EQ(ramcache_handlerp_->Cache()->Size(), 0);
+		EXPECT_EQ(ramcache_handlerp_->Cache(ckpt_id)->Size(), 0);
 	}
 }
 
@@ -156,7 +156,7 @@ TEST_F(TruncateTest, UnalignedDeleteBlocks) {
 			write_futures.emplace_back(std::move(fut));
 		}
 		folly::collectAll(std::move(write_futures)).wait();
-		EXPECT_EQ(ramcache_handlerp_->Cache()->Size(), kNBlocks);
+		EXPECT_EQ(ramcache_handlerp_->Cache(ckpt_id)->Size(), kNBlocks);
 	};
 
 	{
@@ -164,7 +164,7 @@ TEST_F(TruncateTest, UnalignedDeleteBlocks) {
 		SyncWriteAll();
 		VmdkTruncate({std::make_pair(0, kNBlocks * vmdkp->BlockSize()-1)})
 		.wait();
-		EXPECT_EQ(ramcache_handlerp_->Cache()->Size(), 1);
+		EXPECT_EQ(ramcache_handlerp_->Cache(ckpt_id)->Size(), 1);
 
 		/* reading last block should not fail */
 		auto f = VmdkRead(kNBlocks-1, 0, vmdkp->BlockSize());
@@ -177,7 +177,7 @@ TEST_F(TruncateTest, UnalignedDeleteBlocks) {
 		SyncWriteAll();
 		VmdkTruncate({std::make_pair(1, kNBlocks * vmdkp->BlockSize()-2)})
 		.wait();
-		EXPECT_EQ(ramcache_handlerp_->Cache()->Size(), 2);
+		EXPECT_EQ(ramcache_handlerp_->Cache(ckpt_id)->Size(), 2);
 
 		auto f = VmdkRead(0, 0, vmdkp->BlockSize());
 		f.wait();
@@ -199,7 +199,7 @@ TEST_F(TruncateTest, UnalignedDeleteBlocks) {
 		}
 		VmdkTruncate(in).wait();
 
-		EXPECT_EQ(ramcache_handlerp_->Cache()->Size(), kNBlocks);
+		EXPECT_EQ(ramcache_handlerp_->Cache(ckpt_id)->Size(), kNBlocks);
 	}
 
 	{
@@ -213,6 +213,6 @@ TEST_F(TruncateTest, UnalignedDeleteBlocks) {
 		}
 		VmdkTruncate(in).wait();
 
-		EXPECT_EQ(ramcache_handlerp_->Cache()->Size(), kNBlocks);
+		EXPECT_EQ(ramcache_handlerp_->Cache(ckpt_id)->Size(), kNBlocks);
 	}
 }

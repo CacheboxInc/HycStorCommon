@@ -36,12 +36,14 @@ public:
 		const ::ondisk::CheckPointID ckpt_id,
 		const std::pair<::ondisk::BlockID, ::ondisk::BlockID> range) override;
 
-	const RamCache* Cache() const noexcept;
+	const RamCache* Cache(::ondisk::CheckPointID ckpt) noexcept;
 private:
 	int ReadModifyWrite(ActiveVmdk* vmdkp, RequestBlock* blockp,
 		RequestBuffer* bufferp);
+	RamCache* GetRamCache(::ondisk::CheckPointID ckpt);
 private:
-	std::unique_ptr<RamCache> cache_;
+	std::mutex mutex_;
+	std::unordered_map<::ondisk::CheckPointID, std::unique_ptr<RamCache>> caches_;
 	bool enabled_{false};
 	uint16_t memory_mb_{0};
 };

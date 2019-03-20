@@ -74,6 +74,18 @@ RequestID Request::GetID() const noexcept {
 	return in_.req_id_;
 }
 
+Request::Type Request::RequestType() const noexcept {
+	return in_.type_;
+}
+
+void Request::SetRequestType(const Request::Type type) noexcept {
+	in_.type_ = type;
+}
+
+void* Request::GetBuffer() const noexcept {
+	return in_.bufferp_;
+}
+
 Request::Request(RequestID id, ActiveVmdk *vmdkp, Request::Type type, void *bufferp,
 		size_t buffer_size, size_t transfer_size, Offset offset) : vmdkp_(vmdkp),
 		in_(id, type, bufferp, buffer_size, transfer_size, offset) {
@@ -182,7 +194,6 @@ int Request::Complete() {
 	for (const auto& blockp : request_blocks_) {
 		auto rc = blockp->Complete();
 		if (pio_unlikely(blockp->IsFailed())) {
-			log_assert(blockp->GetResult() != 0);
 			SetResult(blockp->GetResult(), blockp->GetStatus());
 			return GetResult();
 		}
@@ -344,7 +355,6 @@ int RequestBlock::ReadResultPrepare() {
 
 int RequestBlock::Complete() {
 	if (pio_unlikely(IsFailed())) {
-		log_assert(GetResult() != 0);
 		return GetResult();
 	}
 

@@ -57,6 +57,9 @@ public:
 	int64_t GetLatency() const noexcept;
 	size_t GetTransferLength() const noexcept;
 
+	Request::Type RequestType() const noexcept;
+	void SetRequestType(const Request::Type) noexcept;
+
 	bool IsFlushReq() {
 		return FlushReq_;
 	}
@@ -89,6 +92,7 @@ public:
 
 	void SetResult(int return_value, RequestStatus status) noexcept;
 
+	void* GetBuffer() const noexcept;
 	size_t GetBufferSize() {
 		return in_.buffer_size_;
 	}

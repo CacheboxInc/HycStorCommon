@@ -12,6 +12,7 @@ endif()
 message(STATUS "Check for MAKE: found ${MAKE}")
 
 include_directories(include)
+include_directories(${CMAKE_SOURCE_DIR}/src/DataMover)
 include_directories(${CMAKE_BINARY_DIR}/src/thrift/)
 include_directories(${CMAKE_SOURCE_DIR}/thirdparty/ha-lib/third-party/include)
 include_directories(${CMAKE_SOURCE_DIR}/thirdparty/ha-lib/src)
@@ -164,6 +165,12 @@ set(StorageLayerFiles
 	ReadAhead.cpp
 	Analyzer.cpp
 	Rest.cpp
+
+	"${CMAKE_SOURCE_DIR}/src/DataMover/CheckPointTraverser.cpp"
+	"${CMAKE_SOURCE_DIR}/src/DataMover/DataReader.cpp"
+	"${CMAKE_SOURCE_DIR}/src/DataMover/DataWriter.cpp"
+	"${CMAKE_SOURCE_DIR}/src/DataMover/DataCopier.cpp"
+	"${CMAKE_SOURCE_DIR}/src/DataMover/DataSync.cpp"
 
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/LockHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/RequestHandler.cpp"

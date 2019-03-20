@@ -15,6 +15,10 @@ add_executable(StorageLayerTests
 	EncryptHandlerTest.cpp
 	ReadAheadTests.cpp
 	TruncateTest.cpp
+	TestCheckPointTraverser.cpp
+	TestDataWriterReader.cpp
+	TestDataCopier.cpp
+	TestDataSync.cpp
 )
 
 if(USE_NEP)
