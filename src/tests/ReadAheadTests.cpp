@@ -43,7 +43,7 @@ static const VmdkID kVmdkid = "kVmdkid";
 static const VmID kVmid = "kVmid";
 static const VmUUID kVmUUID = "kVmUUID";
 static const VmdkUUID kVmdkUUID = "kVmdkUUID";
-static const int64_t kDiskSize = 21474836480; // 20GB
+//static const int64_t kDiskSize = 21474836480; // 20GB
 #define N_ACCESSES	(32)
 #define N_STREAMS	(4)
 

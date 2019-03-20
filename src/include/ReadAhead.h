@@ -83,7 +83,7 @@ private:
 	bool			initialized_ = false;
 	std::mutex		prediction_mutex_;
 	ghb_params_t	ghb_params_{0};
-	ghb_t     		ghb_{0};
+	ghb_t     		ghb_{};
 	ReadAheadStats 	st_read_ahead_stats_{0};
 
 	struct IOMissWindow {
