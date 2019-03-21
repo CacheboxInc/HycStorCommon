@@ -15,7 +15,7 @@ fi
 python3 test_tgt.py
 
 #Discovey on local host
-discover=false
+discover=true
 if [ $discover = true ] ; then
 	iscsiadm --mode discovery --type sendtargets --portal $TargetIP
 	iscsiadm -m node -T $TargetName --login

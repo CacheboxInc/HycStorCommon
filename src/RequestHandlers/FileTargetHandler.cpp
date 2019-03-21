@@ -9,9 +9,8 @@
 #include "RequestHandler.h"
 #include "FileTargetHandler.h"
 #include "VmdkConfig.h"
-#if 0
+#include "DaemonTgtInterface.h"
 #include "cksum.h"
-#endif
 
 #ifdef FILETARGET_ASYNC
 #define MAX_IOs 8192
@@ -126,6 +125,40 @@ retry_getevts:
 }
 #endif
 
+/*
+On Cloud:-
+ckpt_ids snap_id
+1          1 (Start)
+0          (For write)
+
+On prem:-
+snap_id  fd  delta_file
+0        1   /tmp/delta1
+1        2   /dev/<device> (Start)
+*/
+
+int32_t FileTargetHandler::Getfd(ActiveVmdk* vmdkp, const int32_t& snap_id) {
+	std::lock_guard<std::mutex> lock(vmdkp->mutex_);
+	auto vmdk_id = vmdkp->GetID();
+	std::string key = vmdk_id + ":" + std::to_string(snap_id);
+	auto it = vmdkp->fd_map_.find(key);
+	if (it != vmdkp->fd_map_.end()) {
+		return it->second;
+	}
+
+	/* Display all elements of map */
+	LOG(ERROR) << __func__ << "Not found fdmap for snap_id "
+			<< snap_id << ", printing all elements from map";
+	std::unordered_map <std::string, int32_t>::iterator it1
+			= vmdkp->fd_map_.begin();
+	while (it1 != vmdkp->fd_map_.end()) {
+		LOG(ERROR) << "Element:" << it1->first << " => " << it1->second;
+		++it1;
+	}
+
+	return -1;
+}
+
 FileTargetHandler::FileTargetHandler(const config::VmdkConfig* configp) :
 		RequestHandler(FileTargetHandler::kName, nullptr) {
 	/* FileTargetHandler with encryption and compression not supported */
@@ -135,29 +168,32 @@ FileTargetHandler::FileTargetHandler(const config::VmdkConfig* configp) :
 	enabled_ = configp->IsFileTargetEnabled();
 	create_file_ = configp->GetFileTargetCreate();
 
+	VmdkID vmdkid;
+	configp->GetVmdkId(vmdkid);
+	VmID vmid;
+	configp->GetVmId(vmid);
+
 	if (enabled_) {
 		file_path_ = configp->GetFileTargetPath();
+		delta_file_path_ = configp->GetDeltaFileTargetPath();
 		LOG(ERROR) << __func__ << "Initial Path is:" << file_path_.c_str();
+		LOG(ERROR) << __func__ << "Delta files Path is:" << delta_file_path_.c_str();
 
-		if (create_file_) {
-			VmID vmid;
-			configp->GetVmId(vmid);
-			VmdkID vmdkid;
-			configp->GetVmdkId(vmdkid);
-
+		if (pio_likely(create_file_)) {
 			file_path_ += "/disk_";
 			file_path_ += vmid;
 			file_path_ += ":" ;
 			file_path_ += vmdkid;
 		}
 
+		file_size_ = configp->GetFileTargetSize();
 		LOG(ERROR) << __func__ << "Final Path is:" << file_path_.c_str();
 		fd_ = ::open(file_path_.c_str(), O_RDWR | O_SYNC | O_DIRECT| O_CREAT, 0777);
 		if (pio_unlikely(fd_ == -1)) {
 			throw std::runtime_error("File open failed");
 		} else {
 			if (create_file_) {
-				if(ftruncate(fd_, configp->GetFileTargetSize())) {
+				if(ftruncate(fd_, file_size_)) {
 					throw std::runtime_error("File truncate failed");
 				}
 			}
@@ -199,8 +235,11 @@ FileTargetHandler::FileTargetHandler(const config::VmdkConfig* configp) :
 	}
 
 	thread_ = std::thread(&FileTargetHandler::GatherEvents, this);
-#endif
 
+	/* Update very first snapid to ckpid */
+	UpdatefdMap(vmdkid, 1, fd_);
+	pio::CreateNewVmdkDeltaContext(vmdkid, 2);
+#endif
 }
 
 FileTargetHandler::~FileTargetHandler() {
@@ -330,11 +369,31 @@ folly::Future<int> FileTargetHandler::Read(ActiveVmdk *vmdkp, Request *,
 		reqblock->blockp_ = blockp;
 		reqblock->destp_ = NewAlignedRequestBuffer(vmdkp->BlockSize());
 		aio_req->reqblocks_list.push_back(reqblock);
-		#if 0
-		LOG(ERROR) << __func__ << "::Create Req blocks offset ::"<< blockp->GetAlignedOffset()
+		auto ckpt_id = blockp->GetReadCheckPointId();
+		if (pio_unlikely(ckpt_id < 0)) {
+			LOG(ERROR) << __func__ << "Got invalid ckpt id in block:"
+				<< ckpt_id;
+			return -EINVAL;
+		}
+
+		auto snap_id = vmdkp->GetVM()->GetSnapID(vmdkp, ckpt_id);
+		if (pio_unlikely(snap_id < 0)) {
+			LOG(ERROR) << __func__ << "Got invalid snap id:"
+				<< snap_id << " for ckpt id:" << ckpt_id;
+			return -EINVAL;
+		}
+
+		auto delta_fd = Getfd(vmdkp, snap_id);
+		if (pio_unlikely(delta_fd < 0)) {
+			LOG(ERROR) << __func__ << "Got invalid fd: "
+				<< delta_fd << " after lookup for snap id:" << snap_id;
+			return -EINVAL;
+		}
+
+		VLOG(5) << __func__ << "::Create Req blocks offset ::"
+				<< blockp->GetAlignedOffset()
 				<< " size ::" << reqblock->destp_->Size();
-		#endif
-		io_prep_pread(iocb, fd_, reqblock->destp_->Payload(),
+		io_prep_pread(iocb, delta_fd, reqblock->destp_->Payload(),
 			reqblock->destp_->Size(), blockp->GetAlignedOffset());
 		io_set_eventfd(iocb, afd_);
 		iocb->data = (void *) reqblock.get();
@@ -419,19 +478,20 @@ folly::Future<int> FileTargetHandler::Write(ActiveVmdk *vmdkp, Request *,
 		reqblock->destp_ = NewAlignedRequestBuffer(vmdkp->BlockSize());
 		::memcpy(reqblock->destp_->Payload(), srcp->Payload(), srcp->Size());
 		aio_req->reqblocks_list.push_back(reqblock);
-		#if 0
-		LOG(ERROR) << __func__ << "::Create Req blocks offset ::"<< blockp->GetAlignedOffset()
+		VLOG(5) << __func__ << "::Create Req blocks offset ::"<< blockp->GetAlignedOffset()
 				<< " size ::" << reqblock->destp_->Size();
-		#endif
-		io_prep_pwrite(iocb, fd_, reqblock->destp_->Payload(),
-			reqblock->destp_->Size(), blockp->GetAlignedOffset());
+		if (vmdkp->delta_fd_ >= 0) {
+			io_prep_pwrite(iocb, vmdkp->delta_fd_, reqblock->destp_->Payload(),
+				reqblock->destp_->Size(), blockp->GetAlignedOffset());
+		} else {
+			io_prep_pwrite(iocb, fd_, reqblock->destp_->Payload(),
+				reqblock->destp_->Size(), blockp->GetAlignedOffset());
+		}
 
-		#if 0
-		LOG(ERROR) << __func__ << "FlushWrite [Cksum]" << blockp->GetAlignedOffset() <<
+		VLOG(5) << __func__ << "FlushWrite [Cksum]" << blockp->GetAlignedOffset() <<
 				":" << reqblock->destp_->Size() <<
 				":" << crc_t10dif((unsigned char *) reqblock->destp_->Payload(),
 					reqblock->destp_->Size());
-		#endif
 
 		io_set_eventfd(iocb, afd_);
 		iocb->data = (void *) reqblock.get();

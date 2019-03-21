@@ -17,17 +17,17 @@
 #include "AeroFiberThreads.h"
 #include "VmConfig.h"
 #include "VmdkConfig.h"
-#include "MetaDataKV.h"
 #include <aerospike/aerospike_info.h>
 
 typedef struct as_batch_read_records_s as_batch_read_records;
 typedef struct as_batch_read_record_s as_batch_read_record;
 
 namespace pio {
-
 const std::string kAsNamespaceMeta = "META";
 const std::string kAsCacheBin = "data_map";
-const std::string kAsMetaBin = "meta_map";
+const std::string kAsMetaBin = "meta_bin";
+const std::string kAsMetaBinExt = "meta_bin_ext";
+const std::string kAsMetaSet = "metaset";
 const auto kMaxRetryCnt = 3;
 
 struct WriteBatch;
@@ -306,19 +306,22 @@ public:
 
 	int MetaWriteKeySet(WriteRecord* wrecp,
 		const std::string& ns, const std::string& setp,
-		const MetaDataKey& key, const std::string& value);
+		const MetaDataKey& key, const std::string& value,
+		const uint32_t& start_offset, const uint32_t& length,
+		bool);
 
-	int AeroMetaWriteCmd(ActiveVmdk *vmdkp, const MetaDataKey& key,
+	folly::Future<int> AeroMetaWriteCmd(ActiveVmdk *vmdkp,
+		const MetaDataKey& key,
 		const std::string& value,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int AeroMetaReadCmd(ActiveVmdk *vmdkp,
-		const MetaDataKey& key, const std::string& value,
+		const MetaDataKey& key, std::string& value,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	folly::Future<int> AeroMetaRead(ActiveVmdk *vmdkp,
 		const std::string& ns, const MetaDataKey& key,
-		const std::string& value,
+		std::string& value,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int MetaReadKeySet(ReadRecord* rrecp,

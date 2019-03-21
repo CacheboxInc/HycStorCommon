@@ -6,6 +6,7 @@
 #include <atomic>
 #include <sys/eventfd.h>
 #include <sys/epoll.h>
+#include "Vmdk.h"
 
 namespace pio {
 
@@ -38,11 +39,17 @@ public:
 		std::vector<RequestBlock *>& failed) override;
 	const std::string& GetFileCachePath() const;
 	void GatherEvents();
+	int32_t Getfd(ActiveVmdk* vmdkp, const int32_t& snap_id);
+	int32_t Getfd_v1(const int32_t& snap_id);
+	int CreateNewDeltaContext(int64_t snap_id);
+
 public:
 	bool enabled_{false};
 	std::string file_path_;
 	int fd_{-1}; /* File fd */
 	bool create_file_{false};
+	std::string delta_file_path_;
+	uint64_t file_size_{0};
 
 #ifdef FILETARGET_ASYNC
 	/* AIO related */

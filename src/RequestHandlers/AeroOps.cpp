@@ -18,7 +18,6 @@
 #include "ThreadPool.h"
 #include "DaemonTgtInterface.h"
 #include "Singleton.h"
-#include "MetaDataKV.h"
 
 #if 0
 #define INJECT_AERO_WRITE_ERROR 0
@@ -33,6 +32,8 @@ using namespace ::ondisk;
 using namespace std::chrono_literals;
 
 namespace pio {
+const static std::string kMetaSetName = "metaset";
+const static uint32_t kAeroWriteBlockSize = 1024 * 1024;
 
 AeroSpike::AeroSpike() {
 	instance_ = SingletonHolder<AeroFiberThreads>::GetInstance();
@@ -1246,22 +1247,69 @@ folly::Future<int> AeroSpike::Delete(AeroSpikeConn* connp,
 /* META KV related functions */
 int AeroSpike::MetaWriteKeySet(WriteRecord* wrecp,
 		const std::string& ns, const std::string& setp,
-		const MetaDataKey& key, const std::string& value) {
+		const MetaDataKey& key, const std::string& value,
+		const uint32_t& start_offset, const uint32_t& length,
+		const bool add_bin_val) {
 
+	log_assert(key.size() > 0);
 	auto kp  = &wrecp->key_;
-	auto kp1 = as_key_init(kp, ns.c_str(), setp.c_str(), key.c_str());
+	auto kp1 = as_key_init(kp, ns.c_str(), setp.c_str(), wrecp->key_val_.c_str());
 	log_assert(kp1 == kp);
 
+	LOG(INFO) << __func__ << "Key ::" << wrecp->key_val_ << ", setp ::" << setp;
+	if (kp && kp->valuep) {
+		char *key_val_str = as_val_tostring(kp->valuep);
+		LOG(INFO) << __func__ << "Stage11 : key is :" << key_val_str;
+	}
+
 	auto rp = &wrecp->record_;
-	as_record_init(rp, 1);
+	if (add_bin_val) {
+		LOG(ERROR) << __func__ << "Value is:: "
+			<< (const uint8_t *) value.c_str() + start_offset;
+		as_record_init(rp, 2);
+	} else {
+		as_record_init(rp, 1);
+	}
+
 	auto s = as_record_set_raw(rp, kAsMetaBin.c_str(),
-			(const uint8_t *)value.c_str(), value.size());
+			((const uint8_t *) value.c_str()) + start_offset,
+			length);
 	if (pio_unlikely(s == false)) {
 		LOG(ERROR) << __func__<< "Error in setting record property";
 		return -EINVAL;
 	}
 
+	if (add_bin_val) {
+		LOG(INFO) << __func__ << "Adding additional Bin record";
+		auto s = as_record_set_raw(rp, kAsMetaBinExt.c_str(),
+			((const uint8_t *) &add_bin_val), sizeof(add_bin_val));
+		if (pio_unlikely(s == false)) {
+			LOG(ERROR) << __func__<< "Error in setting record property";
+			return -EINVAL;
+		}
+	}
+
 	return 0;
+}
+
+uint64_t GetSize(char *res) {
+
+	if (res == NULL || strlen(res) == 0 ) {
+		return 0;
+	}
+
+	std::string temp = res;
+	std::size_t first = temp.find_first_of("=");
+	if (first == std::string::npos)
+		return 0;
+
+	std::size_t last = temp.find_first_of(";");
+	if (last == std::string::npos)
+		return 0;
+
+	std::string strNew = temp.substr(first + 1, last - (first + 1));
+	LOG(ERROR) << __func__ << "strNew:::-" << strNew.c_str();
+	return stol(strNew);
 }
 
 folly::Future<int> AeroSpike::AeroMetaWrite(ActiveVmdk *vmdkp,
@@ -1269,45 +1317,171 @@ folly::Future<int> AeroSpike::AeroMetaWrite(ActiveVmdk *vmdkp,
 		const std::string& value,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
 
-	auto w_batch_rec = std::make_unique<WriteBatch>(vmdkp->GetID(),
-		ns, vmdkp->GetVM()->GetJsonConfig()->GetTargetName());
-	if (pio_unlikely(w_batch_rec == nullptr)) {
-		LOG(ERROR) << "WriteBatch allocation failed";
-		return -ENOMEM;
+	/* Find that record can fit in one aerospike record entry or not */
+	auto value_sz = value.size();
+	auto count = value_sz / kAeroWriteBlockSize;
+	if (value_sz % kAeroWriteBlockSize) {
+		count++;
 	}
 
-	w_batch_rec->ckpt_ = MetaData_constants::kInvalidCheckPointID();
-	w_batch_rec->aero_conn_ = aero_conn.get();
-	log_assert(w_batch_rec->aero_conn_ != nullptr);
-	auto rec = std::make_unique<WriteRecord>();
-	if (pio_unlikely(not rec)) {
-		return -ENOMEM;
+	LOG(INFO) << __func__ << "count:" << count
+		<< ", value.size:" << value_sz;
+
+	std::string m_value;
+	m_value.clear();
+	if (pio_unlikely(count > 1)) {
+		auto w_batch_rec = std::make_unique<WriteBatch>(vmdkp->GetID(),
+			ns, kMetaSetName);
+		if (pio_unlikely(w_batch_rec == nullptr)) {
+			LOG(ERROR) << "WriteBatch allocation failed";
+			return -ENOMEM;
+		}
+
+		w_batch_rec->aero_conn_ = aero_conn.get();
+		log_assert(w_batch_rec->aero_conn_ != nullptr);
+		w_batch_rec->batch.recordsp_.reserve(count);
+
+		/* Input value is greater than Aero Write Block size */
+		uint32_t start_offset = 0;
+		uint32_t remaining_len = value_sz;
+
+		/* format is "size=<value_sz>;map=<comma separate entries>" */
+		m_value = "size=" + std::to_string(value_sz) + ";map=";
+		std::ostringstream new_key;
+		for (uint16_t i = 0; i < count; i++) {
+			auto rec = std::make_unique<WriteRecord>();
+			if (pio_unlikely(not rec)) {
+				return -ENOMEM;
+			}
+			rec->batchp_ = w_batch_rec.get();
+			auto len = remaining_len > kAeroWriteBlockSize ?
+				kAeroWriteBlockSize : remaining_len;
+
+			/* New key which represents the partial value worth
+			 * AeroSpike Write Block size of data */
+
+			new_key.str("");
+			new_key.clear();
+			new_key << key << ":" << std::to_string(i);
+			rec->key_val_ = new_key.str();
+
+			LOG(INFO) << __func__ << "Start offset:"
+					<< start_offset <<", len:"
+					<< len << ", key:" << new_key.str();
+			MetaWriteKeySet(rec.get(), ns, kAsMetaSet, new_key.str().c_str(),
+					value, start_offset, len, false);
+
+			remaining_len -= len;
+			start_offset += len;
+
+			w_batch_rec->batch.recordsp_.emplace_back(std::move(rec));
+			if (pio_unlikely(i)) {
+				m_value += ",";
+			}
+			m_value += new_key.str();
+		}
+
+		for (auto& rec_val : w_batch_rec->batch.recordsp_) {
+			auto kp  = &rec_val.get()->key_;
+			if (kp && kp->valuep) {
+				char *key_val_str = as_val_tostring(kp->valuep);
+				LOG(INFO) << __func__ << "Stage33 : key is :"
+					<< key_val_str << ", rec_val:"
+					<< rec_val.get();
+			}
+		}
+
+		w_batch_rec->batch.nwrites_ = count;
+		w_batch_rec->promise_ = std::make_unique<folly::Promise<int>>();
+		return WriteBatchSubmit(w_batch_rec.get())
+		.then([this, w_batch_rec = std::move(w_batch_rec),
+			key, vmdkp, ns, aero_conn, m_value = std::move(m_value)] (int rc) mutable {
+			if (rc) {
+				LOG(ERROR) << __func__ << "Error";
+			} else {
+				LOG(INFO) << __func__ << "Success...";
+			}
+
+			if (w_batch_rec->failed_) {
+				LOG(ERROR) << __func__ << "Error";
+				return folly::makeFuture(-EIO);
+			}
+
+			/* Now write the final record */
+			auto w_batch_rec = std::make_unique<WriteBatch>(vmdkp->GetID(),
+					ns, kMetaSetName);
+			if (pio_unlikely(w_batch_rec == nullptr)) {
+				LOG(ERROR) << "WriteBatch allocation failed";
+				return folly::makeFuture(-ENOMEM);
+			}
+
+			w_batch_rec->aero_conn_ = aero_conn.get();
+			log_assert(w_batch_rec->aero_conn_ != nullptr);
+			w_batch_rec->batch.recordsp_.reserve(1);
+			auto rec = std::make_unique<WriteRecord>();
+			if (pio_unlikely(not rec)) {
+				return folly::makeFuture(-ENOMEM);
+			}
+
+			rec->batchp_ = w_batch_rec.get();
+			rec->key_val_ = key;
+			LOG(INFO) << __func__ << "Writting map: " << m_value.c_str();
+			MetaWriteKeySet(rec.get(), ns, kAsMetaSet, key,
+					m_value, 0, m_value.size(), true);
+			w_batch_rec->batch.recordsp_.emplace_back(std::move(rec));
+			w_batch_rec->batch.nwrites_ = 1;
+			w_batch_rec->promise_ = std::make_unique<folly::Promise<int>>();
+			return WriteBatchSubmit(w_batch_rec.get())
+			.then([w_batch_rec = std::move(w_batch_rec)] (int rc) mutable {
+				return folly::makeFuture(rc);
+			});
+		});
+	} else {
+
+		LOG(INFO) << __func__ << "Next stage..";
+		/* Now write the final record */
+		auto w_batch_rec = std::make_unique<WriteBatch>(vmdkp->GetID(),
+				ns, kMetaSetName);
+		if (pio_unlikely(w_batch_rec == nullptr)) {
+			LOG(ERROR) << "WriteBatch allocation failed";
+			return -ENOMEM;
+		}
+
+		w_batch_rec->aero_conn_ = aero_conn.get();
+		log_assert(w_batch_rec->aero_conn_ != nullptr);
+		w_batch_rec->batch.recordsp_.reserve(1);
+		auto rec = std::make_unique<WriteRecord>();
+		if (pio_unlikely(not rec)) {
+			return -ENOMEM;
+		}
+
+		rec->batchp_ = w_batch_rec.get();
+		rec->key_val_ = key;
+		LOG(INFO) << __func__ << "Writting usual record";
+		MetaWriteKeySet(rec.get(), ns, kAsMetaSet, key,
+					value, 0, value.size(), false);
+		w_batch_rec->batch.recordsp_.emplace_back(std::move(rec));
+		w_batch_rec->batch.nwrites_ = 1;
+		w_batch_rec->promise_ = std::make_unique<folly::Promise<int>>();
+		return WriteBatchSubmit(w_batch_rec.get())
+		.then([w_batch_rec = std::move(w_batch_rec)] (int rc) mutable {
+			return rc;
+		});
 	}
-
-	MetaWriteKeySet(rec.get(), ns, kAsMetaBin, key, value);
-	w_batch_rec->batch.recordsp_.emplace_back(std::move(rec));
-	w_batch_rec->batch.nwrites_ = 1;
-	w_batch_rec->promise_ = std::make_unique<folly::Promise<int>>();
-
-	return WriteBatchSubmit(w_batch_rec.get())
-	.then([w_batch_rec = std::move(w_batch_rec)] (int rc) mutable {
-		return rc;
-	}).wait();
 }
 
-int AeroSpike::AeroMetaWriteCmd(ActiveVmdk *vmdkp,
+folly::Future<int> AeroSpike::AeroMetaWriteCmd(ActiveVmdk *vmdkp,
 		const MetaDataKey& key, const std::string& value,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
-	auto f = AeroMetaWrite(vmdkp, kAsNamespaceMeta, key,
+	return AeroMetaWrite(vmdkp, kAsNamespaceCacheDirty, key,
 				value, aero_conn);
-	f.wait();
-	return 0;
 }
 
 int AeroSpike::MetaReadKeySet(ReadRecord* rrecp,
 		const std::string& ns, const std::string& setp,
 		const MetaDataKey& key, ReadBatch* r_batch_rec) {
 
+	log_assert(key.size() > 0);
 	auto recp = as_batch_read_reserve(r_batch_rec->aero_recordsp_);
 	if (pio_unlikely(recp == nullptr)) {
 		LOG(ERROR) << "ReadBatch allocation failed";
@@ -1315,7 +1489,7 @@ int AeroSpike::MetaReadKeySet(ReadRecord* rrecp,
 	}
 	recp->read_all_bins = true;
 	auto kp = as_key_init(&recp->key, ns.c_str(), setp.c_str(),
-					key.c_str());
+					rrecp->key_val_.c_str());
 	if (pio_unlikely(kp == nullptr)) {
 		return -ENOMEM;
 	}
@@ -1326,12 +1500,15 @@ int AeroSpike::MetaReadKeySet(ReadRecord* rrecp,
 }
 
 folly::Future<int> AeroSpike::AeroMetaRead(ActiveVmdk *vmdkp,
-		const std::string& ns, const MetaDataKey& key,
-		const std::string& value,
-		std::shared_ptr<AeroSpikeConn> aero_conn) {
+	const std::string& ns, const MetaDataKey& key,
+	std::string& value,
+	std::shared_ptr<AeroSpikeConn> aero_conn) {
+
+	/* First read the Metadata portion to figure out how big is the
+	 * record to read */
 
 	auto r_batch_rec = std::make_unique<ReadBatch>(vmdkp->GetID(),
-		ns, vmdkp->GetVM()->GetJsonConfig()->GetTargetName());
+		ns, kMetaSetName);
 	if (pio_unlikely(r_batch_rec == nullptr)) {
 		LOG(ERROR) << "ReadBatch allocation failed";
 		return -ENOMEM;
@@ -1342,72 +1519,236 @@ folly::Future<int> AeroSpike::AeroMetaRead(ActiveVmdk *vmdkp,
 
 	r_batch_rec->aero_recordsp_ = as_batch_read_create(1);
 	if (pio_unlikely(r_batch_rec->aero_recordsp_ == nullptr)) {
+		LOG(ERROR) <<__func__ << "ReadBatch create failed";
 		return -ENOMEM;
 	}
 
 	r_batch_rec->recordsp_.reserve(1);
 	auto rec = std::make_unique<ReadRecord>();
 	if (pio_unlikely(not rec)) {
+		LOG(ERROR) <<__func__ << "ReadRecord create failed";
 		return -ENOMEM;
 	}
 
-	MetaReadKeySet(rec.get(), ns, kAsMetaBin, key, r_batch_rec.get());
+	rec->key_val_ = key;
+	LOG(ERROR) << __func__ << "Initial key is:" << key;
+	rec->batchp_ = r_batch_rec.get();
+	MetaReadKeySet(rec.get(), ns, kAsMetaSet, key, r_batch_rec.get());
 	r_batch_rec->recordsp_.emplace_back(std::move(rec));
 	r_batch_rec->nreads_ = 1;
 	r_batch_rec->promise_ = std::make_unique<folly::Promise<int>>();
 
-	return ReadBatchSubmit(r_batch_rec.get())
-	.then([r_batch_rec = std::move(r_batch_rec), key, value, aero_conn]
-			(int rc) mutable {
-		if (pio_unlikely(rc < 0)) {
-			LOG(ERROR) <<__func__ << "read_batch_submit failed";
-			return rc;
+	int rc = 0;
+	ReadBatchSubmit(r_batch_rec.get()).wait();
+	if (pio_unlikely(r_batch_rec->failed_)) {
+		rc = -EIO;
+		LOG(ERROR) <<__func__ << "read_batch_submit failed";
+		return rc;
+	}
+
+	auto it = r_batch_rec->recordsp_.begin();
+	as_batch_read_record *recp = it->get()->aero_recp_;
+	auto read_more = false;
+	char *destp = NULL;
+	uint32_t size;
+	as_bytes *bp = NULL;
+	switch (recp->result) {
+		default:
+			rc = -EIO;
+			break;
+		case AEROSPIKE_OK:
+			/* Check whether EXT bin is avaliable */
+			bp = as_record_get_bytes(&recp->record,
+					kAsMetaBinExt.c_str());
+			if (pio_unlikely(bp != NULL)) {
+				/* Extended Bin exist, implies that value
+				 * is more than 1 record */
+				LOG(INFO) << __func__
+					<< "kAsMetaBinEx exists";
+				read_more = true;
+			} else {
+				LOG(INFO) << __func__
+					<< "kAsMetaBinEx Bin does not exists";
+			}
+
+			bp = as_record_get_bytes(&recp->record,
+					kAsMetaBin.c_str());
+			if (pio_unlikely(bp == NULL)) {
+				LOG(ERROR) << __func__
+					<< "Access error, unable to get data from given rec";
+				return -ENOMEM;
+			}
+
+			size = as_bytes_size(bp);
+			destp = new char[size + 1];
+			memset(destp, 0, size + 1);
+#if 0
+			auto destp = NewRequestBuffer(size);
+			if (pio_unlikely(not destp)) {
+				return -ENOMEM;
+			}
+#endif
+			if (as_bytes_copy(bp, 0, (uint8_t *) destp, (uint32_t) size) != size) {
+				delete destp;
+				LOG(ERROR) << __func__ << "Error in reading buffer";
+				return -EIO;
+			}
+
+			LOG(INFO) << __func__ << "size is:" << GetSize(destp);
+			if(pio_unlikely(read_more)) {
+				LOG(INFO) << __func__ << "Read_more is set";
+			}
+
+			break;
+
+		case AEROSPIKE_ERR_RECORD_NOT_FOUND:
+			rc = -ENOENT;
+			break;
+	}
+
+	if (pio_unlikely(rc || destp == NULL)) {
+		LOG(ERROR) <<__func__ << "Read failed, rc:" << rc;
+		return rc;
+	}
+
+	if (pio_likely(!read_more)) {
+		/* Return the value from here */
+		value = destp;
+		return 0;
+	}
+
+	/* Format is size=<val>;map=<entries> */
+	auto total_size = GetSize(destp);
+	uint16_t count = total_size / kAeroWriteBlockSize;
+	if (total_size % kAeroWriteBlockSize) {
+		count++;
+	}
+
+	LOG(INFO) << __func__ << "Count value:" << count;
+	if (pio_unlikely(!count)) {
+		LOG(ERROR) << __func__ << "Count value should be non zero";
+		log_assert(0);
+		return -EIO;
+	}
+
+	/* Destp has the values which needs to be read */
+	r_batch_rec = std::make_unique<ReadBatch>(vmdkp->GetID(),
+		ns, kMetaSetName);
+	if (pio_unlikely(r_batch_rec == nullptr)) {
+		LOG(ERROR) << "ReadBatch allocation failed";
+		return -ENOMEM;
+	}
+
+	r_batch_rec->aero_conn_ = aero_conn.get();
+	log_assert(r_batch_rec->aero_conn_ != nullptr);
+	r_batch_rec->aero_recordsp_ = as_batch_read_create(count);
+	if (pio_unlikely(r_batch_rec->aero_recordsp_ == nullptr)) {
+		LOG(ERROR) << "ReadBatch allocation failed";
+		return -ENOMEM;
+	}
+
+	r_batch_rec->recordsp_.reserve(count);
+	std::ostringstream new_key;
+	for (uint16_t i = 0; i < count ; i++) {
+		auto rec = std::make_unique<ReadRecord>();
+		if (pio_unlikely(not rec)) {
+			LOG(ERROR) << "ReadRecord allocation failed";
+			return -ENOMEM;
 		}
 
-		as_batch_read_record *recp;
-		for (auto& rec : r_batch_rec->recordsp_) {
-			recp = rec->aero_recp_;
-			switch (recp->result) {
-				default:
-					break;
-				case AEROSPIKE_OK:
-					{
-					as_bytes *bp = as_record_get_bytes(&recp->record,
-							kAsMetaBin.c_str());
-					if (pio_unlikely(bp == NULL)) {
-						LOG(ERROR) << __func__
-							<< "Access error, unable to get data from given rec";
-						return -ENOMEM;
-					}
+		/* Create Keys to Read */
+		new_key.str("");
+		new_key.clear();
+		new_key << key << ":" << std::to_string(i);
+		rec->key_val_ = new_key.str();
+		LOG(INFO) << __func__ << "Addition key:" << new_key.str();
+		rec->batchp_ = r_batch_rec.get();
+		MetaReadKeySet(rec.get(), ns, kAsMetaSet, key, r_batch_rec.get());
+		r_batch_rec->recordsp_.emplace_back(std::move(rec));
+	}
 
-					uint32_t size = as_bytes_size(bp);
-					auto destp = NewRequestBuffer(size);
-					if (pio_unlikely(not destp)) {
-						return -ENOMEM;
-					}
+	r_batch_rec->nreads_ = count;
+	r_batch_rec->promise_ = std::make_unique<folly::Promise<int>>();
+	ReadBatchSubmit(r_batch_rec.get()).wait();
+	rc = 0;
+	if (pio_unlikely(r_batch_rec->failed_)) {
+		rc = -EIO;
+		LOG(ERROR) <<__func__ << "read_batch_submit failed";
+		return rc;
+	}
 
-					log_assert(as_bytes_copy(bp, 0,
-							(uint8_t *) destp->Payload(),
-							(uint32_t) size) == size);
-					}
-					break;
+	if (pio_likely(destp)) {
+		delete destp;
+	}
 
-				case AEROSPIKE_ERR_RECORD_NOT_FOUND:
+	/* Create result buffer */
+	destp = new char[total_size];
+	if (pio_unlikely(not destp)) {
+		return -ENOMEM;
+	}
+
+	auto start_offset = 0;
+	size = 0;
+	bp = NULL;
+	rc = 0;
+	for (auto& rec : r_batch_rec->recordsp_) {
+		recp = rec->aero_recp_;
+		switch (recp->result) {
+			default:
+				rc = -EIO;
+				break;
+			case AEROSPIKE_OK:
+				bp = as_record_get_bytes(&recp->record,
+						kAsMetaBin.c_str());
+				if (pio_unlikely(bp == NULL)) {
+					LOG(ERROR) << __func__
+						<< "Access error, unable to get data from given rec";
+					rc = -ENOMEM;
 					break;
 				}
+
+				size = as_bytes_size(bp);
+				LOG(INFO) << "start offset::" << start_offset << "size::" << size;
+				if (as_bytes_copy(bp, 0, (uint8_t *) destp + start_offset,
+						(uint32_t) size) != size) {
+					rc = -EIO;
+					break;
+				}
+				{
+					int c = *(destp + start_offset);
+					LOG(ERROR) << "Initial byte is::" << c;
+				}
+				start_offset += size;
+				break;
+			case AEROSPIKE_ERR_RECORD_NOT_FOUND:
+				LOG(ERROR) << __func__ << "AEROSPIKE_ERR_RECORD_NOT_FOUND not found";
+				rc = -ENOENT;
+				break;
 		}
-		return 0;
-	});
+
+		if (pio_unlikely(rc)) {
+			break;
+		}
+	}
+
+	if (pio_unlikely(rc)) {
+		delete destp;
+	} else {
+		value = destp;
+	}
+
+	return rc;
 }
 
 int AeroSpike::AeroMetaReadCmd(ActiveVmdk *vmdkp,
-		const MetaDataKey& key, const std::string& value,
+		const MetaDataKey& key, std::string& value,
 		std::shared_ptr<AeroSpikeConn> aero_conn) {
-	auto f = AeroMetaRead(vmdkp, kAsNamespaceMeta, key,
+	auto f = AeroMetaRead(vmdkp, kAsNamespaceCacheDirty, key,
 				value, aero_conn);
 	f.wait();
 	return 0;
 }
+
 
 /*
  * This function is called from aerospike event loop threads -

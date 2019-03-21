@@ -31,6 +31,12 @@ int NewFlushStatusReq(ondisk::VmID vmid, FlushStats &flush_stat);
 int FlushHistoryReq(ondisk::VmID vmid, json_t *history_param);
 int NewScanStatusReq(pio::AeroClusterID id, ScanStats &scan_stat);
 int NewAeroCacheStatReq(ondisk::VmID vmid, AeroStats *);
+int MoveUnflushedToFlushed(::hyc_thrift::VmHandle vm_handle);
+int CreateNewVmDeltaContext(::hyc_thrift::VmHandle vm_handle, std::string snap_id);
+int NewVmDeltaContextSet(VmHandle vm_handle, std::string snap_id);
+int NewVmDeltaContextSet(::hyc_thrift::VmHandle vm_handle, std::string snap_id);
+int UpdatefdMap(const std::string& vmdkid, const int64_t& snap_id, const int32_t& fd);
+int CreateNewVmdkDeltaContext(const std::string& vmdkid, const int64_t& snap_id);
 int GlobalStats(ComponentStats* stats);
 
 int NewVmdkStatsReq(const std::string& vmdkid, VmdkCacheStats* vmdk_stats);

@@ -9,7 +9,6 @@
 #include "Request.h"
 #include "Vmdk.h"
 #include "UnalignedHandler.h"
-#include "LockHandler.h"
 #include "RamCacheHandler.h"
 #include "DaemonUtils.h"
 #include "VmdkConfig.h"
@@ -42,11 +41,9 @@ protected:
 		vmdkp = std::make_unique<ActiveVmdk>(1, "1", nullptr, config.Serialize());
 
 		auto unaligned_handler = std::make_unique<UnalignedHandler>();
-		auto lock_handler = std::make_unique<LockHandler>();
 		auto ramcache_handler = std::make_unique<RamCacheHandler>(vmdkp->GetJsonConfig());
 
 
-		vmdkp->RegisterRequestHandler(std::move(lock_handler));
 		vmdkp->RegisterRequestHandler(std::move(unaligned_handler));
 		vmdkp->RegisterRequestHandler(std::move(ramcache_handler));
 

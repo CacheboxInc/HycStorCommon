@@ -14,7 +14,6 @@ from collections import OrderedDict
 from urllib.parse import urlencode
 from config import *
 
-
 def init_components():
     data = { "service_type": "test_server", "service_instance" : 0, "etcd_ips" : "%s" %EtcdIps}
 
@@ -45,7 +44,7 @@ def new_vm(VmId, TargetName):
 
     TargetID = VmId
 
-    vm_data = { "vmid": "%s" %VmId, "TargetID": "%s" %TargetID, "TargetName": "%s" %TargetName, "AeroClusterID":"%s" %AeroClusterID}
+    vm_data = { "vmid": "%s" %VmId, "TargetID": "%s" %TargetID, "TargetName": "%s" %TargetName, "AeroClusterID":"%s" %AeroClusterID, "VmUUID": "1"}
     r = requests.post("%s://%s/stord_svc/v1.0/new_vm/?vm-id=%s" %(h, StordUrl, VmId), data=json.dumps(vm_data), headers=headers, cert=cert, verify=False)
     assert (r.status_code == 200)
     print ("STORD: New VM added: %s" %VmId)
@@ -58,9 +57,21 @@ def new_vm(VmId, TargetName):
 
 def create_vmdk(VmId, LunID, DevName, DevPath, VmdkID, target, createfile = "false"):
     TargetID = VmId
+    blk_sz   = 4096
+    #blk_sz   = 16384
 
-    vmdk_data = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"4096","Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true", "CreateFile":"%s" %createfile, "TargetFilePath":"%s" %target, "TargetFileSize":"%s" %FileSize}}
 
+    if LunID == 1:
+        #my data
+        #vmdk_data = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"%s" %blk_sz,"Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true", "CreateFile":"%s" %createfile, "TargetFilePath":"%s" %target, "TargetFileSize":"%s" %FileSize}, "ReadAhead":{"Enabled":"True"}, "VmUUID":"1", "VmdkUUID":"2" ,"DiskSizeBytes": 20 * 1024*1024*1024, "ReadCacheRecommendation" : 100, "WriteCacheRecommendation": 100}
+
+
+        vmdk_data = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"%s" %blk_sz,"Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true", "CreateFile":"%s" %createfile, "TargetFilePath":"%s" %target, "TargetFileSize":"%s" %FileSize, "DeltaTargetFilePath" :"/mnt"}, "ReadAhead":{"Enabled":"True"}, "VmUUID":"1", "VmdkUUID":"2" ,"DiskSizeBytes": 20 * 1024*1024*1024}
+        #vmdk_data = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"%s" %blk_sz,"Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true", "CreateFile":"%s" %createfile, "TargetFilePath":"%s" %target, "TargetFileSize":"%s" %FileSize}, "ReadCacheRecommendation":"10","WriteCacheRecommendation":"20"}
+    else:
+        #vmdk_data = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"%s" %blk_sz, "ParentDiskName":"test-1", "ParentDiskVmdkID" : "1", "Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"}, "ReadAhead":{"Enabled":"true"}, "SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true","CreateFile":"%s" %createfile, "TargetFilePath":"%s" %target,"TargetFileSize":"%s" %FileSize}, "CleanupOnWrite":"true"}
+        pass
+    print(vmdk_data)
     r = requests.post("%s://%s/stord_svc/v1.0/new_vmdk/?vm-id=%s&vmdk-id=%s" % (h, StordUrl, VmId, VmdkID), data=json.dumps(vmdk_data), headers=headers, cert=cert, verify=False)
     assert (r.status_code == 200)
     print ("STORD: New VMDK: %s added for VM: %s" %(VmdkID, VmId))
@@ -74,7 +85,8 @@ def create_vmdk(VmId, LunID, DevName, DevPath, VmdkID, target, createfile = "fal
 def truncate_disk(i, j):
     Name="iscsi-disk_%s_%s" %(i, j)
     Path="/var/hyc/%s" %(Name)
-    cmd="truncate --size=%sG %s" %(size_in_gb, Path)
+    #cmd="truncate --size=%sG %s" %(size_in_gb, Path)
+    cmd="truncate --size=%s %s" %(size_in_gb, Path)
     os.system(cmd);
 
     return Name, Path
@@ -135,31 +147,28 @@ def do_setup(no_of_vms, no_of_vmdks):
 
             disk_no += 1
 
-        RTO = False
-        #RTO = True
-        if RTO:
-            # Setup time calls
-            # One first snapshot is required to represent powered off state of VM
+    VmID = i
 
-            VmID = i
-            ckptID="1"
+    #r = requests.post("%s://%s/stord_svc/v1.0/prepare_ckpt/?vm-id=%s" % (h, StordUrl, VmID), headers=headers, cert=cert, verify=False)
 
-            r = requests.post("http://%s/stord_svc/v1.0/prepare_ckpt/?vm-id=%s" %(StordUrl, VmID), headers=headers, cert=cert, verify=False)
-            assert (r.status_code == 200)
+    ckptID="1"
+    r = requests.post("http://%s/stord_svc/v1.0/prepare_ckpt/?vm-id=%s" %(StordUrl, VmID), headers=headers, cert=cert, verify=False)
+    assert (r.status_code == 200)
 
-            r = requests.post("http://%s/stord_svc/v1.0/commit_ckpt/?vm-id=%s&ckpt-id=%s" %(StordUrl, VmID, ckptID), headers=headers, cert=cert, verify=False)
-            assert (r.status_code == 200)
+    r = requests.post("http://%s/stord_svc/v1.0/commit_ckpt/?vm-id=%s&ckpt-id=%s" % (StordUrl, VmID, ckptID), headers=headers, cert=cert, verify=False)
+    assert (r.status_code == 200)
 
-            ckpt_ids = [1]
-            snapshot_id = 1
-            data = {"checkpoint-ids": "%s" %ckpt_ids, "snapshot-id": "%s" %snapshot_id}
-            r = requests.post("http://%s/stord_svc/v1.0/serialize_checkpoints/?vm-id=1" %StordUrl,
-                    data=json.dumps(data), headers=headers, cert=None, verify=False)
-            if r.status_code == 200:
-                    print("moving ahead")
-            else:
-                    print("error")
-            assert (r.status_code == 200)
+    ckpt_ids = [1]
+    snapshot_id = 1
+    data = {"checkpoint-ids": "%s" %ckpt_ids, "snapshot-id": "%s" %snapshot_id}
+    r = requests.post("http://%s/stord_svc/v1.0/serialize_checkpoints/?vm-id=1" %StordUrl,
+            data=json.dumps(data), headers=headers, cert=None, verify=False)
+    if r.status_code == 200:
+            print("moving ahead")
+    else:
+            print("error")
+
+    assert (r.status_code == 200)
 
     cmd = "iscsiadm --mode discovery --type sendtargets --portal %s" %TargetIp
     os.system(cmd);
@@ -167,7 +176,7 @@ def do_setup(no_of_vms, no_of_vmdks):
     cmd = "iscsiadm -m node --login"
     os.system(cmd);
 
-    time.sleep(5)
+    time.sleep(1)
     os.system("lsblk")
 
 def do_cleanup():
@@ -187,8 +196,53 @@ def do_cleanup():
             delete_vmdk(i, j, disk_no)
         delete_vm(i)
 
+def do_io():
+    #cmd = "fio ~/fio_sdf.conf"
+    cmd = "dd if=/dev/urandom of=/dev/sdf bs=4k count=1 oflag=direct"
+    os.system(cmd)
+    return
+
+
+def do_restcalls():
+    '''
+    data1 = {"vmid": 1}
+    print ("Send stord_svc aero_stat")
+    r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/aero_stat/?vm-id=1" % h)
+    assert (r.status_code == 200)
+
+    print ("Send stord_svc vmdk_stats")
+    r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/vmdk_stats/?vmdk-id=1" % h)
+    assert (r.status_code == 200)
+
+    print ("Send stord_svc flush_req")
+    data1 = {"vmid": "1", "MoveAllowed" : "true"}
+    r = requests.post("%s://127.0.0.1:9000/stord_svc/v1.0/flush_req/?vm-id=1" %h, data=json.dumps(data1), headers=headers, cert=cert, verify=False)
+    assert (r.status_code == 200)
+
+    data1 = {"vmid": 1}
+    print ("Send GET stord_svc flush_status 1")
+    r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/flush_status/?vm-id=1" % h)
+    assert (r.status_code == 200)
+
+    print ("Send GET stord_svc flush_history 1")
+    r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/flush_history/?vm-id=1&vmdk-id=1" % h)
+    assert (r.status_code == 200)
+
+    my_list=range(0,10)
+    for i in my_list:
+        data = {"aero-cluster-id": "%s" %AeroClusterID}
+        r = requests.post("%s://127.0.0.1:9000/stord_svc/v1.0/scan_status/?aero-cluster-id=%s" %(h, AeroClusterID), data=json.dumps(data1), headers=headers, cert=cert, verify=False)
+
+    data1 = {"aero-cluster-id": "%s" %AeroClusterID}
+    r = requests.post("%s://127.0.0.1:9000/stord_svc/v1.0/scan_status/?aero-cluster-id=%s" % (h, AeroClusterID), data=json.dumps(data1), headers=headers, cert=cert, verify=False)
+    '''
+    data1 = {"aero-cluster-id": "%s" %AeroClusterID}
+    r = requests.post("%s://127.0.0.1:9000/stord_svc/v1.0/scan_status/?aero-cluster-id=%s" %(h, AeroClusterID), data=json.dumps(data1), headers=headers, cert=cert, verify=False)
 
 if __name__ == '__main__':
+
+    cleanup = False
+    #cleanup = True
 
     if len(sys.argv) < 3:
         print (len(sys.argv))
@@ -223,11 +277,15 @@ if __name__ == '__main__':
     for m in range(1, (no_iters + 1)):
         print("#################Iter %s #################" %m)
         do_setup(no_of_vms, no_of_vmdks)
-        print("Setup and Discovery complete will continue cleanup!!\n\n")
+        #do_io()
+        #do_restcalls()
+        if cleanup:
+            print("Setup and Discovery complete will continue cleanup!!\n\n")
 
-        do_cleanup()
+            do_cleanup()
 
-        print("Cleanup complete!!\n\n")
+            print("Cleanup complete!!\n\n")
 
-    remove_aero()
-    deinit_components()
+    if cleanup:
+        remove_aero()
+        deinit_components()

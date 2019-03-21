@@ -16,7 +16,6 @@
 #include "Vmdk.h"
 #include "VmdkConfig.h"
 
-#include "LockHandler.h"
 #include "UnalignedHandler.h"
 #include "CompressHandler.h"
 #include "EncryptHandler.h"
@@ -72,9 +71,6 @@ public:
 			config.Serialize());
 		EXPECT_NE(vmdkp, nullptr);
 
-		auto lock = std::make_unique<LockHandler>();
-		EXPECT_NE(lock, nullptr);
-
 		auto unalign = std::make_unique<UnalignedHandler>();
 		EXPECT_NE(unalign, nullptr);
 
@@ -83,7 +79,6 @@ public:
 			vmdkp.get(), configp);
 		EXPECT_NE(multi_target, nullptr);
 
-		vmdkp->RegisterRequestHandler(std::move(lock));
 		vmdkp->RegisterRequestHandler(std::move(unalign));
 
 		if (is_compression_enabled) {

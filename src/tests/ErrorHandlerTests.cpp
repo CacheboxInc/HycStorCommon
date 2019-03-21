@@ -10,7 +10,6 @@
 #include "DaemonUtils.h"
 #include "VmdkConfig.h"
 
-#include "LockHandler.h"
 #include "MultiTargetHandler.h"
 
 using namespace pio;
@@ -49,13 +48,10 @@ protected:
 		EXPECT_NE(vmdkp, nullptr);
 
 		auto configp = vmdkp->GetJsonConfig();
-		auto lock = std::make_unique<LockHandler>();
-		EXPECT_NE(lock, nullptr);
 
 		auto multi_target = std::make_unique<MultiTargetHandler>(vmdkp.get(), configp);
 		EXPECT_NE(multi_target, nullptr);
 
-		vmdkp->RegisterRequestHandler(std::move(lock));
 		vmdkp->RegisterRequestHandler(std::move(multi_target));
 	}
 

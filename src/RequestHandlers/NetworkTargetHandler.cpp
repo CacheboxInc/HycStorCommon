@@ -25,6 +25,8 @@ NetworkTargetHandler::NetworkTargetHandler(const config::VmdkConfig* configp) :
 	RequestHandler(NetworkTargetHandler::kName, nullptr) {
 	configp->GetVmId(vm_id_);
 	configp->GetVmdkId(vmdk_id_);
+	TargetManager *tmgr = SingletonHolder<TargetManager>::GetInstance().get();
+	target_ = tmgr->GetVmdk(vm_id_, vmdk_id_);
 	Open();
 }
 
@@ -35,7 +37,7 @@ NetworkTargetHandler::~NetworkTargetHandler() {
 
 	if (target_) {
 		TargetManager *tmgr = SingletonHolder<TargetManager>::GetInstance().get();
-		tmgr->CloseVmdk(vm_id_, vmdk_id_);
+		tmgr->CloseVmdk(vm_id_, vmdk_id_, 0);
 	}
 }
 
@@ -44,12 +46,12 @@ int NetworkTargetHandler::Open() {
 	log_assert(tmgr != nullptr);
 
 	LOG(ERROR) << "vmid::" << vm_id_ << "vmdk_id:::" << vmdk_id_;
-	target_ = tmgr->OpenVmdk(vm_id_, vmdk_id_);
-	if (target_ == nullptr) {
+	assert(target_);
+	int rc = tmgr->OpenVmdk(vm_id_, vmdk_id_, 0); // ToFix: Hardcoded snap_id
+	if(rc) {
 		LOG(ERROR) << "openvmdk failed";
 		return -1;
 	}
-
 	//TBD: revisit the abstraction
 	if (tmgr->GetVmdkIds(vm_id_, vmdk_id_, &srcid_, &destid_) != 0) {
 		LOG(ERROR) << "getvmdkids failed";
@@ -73,7 +75,8 @@ folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, MAYBE_UNUSED(Re
 
 	auto req_blocks = std::make_shared<std::vector<req_buf_type>>();
 	for (auto blockp : process) {
-		io->AddIoVec(blockp->GetAlignedOffset(), vmdkp->BlockSize(),
+		auto snap_id = GetSnapID(vmdkp, blockp->GetReadCheckPointId());
+		io->AddIoVec(snap_id, blockp->GetAlignedOffset(), vmdkp->BlockSize(),
 			[req_blocks](int buflen) -> void* {
 				auto destp = NewRequestBuffer(buflen);
 				if (pio_unlikely(not destp))
@@ -141,7 +144,7 @@ folly::Future<int> NetworkTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
 	size_t curr_bytes_write = 0;
 	for (auto& blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
-		io->AddIoVec(blockp->GetAlignedOffset(), srcp->PayloadSize(), srcp->Payload());
+		io->AddIoVec(0, blockp->GetAlignedOffset(), srcp->PayloadSize(), srcp->Payload());
 		curr_bytes_write += srcp->PayloadSize();
 	}
 
@@ -166,6 +169,10 @@ folly::Future<int> NetworkTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
 	});
 }
 
+int64_t NetworkTargetHandler::GetSnapID(ActiveVmdk* vmdkp, const uint64_t& ckpt_id) {
+	return vmdkp->GetVM()->GetSnapID(vmdkp, ckpt_id);
+}
+
 folly::Future<int> NetworkTargetHandler::BulkRead(ActiveVmdk* vmdkp,
 		MAYBE_UNUSED(const std::vector<std::unique_ptr<Request>>& requests),
 		const std::vector<RequestBlock*>& process,
@@ -180,7 +187,16 @@ folly::Future<int> NetworkTargetHandler::BulkRead(ActiveVmdk* vmdkp,
 
 	auto buffers = std::make_shared<std::vector<std::unique_ptr<RequestBuffer>>>();
 	for (auto blockp : process) {
-		io->AddIoVec(blockp->GetAlignedOffset(), vmdkp->BlockSize(),
+
+		auto ckpt_id = blockp->GetReadCheckPointId();
+		auto snap_id = GetSnapID(vmdkp, ckpt_id);
+		if (pio_unlikely(snap_id < 0)) {
+			LOG(ERROR) << __func__ << "Got invalid snap id: "
+				<< snap_id << " for checkpoint ID:" <<  ckpt_id;
+			log_assert(0);
+		}
+
+		io->AddIoVec(snap_id, blockp->GetAlignedOffset(), vmdkp->BlockSize(),
 			[buffers](int buflen) -> void* {
 				auto destp = NewRequestBuffer(buflen);
 				if (pio_unlikely(not destp))
@@ -254,7 +270,7 @@ folly::Future<int> NetworkTargetHandler::Write(ActiveVmdk *vmdkp,
 		LOG(ERROR) << __func__ << "Offset::-" << blockp->GetAlignedOffset()
 			<< "Start::-" << payload[0] << "End::-" << payload[4095];
 		#endif
-		io->AddIoVec(blockp->GetAlignedOffset(), srcp->PayloadSize(),
+		io->AddIoVec(0, blockp->GetAlignedOffset(), srcp->PayloadSize(),
 			srcp->Payload());
 		curr_bytes_write += srcp->PayloadSize();
 	}

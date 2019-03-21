@@ -18,7 +18,7 @@ using namespace ::ondisk;
 
 namespace pio {
 
-const std::string CheckPoint::kCheckPoint = "CheckPoint";
+const std::string CheckPoint::kCheckPoint = "M";
 const uint32_t kMaxPendingFlushReqs = 32;
 const uint32_t kMaxFlushIoSize = 256 * 1024;
 
@@ -37,20 +37,16 @@ int FlushInstance::StartFlush(const VmID& vmid) {
 	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vmid);
 	log_assert(vmp != nullptr);
 
-	/*
-	 * TBD : Get list of unflushed checkpoints and try to flush them.
-	 * Unflushed checkpoints should be per VM and should not be
-	 * different independently per disk
-	 */
-
-	auto f = vmp->TakeCheckPoint();
-	f.wait();
-	auto [ckpt_id, rc] = f.value();
-	if (pio_unlikely(rc)) {
+	/* Get list of checkpoints to operate on */
+	std::vector<::ondisk::CheckPointID> vec_ckpts;
+	auto rc = vmp->GetUnflushedCheckpoints(vec_ckpts);
+	if(pio_unlikely(rc)) {
+		LOG(ERROR) << __func__ <<
+			"Failed to Get List of Unflushed Checkpoints for vmid:"
+			<< vmid;
 		return rc;
 	}
 
-	VLOG(5) << __func__ << " Checkpoint ID to flush:" << ckpt_id;
 	bool perform_move;
 	if (not GetJsonConfig()->GetMoveAllowedStatus(perform_move)) {
 		perform_move = true;
@@ -78,10 +74,46 @@ int FlushInstance::StartFlush(const VmID& vmid) {
 	VLOG(5) << __func__ << " max_req_size:" << max_req_size  <<
 			", max_pending_reqs:" << max_pending_reqs;
 
-	rc = vmp->FlushStart(ckpt_id, perform_flush, perform_move,
-		max_req_size, max_pending_reqs);
-	if (pio_unlikely(rc)) {
-		return rc;
+	for(auto const& ckpt_id : vec_ckpts) {
+		LOG(INFO) << __func__ << " Starting flush for Checkpoint ID is:" << ckpt_id;
+		auto rc = vmp->FlushStart(ckpt_id, perform_flush, perform_move,
+						max_req_size, max_pending_reqs);
+		if (pio_unlikely(rc)) {
+			LOG(INFO) << __func__ << " flush failed for Checkpoint ID is:"
+						<< ckpt_id << ", rc is:" << rc;
+			return rc;
+		}
+
+		LOG(INFO) << __func__ << " flush successful for Checkpoint ID is:" << ckpt_id;
+	}
+
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
+		LOG(ERROR) << " Invalid VmID = " << vmid;
+		return -EINVAL;
+	}
+
+	/*
+	 * RTO/RPO workflow will do invokations for flush and Move stages separately.
+	 * if we are in move stage (which is final stage) then move flushed checkpoints
+	 * from unflushed to flushed checkpoints list.
+	 */
+
+	if (perform_flush && not perform_move) {
+		LOG(INFO) << __func__ << " Only flush triggered move not triggered";
+		return 0;
+	}
+
+	/* TBD : Pass ckptids with below function so that we operate on only the
+	 * ckpts those has been flushed during this flush instance and not touch
+	 * any other ckpts those has been created afterwards.
+	 */
+
+	auto ret = pio::MoveUnflushedToFlushed(vm_handle);
+	if (pio_unlikely(ret)) {
+		LOG(ERROR) << " Moving checkpoint from unflushed to flushed list failed."
+			<< " VmID: " << vmid;
+		return ret;
 	}
 
 	return 0;

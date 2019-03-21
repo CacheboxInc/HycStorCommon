@@ -61,6 +61,9 @@ public:
 	folly::Future<int> CommitCheckPoint(::ondisk::CheckPointID ckpt_id);
 	int FlushStart(::ondisk::CheckPointID ckpt_id,bool perform_flush,
 			bool perform_move, uint32_t, uint32_t);
+	folly::Future<int> MoveUnflushedToFlushed();
+	folly::Future<int> CreateNewVmDeltaContext(int64_t snap_id);
+	int FlushStart(::ondisk::CheckPointID ckpt_id, bool perform_flush, bool perform_move);
 	int FlushStatus(FlushStats &flush_stat);
 	int AeroCacheStats(AeroStats *aero_statsp, AeroSpikeConn *aerop);
 	int GetVmdkParentStats(AeroSpikeConn *aerop, ActiveVmdk* vmdkp,
@@ -84,6 +87,10 @@ public:
 
 	folly::Future<int> TruncateBlocks(ActiveVmdk* vmdkp,
                 RequestID reqid, const std::vector<TruncateReq>& requests);
+
+	int GetUnflushedCheckpoints(std::vector<::ondisk::CheckPointID>& unflushed_ckpts);
+	int SerializeCheckpoints(int64_t snap_id, const std::vector<int64_t>& vec_ckpts);
+	int64_t GetSnapID(ActiveVmdk* vmdkp, const uint64_t& ckpt_id);
 
 	friend std::ostream& operator << (std::ostream& os, const VirtualMachine& vm);
 public:
@@ -160,5 +167,6 @@ private:
 	} stats_;
 
 	std::atomic_flag flush_in_progress_ = ATOMIC_FLAG_INIT;
+	std::unordered_map<std::string, int64_t> snap_ckpt_map_;
 };
 }

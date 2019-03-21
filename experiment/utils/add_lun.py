@@ -26,9 +26,9 @@ TargetID="%s" %VmId
 LunID="%s" %VmdkID
 FileTarget="/tmp/hyc/"
 createfile="false"
-DevTarget="/dev/sde"
+DevTarget="/dev/sdd"
 
-size_in_gb="1" #Size in GB
+size_in_gb="20" #Size in GB
 size_in_bytes=int(size_in_gb) * int(1024) * int(1024) * int(1024)
 
 DevName="iscsi-%s-disk_%s" %(TargetName, LunID)
@@ -56,7 +56,7 @@ parent = False
 if parent == True:
 	data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"4096", "ParentDiskName":"set10", "ParentDiskVmdkID" : "12", "Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true","CreateFile":"%s" %createfile, "TargetFilePath":"%s" %DevTarget,"TargetFileSize":"%s" %size_in_bytes}, "CleanupOnWrite":"true"}
 else:
-	data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"4096", "Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true","CreateFile":"%s" %createfile, "TargetFilePath":"%s" %DevTarget,"TargetFileSize":"%s" %size_in_bytes}, "CleanupOnWrite":"true"}
+	data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"16384", "Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true","CreateFile":"%s" %createfile, "TargetFilePath":"%s" %DevTarget,"TargetFileSize":"%s" %size_in_bytes}, "CleanupOnWrite":"true", "ReadAhead":{"Enabled":"false"}, 'DiskSizeBytes': "%d" %size_in_bytes, 'VmUUID': 'hycvc43primaryiolan_Lin-cho-LINKED_CLONE-19', 'VmdkUUID': 'hycvc43primaryiolan_6000c2936a9b98fd962c959e4f509b91_Lin-cho-LINKED_CLONE-19_1'}
 
 r = requests.post("%s://127.0.0.1:9000/stord_svc/v1.0/new_vmdk/?vm-id=%s&vmdk-id=%s" % (h,VmId,VmdkID), data=json.dumps(data2), headers=headers, cert=cert, verify=False)
 assert (r.status_code == 200)

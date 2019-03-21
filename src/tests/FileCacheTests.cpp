@@ -9,7 +9,6 @@
 #include "gen-cpp2/StorRpc_constants.h"
 #include "Request.h"
 #include "Vmdk.h"
-#include "LockHandler.h"
 #include "UnalignedHandler.h"
 #include "MultiTargetHandler.h"
 #include "DaemonUtils.h"
@@ -58,13 +57,10 @@ protected:
 		EXPECT_NE(vmdkp, nullptr);
 
 		auto configp = vmdkp->GetJsonConfig();
-		auto lock = std::make_unique<LockHandler>();
 		auto multi_target = std::make_unique<MultiTargetHandler>(
 				vmdkp.get(), configp);
-		EXPECT_NE(lock, nullptr);
 		EXPECT_NE(multi_target, nullptr);
 
-		vmdkp->RegisterRequestHandler(std::move(lock));
 		vmdkp->RegisterRequestHandler(std::move(multi_target));
 		req_id.store(StorRpc_constants::kInvalidRequestID());
 	}

@@ -15,7 +15,6 @@
 #include "Vmdk.h"
 #include "VmdkConfig.h"
 
-#include "LockHandler.h"
 #include "UnalignedHandler.h"
 #include "EncryptHandler.h"
 #include "MultiTargetHandler.h"
@@ -53,9 +52,6 @@ public:
 		vmdkp = std::make_unique<ActiveVmdk>(1, "1", nullptr, config.Serialize());
 		EXPECT_NE(vmdkp, nullptr);
 
-		auto lock = std::make_unique<LockHandler>();
-		EXPECT_NE(lock, nullptr);
-
 		auto unalign = std::make_unique<UnalignedHandler>();
 		EXPECT_NE(unalign, nullptr);
 
@@ -66,7 +62,6 @@ public:
 		auto multi_target = std::make_unique<MultiTargetHandler>(vmdkp.get(), configp);
 		EXPECT_NE(multi_target, nullptr);
 
-		vmdkp->RegisterRequestHandler(std::move(lock));
 		vmdkp->RegisterRequestHandler(std::move(unalign));
 		vmdkp->RegisterRequestHandler(std::move(encrypt));
 		vmdkp->RegisterRequestHandler(std::move(multi_target));

@@ -172,7 +172,6 @@ set(StorageLayerFiles
 	"${CMAKE_SOURCE_DIR}/src/DataMover/DataCopier.cpp"
 	"${CMAKE_SOURCE_DIR}/src/DataMover/DataSync.cpp"
 
-	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/LockHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/RequestHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/UnalignedHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/RamCacheHandler.cpp"

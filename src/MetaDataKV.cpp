@@ -1,4 +1,9 @@
 #include "MetaDataKV.h"
+#include "DaemonTgtInterface.h"
+#include <ctime>
+#if 0
+#define METARW_TEST 0
+#endif
 
 namespace pio {
 
@@ -26,21 +31,62 @@ folly::Future<MetaDataKV::ReadResult>
 	return std::make_pair(std::string(), -ENOENT);
 }
 
-AeroMetaDataKV::AeroMetaDataKV() {
-
+AeroMetaDataKV::AeroMetaDataKV(ActiveVmdk* vmdkp): vmdkp_(vmdkp) {
+	aero_obj_ = std::make_unique<AeroSpike>();
+	aero_conn_ = pio::GetAeroConn(vmdkp);
 }
 
 AeroMetaDataKV::~AeroMetaDataKV() {
 
 }
 
-folly::Future<int> AeroMetaDataKV::Write(const MetaDataKey&,
-		const std::string&) {
+folly::Future<int> AeroMetaDataKV::Write(const MetaDataKey& key,
+		const std::string& value) {
+
+#ifdef METARW_TEST
+	/* This is for testing */
+	/* Call the AeroSpike metadata write function */
+	/* Create a dummy large value here*/
+	/* Write a pattern at the aligned offsets of KwriteBlock size */
+	const int32_t kAeroWriteBlockSize = 1024 * 1024;
+	std::string value1 (7340022,'1');
+	uint64_t size = value1.size();
+	uint64_t offset = 0;
+	int count = 2;
+	do {
+		LOG(ERROR) << __func__ << "New offset::" << offset;
+		char c = count;
+		memset(((char *) value1.c_str()) + offset, c, 1);
+		offset += kAeroWriteBlockSize;
+		count++;
+	} while(offset < size);
+
+	(void) value;
+	LOG(ERROR) << __func__ << "Write..";
+	folly::Future<int> f = aero_obj_->AeroMetaWriteCmd(vmdkp_, key, value1, aero_conn_);
+	f.wait();
+
+	LOG(ERROR) << __func__ << "Trying to Read Back";
+	std::string value2;
+	aero_obj_->AeroMetaReadCmd(vmdkp_, key, value2, aero_conn_);
+	if((value1.compare(value2)) == 0) {
+		LOG(ERROR) <<  "Equal.... ";
+	} else {
+		LOG(ERROR) <<  "Not equal.... ";
+	}
+
 	return 0;
+#else
+	return aero_obj_->AeroMetaWriteCmd(vmdkp_, key, value, aero_conn_);
+#endif
 }
 
 folly::Future<MetaDataKV::ReadResult>
-		AeroMetaDataKV::Read(const MetaDataKey&) {
+		AeroMetaDataKV::Read(const MetaDataKey& key) {
+
+	/* Call the AeroSpike metadata read function */
+	std::string value;
+	aero_obj_->AeroMetaReadCmd(vmdkp_, key, value, aero_conn_);
 	return std::make_pair(std::string(), -ENOENT);
 }
 

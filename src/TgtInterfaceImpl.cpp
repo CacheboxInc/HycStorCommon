@@ -543,6 +543,26 @@ int ReadAheadStatsReq(const std::string& vmdkid, pio::ReadAhead::ReadAheadStats&
 	return 0;
 }
 
+int UpdatefdMap(const std::string& vmdkid, const int64_t& snap_id, const int32_t& fd) {
+	auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdkid);
+	if (pio_unlikely(not p)) {
+		LOG(ERROR) << "Given VmdkId is not present";
+		return -EINVAL;
+	}
+	auto vmdkp = dynamic_cast<ActiveVmdk*>(p);
+	return vmdkp->UpdatefdMap(snap_id, fd);
+}
+
+int CreateNewVmdkDeltaContext(const std::string& vmdkid, const int64_t& snap_id) {
+	auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdkid);
+	if (pio_unlikely(not p)) {
+		LOG(ERROR) << "Given VmdkId is not present";
+		return -EINVAL;
+	}
+	auto vmdkp = dynamic_cast<ActiveVmdk*>(p);
+	return vmdkp->CreateNewVmdkDeltaContext(snap_id);
+}
+
 std::shared_ptr<AeroSpikeConn> GetAeroConn(const ActiveVmdk *vmdkp) {
 	auto vmp = vmdkp->GetVM();
 	if (pio_unlikely(vmp == nullptr)) {
@@ -667,6 +687,46 @@ int PrepareCkpt(VmHandle vm_handle) {
 		}
 		log_assert (id == MetaData_constants::kInvalidCheckPointID() + 1);
 	}
+
+	return 0;
+}
+
+int NewVmDeltaContextSet(VmHandle vm_handle, std::string snap_id) {
+	auto managerp = SingletonHolder<VmdkManager>::GetInstance();
+
+	auto vmp = SingletonHolder<pio::VmManager>::GetInstance()->GetInstance(vm_handle);
+	if (pio_unlikely(not vmp)) {
+		LOG(ERROR) << __func__ << " Invalid vm_handle:-" << vm_handle;
+		return StorRpc_constants::kInvalidVmdkHandle();
+	}
+
+	auto f = vmp->CreateNewVmDeltaContext(std::atoi(snap_id.c_str()));
+	f.wait();
+	auto rc = f.value();
+	if (pio_unlikely(rc)) {
+		LOG(ERROR) << "VM delta context create failed";
+		return rc;
+	}
+	LOG(ERROR) << "VM delta context create done";
+	return 0;
+}
+
+int MoveUnflushedToFlushed(VmHandle vm_handle) {
+	auto managerp = SingletonHolder<VmdkManager>::GetInstance();
+
+	auto vmp = SingletonHolder<pio::VmManager>::GetInstance()->GetInstance(vm_handle);
+	if (pio_unlikely(not vmp)) {
+		LOG(ERROR) << __func__ << " Invalid vm_handle:-" << vm_handle;
+		return StorRpc_constants::kInvalidVmdkHandle();
+	}
+
+	auto f = vmp->MoveUnflushedToFlushed();
+	f.wait();
+	auto rc = f.value();
+	if (pio_unlikely(rc)) {
+		return rc;
+	}
+	LOG(ERROR) << "flush ckpt move done";
 
 	return 0;
 }

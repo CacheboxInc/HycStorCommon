@@ -13,7 +13,6 @@
 #include "VmConfig.h"
 #include "VmdkConfig.h"
 #include "VirtualMachine.h"
-#include "LockHandler.h"
 #include "CompressHandler.h"
 #include "EncryptHandler.h"
 #include "ReadAhead.h"
@@ -114,13 +113,10 @@ protected:
 		vmdkp_ = std::make_unique<ActiveVmdk>(1, "1", vmp, config.Serialize());
 		EXPECT_NE(vmdkp_, nullptr);
 
-		auto lock = std::make_unique<LockHandler>();
 		auto multi_target = std::make_unique<MultiTargetHandler>(
 							vmdkp_.get(), &config);
-		EXPECT_NE(lock, nullptr);
 		EXPECT_NE(multi_target, nullptr);
 
-		vmdkp_->RegisterRequestHandler(std::move(lock));
 		vmdkp_->RegisterRequestHandler(std::move(multi_target));
 	}
 

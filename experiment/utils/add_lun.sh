@@ -1,6 +1,6 @@
 #!/bin/bash
 TargetName="tgt1"
-TargetIP="192.168.5.138"
+TargetIP=`ip route get 8.8.8.8 | sed -n '/src/{s/.*src *//p;q}'`
 
 tgtadm --lld iscsi --op show --mode target | grep "Target" | grep $TargetName
 if [ $? -ne 0 ]; then

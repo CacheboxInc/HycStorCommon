@@ -61,4 +61,5 @@ static constexpr size_t kPageSize    = 1u << kPageShift;
 static constexpr size_t kBulkReadMaxSize = 256 * 1024;
 static constexpr size_t kBulkWriteMaxSize = 256 * 1024;
 static constexpr size_t kPreloadMaxIODepth = 32;
+using MetaDataKey = std::string;
 }

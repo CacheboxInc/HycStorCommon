@@ -25,6 +25,8 @@
 #include "ScanManager.h"
 #include "VmManager.h"
 #include <boost/format.hpp>
+#include <boost/property_tree/ini_parser.hpp>
+#include "JsonHelper.h"
 
 #ifdef USE_NEP
 #include <TargetManager.hpp>
@@ -508,6 +510,9 @@ enum StordSvcErr {
 	STORD_ERR_CKPT_BMAP_SET,
 	STORD_ERR_INVALID_PREPARE_CKPTID,
 	STORD_ERR_FAILED_TO_START_PRELOAD,
+	STORD_ERR_CHECKPOINTING_FAILED,
+	STORD_ERR_NO_SUCH_CHECKPOINT,
+	STORD_ERR_CKPT_MOVE_FAILED
 };
 
 void HaHeartbeat(void *userp) {
@@ -1023,6 +1028,66 @@ static int NewScanStatusReq(const _ha_request *reqp, _ha_response *resp, void *)
 	return HA_CALLBACK_CONTINUE;
 }
 
+static int NewDeltaContextSet(const _ha_request *reqp, _ha_response *resp, void*) {
+
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+	LOG(ERROR) << __func__ << " Vmid::" << vmid.c_str();
+
+	param_valuep = ha_parameter_get(reqp, "snap-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"snap-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string snapid(param_valuep);
+	LOG(ERROR) << __func__ << " snap-id::" << snapid.c_str();
+
+	auto data = ha_get_data(reqp);
+	std::string req_data;
+	if (data != nullptr) {
+		req_data.assign(data);
+		::free(data);
+	} else {
+		req_data.clear();
+	}
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
+		std::ostringstream es;
+		LOG(ERROR) << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		es << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto ret = pio::NewVmDeltaContextSet(vm_handle, snapid);
+	if (ret) {
+		std::ostringstream es;
+		LOG(ERROR) << "DeltaContextSet failed::"  << vmid << "Failed";
+		es << "Delta context set failed for VMID::"  << vmid << " Failed";
+		SetErrMsg(resp, STORD_ERR_INVALID_FLUSH, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	const auto res = std::to_string(ret);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+	return HA_CALLBACK_CONTINUE;
+}
+
 static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *) {
 
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
@@ -1213,6 +1278,23 @@ NewCommitCkpt(const _ha_request *reqp, _ha_response *resp, void *) {
 		return HA_CALLBACK_CONTINUE;
 	}
 
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
+		std::ostringstream es;
+		es << "TakeCkpt call failed, Invalid VmID = " << vmid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	ret = pio::MoveUnflushedToFlushed(vm_handle);
+	if (ret) {
+		std::ostringstream es;
+		es << "Moving checkpoints from unflushed to flushed failed."
+			<< " VmID: " << vmid;
+		SetErrMsg(resp, STORD_ERR_CKPT_MOVE_FAILED, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
 	const auto res = std::to_string(ret);
 	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
 	return HA_CALLBACK_CONTINUE;
@@ -1261,8 +1343,8 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 			es << "Failed to get flush status for VMID::"  << vmid;
 			LOG(ERROR) << "Failed to get flush status for VMID::"  << vmid;
 			SetErrMsg(resp, STORD_ERR_INVALID_FLUSH, es.str());
+			return HA_CALLBACK_CONTINUE;
 		}
-		return HA_CALLBACK_CONTINUE;
 	}
 
 	FlushStats::iterator itr;
@@ -1695,7 +1777,7 @@ static int ReadAheadStatsReq(const _ha_request *reqp, _ha_response *resp, void *
 
 	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
 	g_thread_.rest_guard.p_cnt_--;
-	
+
 	pio::ReadAhead::ReadAheadStats st_rh_stats = {0};
 	auto rc = pio::ReadAheadStatsReq(vmdkid, st_rh_stats);
 	if (rc == -EINVAL) {
@@ -1723,69 +1805,107 @@ static int ReadAheadStatsReq(const _ha_request *reqp, _ha_response *resp, void *
 	return HA_CALLBACK_CONTINUE;
 }
 
-/************************************************************************ 
- 		REST APIs to serve RTO/RPO HA workflow -- START 
+/************************************************************************
+ 		REST APIs to serve RTO/RPO HA workflow -- START
  ************************************************************************
 */
 
 /************************************************************************
- * Returns all unflushed checkpoints for the given VmId, if no checkpoint 
+ * Returns all unflushed checkpoints for the given VmId, if no checkpoint
  * exists then create a new one and return that
- * Input Param: VmID 
+ * Input Param: VmID
  * Output Param: Json array of unflushed checkpoints for the given VmID
  * Returns: Integer denoting success/failure
  * HTTP Response: 200(OK) if successful else a http error code
- ************************************************************************ 
+ ************************************************************************
 */
 static int GetUnflushedCheckpoints(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
-    if (param_valuep == NULL) {
-        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
-            "vm-id param not given");
-        return HA_CALLBACK_CONTINUE;
-    }
-    std::string vmid(param_valuep);
-	
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+				"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+
+	auto vmp = SingletonHolder<pio::VmManager>::GetInstance()->GetInstance(vmid);
+	if (pio_likely(not vmp)) {
+		std::ostringstream es;
+		LOG(ERROR) << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		es << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::vector<::ondisk::CheckPointID> unflushed_ckpts;
+	auto rc = vmp->GetUnflushedCheckpoints(unflushed_ckpts);
+	if(pio_unlikely(rc)) {
+		std::ostringstream es;
+		LOG(ERROR) << "Failed to get unflushed checkpoints for VM: " << vmid;
+		es << "Failed to get unflushed checkpoints for VM: " << vmid;
+		SetErrMsg(resp, STORD_ERR_CHECKPOINTING_FAILED, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+	assert(unflushed_ckpts.size());
+
 	json_t *json_params = json_object();
 	json_t *array = json_array();
-	// Dummy data
-	json_array_append_new(array, json_integer(42));
-	json_array_append_new(array, json_integer(43));
-	json_array_append_new(array, json_integer(44));
-	
+	for(auto const& ckpt_id : unflushed_ckpts) {
+		json_array_append_new(array, json_integer(ckpt_id));
+	}
+
 	json_object_set_new(json_params, "unflushed_checkpoints", array);
 	std::string json_params_str = json_dumps(json_params, JSON_ENCODE_ANY);
-    json_object_clear(json_params);
-    json_decref(json_params);
-    json_decref(array);
-    
+	json_object_clear(json_params);
+	json_decref(json_params);
+	json_decref(array);
+
 	ha_set_response_body(resp, HTTP_STATUS_OK, json_params_str.c_str(), strlen(json_params_str.c_str()));
 
-    return HA_CALLBACK_CONTINUE;
+	return HA_CALLBACK_CONTINUE;
 }
 
 /*****************************************************************************
- * Prepare for flush by going through the recovery protocol if any previous 
+ * Prepare for flush by going through the recovery protocol if any previous
  * flush has not completed gracefully
- * Input Param: VmID 
+ * Input Param: VmID
  * Output Param: None
  * Returns: Integer denoting success/failure
  * HTTP Response: 200(OK) if successful else a http error code
- ***************************************************************************** 
+ *****************************************************************************
 */
 static int PrepareFlush(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
-    if (param_valuep == NULL) {
-        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
-            "vm-id param not given");
-        return HA_CALLBACK_CONTINUE;
-    }
-    std::string vmid(param_valuep);
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+				"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+				"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+
 	int rc = 0;
 	const auto res = std::to_string(rc);
 	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
 
-    return HA_CALLBACK_CONTINUE;
+	return HA_CALLBACK_CONTINUE;
 }
 
 /*****************************************************************************
@@ -1795,95 +1915,173 @@ static int PrepareFlush(const _ha_request *reqp, _ha_response *resp, void *) {
  * Output Param: None
  * Returns: Integer denoting success/failure
  * HTTP Response: 202(Accepted) if successful else a http error code
- ***************************************************************************** 
+ *****************************************************************************
 */
+
 static int AsyncStartFlush(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
-    if (param_valuep == NULL) {
-        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
-            "vm-id param not given");
-        return HA_CALLBACK_CONTINUE;
-    }
-    std::string vmid(param_valuep);
-	
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+				"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+				"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+
 	char *data = ha_get_data(reqp);
 	if (data == nullptr) {
 		SetErrMsg(resp, STORD_ERR_INVALID_NO_DATA,
-			"Checkpoint IDs invalid");
+				"Checkpoint IDs invalid");
 		return HA_CALLBACK_CONTINUE;
 	}
 	assert(data);
-
-    //A json_array of checkpoint ids, need to be converted to c++ array/list of CheckPointIDs
-	//e.g; {"checkpoint-ids": "[41, 42, 43]"}
-	std::string ckpt_ids(data);
+	std::string req_data(data);
 	::free(data);
 
-	int rc = 0;
+	std::vector<int64_t> vec_ckpts;
+	pio::JsonHelper json_helper(req_data);
+	auto ret = json_helper.GetVector<int64_t>("checkpoint-ids", vec_ckpts);
+	if(not ret) {
+		std::ostringstream es;
+		LOG(ERROR) << "Failed to extract checkpoint-ids from the supplied json: " << req_data;
+		es << "Failed to extract checkpoint-ids from the supplied json: " << req_data;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	// ToDo: Need a method to know if flush is already running or not, if it's running then
+	// do not start another flush instance and return proper message to the REST caller
+	auto rc = pio::NewFlushReq(vmid, req_data);
+	if (rc) {
+		std::ostringstream es;
+		LOG(ERROR) << "Starting flush request for VMID::"  << vmid << "Failed";
+		es << "Starting flush request for VMID::"  << vmid << " Failed";
+		SetErrMsg(resp, STORD_ERR_INVALID_FLUSH, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+	LOG(INFO) << "Flush for VM:" << vmid << "started successfully. Please run "
+		"flush_status to get the progress";
+
 	const auto res = std::to_string(rc);
 	ha_set_response_body(resp, HTTP_STATUS_ACCEPTED, res.c_str(), res.size());
 
-    return HA_CALLBACK_CONTINUE;
+	return HA_CALLBACK_CONTINUE;
 }
 
 /*****************************************************************************
  * Serialize "checkpoints to snapshot mapping" and persist in Aerospike
- * Input Param: VmID, SnapshotID, Array of checkpointIds 
+ * Input Param: VmID, SnapshotID, Array of checkpointIds
  * Output Param: None
  * Returns: Integer denoting success/failure
  * HTTP Response: 200(OK) if successful else a http error code
- ***************************************************************************** 
-*/
+ *****************************************************************************
+ */
+
 static int SerializeCheckpoints(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
-    if (param_valuep == NULL) {
-        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
-            "vm-id param not given");
-        return HA_CALLBACK_CONTINUE;
-    }
-    std::string vmid(param_valuep);
-	
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+				"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+				"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+
 	char *data = ha_get_data(reqp);
 	if (data == nullptr) {
 		SetErrMsg(resp, STORD_ERR_INVALID_NO_DATA,
-			"Checkpoint IDs invalid");
+				"Checkpoint IDs invalid");
 		return HA_CALLBACK_CONTINUE;
 	}
 	assert(data);
 
-    //A json_array of checkpoint ids, need to be converted to c++ array/list of CheckPointIDs
-	//e.g; {"checkpoint-ids": "[41, 42, 43]"}
-	std::string ckpt_ids(data);
+	std::string req_data(data);
 	::free(data);
-    
-	int rc = 0;
+
+	int64_t snap_id = 0;
+	std::vector<int64_t> vec_ckpts;
+	pio::JsonHelper json_helper(req_data);
+	auto r1 = json_helper.GetScalar<int64_t>("snapshot-id", snap_id);
+	auto r2 = json_helper.GetVector<int64_t>("checkpoint-ids", vec_ckpts);
+	if(pio_unlikely(not (r1 and r2))) {
+		std::ostringstream es;
+		LOG(ERROR) << "Failed to extract snapshot-id or/and checkpoint-ids from the supplied json: " << req_data;
+		es << "Failed to extract snapshot-id or/and checkpoint-ids from the supplied json: " << req_data;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto vmp = SingletonHolder<pio::VmManager>::GetInstance()->GetInstance(vmid);
+	if (pio_likely(not vmp)) {
+		std::ostringstream es;
+		LOG(ERROR) << "Retriving information related to given VM failed. Invalid VmID = " << vmid;
+		es << "Retriving information related to given VM failed. Invalid VmID = " << vmid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	int rc = vmp->SerializeCheckpoints(snap_id, vec_ckpts);
+	if (pio_unlikely(rc)) {
+		std::ostringstream es;
+		LOG(ERROR) << "Failed to locate one or few checkpoints for SnapshotID: " << snap_id << " for VM: " << vmid;
+		es << "Failed to locate one or few checkpoints for SnapshotID: " << snap_id << " for VM: " << vmid;
+		SetErrMsg(resp, STORD_ERR_NO_SUCH_CHECKPOINT, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
 	const auto res = std::to_string(rc);
 	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
 
-    return HA_CALLBACK_CONTINUE;
+	return HA_CALLBACK_CONTINUE;
 }
 
 /*****************************************************************************
  * Start internal move stage for the given VmId
- * Input Param: VmID 
+ * Input Param: VmID
  * Output Param: None
  * Returns: Integer denoting success/failure
  * HTTP Response: 202(Accepted) if successful else a http error code
- ***************************************************************************** 
+ *****************************************************************************
 */
 static int AsyncStartMoveStage(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
-    if (param_valuep == NULL) {
-        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
-            "vm-id param not given");
-        return HA_CALLBACK_CONTINUE;
-    }
-    std::string vmid(param_valuep);
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+				"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+				"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+
 	int rc = 0;
 	const auto res = std::to_string(rc);
 	ha_set_response_body(resp, HTTP_STATUS_ACCEPTED, res.c_str(), res.size());
 
-    return HA_CALLBACK_CONTINUE;
+	return HA_CALLBACK_CONTINUE;
 }
 
 /*****************************************************************************
@@ -1892,35 +2090,44 @@ static int AsyncStartMoveStage(const _ha_request *reqp, _ha_response *resp, void
  * Output Param: None
  * Returns: Integer denoting success/failure
  * HTTP Response: 200(OK) if successful else a http error code
- ***************************************************************************** 
-*/
+ *****************************************************************************
+ */
 static int DeleteSnapshots(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
-    if (param_valuep == NULL) {
-        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
-            "vm-id param not given");
-        return HA_CALLBACK_CONTINUE;
-    }
-    std::string vmid(param_valuep);
-	
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+				"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+				"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+
 	char *data = ha_get_data(reqp);
 	if (data == nullptr) {
 		SetErrMsg(resp, STORD_ERR_INVALID_NO_DATA,
-			"Snapshot IDs invalid");
+				"Snapshot IDs invalid");
 		return HA_CALLBACK_CONTINUE;
 	}
 	assert(data);
 
-    //A json_array of checkpoint ids, need to be converted to c++ array/list of CheckPointIDs
+	//A json_array of checkpoint ids, need to be converted to c++ array/list of CheckPointIDs
 	//e.g; {"snapshot-ids": "[41, 42, 43]"}
 	std::string snapshot_ids(data);
 	::free(data);
-	
+
 	int rc = 0;
 	const auto res = std::to_string(rc);
 	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
 
-    return HA_CALLBACK_CONTINUE;
+	return HA_CALLBACK_CONTINUE;
 }
 
 /*****************************************************************************
@@ -1929,17 +2136,26 @@ static int DeleteSnapshots(const _ha_request *reqp, _ha_response *resp, void *) 
  * Output Param: move running status, count of moved blocks, remaining blocks
  * Returns: Integer denoting success/failure
  * HTTP Response: 200(OK) if successful else a http error code
- ***************************************************************************** 
+ *****************************************************************************
 */
 static int GetMoveStatus(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
-    if (param_valuep == NULL) {
-        SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
-            "vm-id param not given");
-        return HA_CALLBACK_CONTINUE;
-    }
-    std::string vmid(param_valuep);
-	
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+				"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+				"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+
 	json_t *flush_params = json_object();
 	json_object_set_new(flush_params, "move_running", json_boolean(false));
 	json_object_set_new(flush_params, "moved_blks_cnt", json_integer(0));
@@ -1948,15 +2164,15 @@ static int GetMoveStatus(const _ha_request *reqp, _ha_response *resp, void *) {
 	std::string flush_params_str = json_dumps(flush_params, JSON_ENCODE_ANY);
 	json_object_clear(flush_params);
 	json_decref(flush_params);
-	
-	ha_set_response_body(resp, HTTP_STATUS_OK, flush_params_str.c_str(),
-	strlen(flush_params_str.c_str()));
 
-    return HA_CALLBACK_CONTINUE;
+	ha_set_response_body(resp, HTTP_STATUS_OK, flush_params_str.c_str(),
+			strlen(flush_params_str.c_str()));
+
+	return HA_CALLBACK_CONTINUE;
 }
 
-/************************************************************************ 
- 		REST APIs to serve RTO/RPO HA workflow -- END 
+/************************************************************************
+REST APIs to serve RTO/RPO HA workflow -- END
  ************************************************************************
 */
 
@@ -1969,7 +2185,7 @@ RestHandlers GetRestCallHandlers() {
 		void* datap;
 	};
 
-	static constexpr std::array<RestEndPoint, 27> kHaEndPointHandlers = {{
+	static constexpr std::array<RestEndPoint, 28> kHaEndPointHandlers = {{
 		{POST, "new_vm", NewVm, nullptr},
 		{POST, "vm_delete", RemoveVm, nullptr},
 		{POST, "new_vmdk", NewVmdk, nullptr},
@@ -2001,7 +2217,8 @@ RestHandlers GetRestCallHandlers() {
 		{POST, "delete_snapshots", DeleteSnapshots, nullptr},
 		{GET, "move_status", GetMoveStatus, nullptr},
 		{GET, "read_ahead_stats", ReadAheadStatsReq, nullptr},
-		{GET, "get_component_stats", GlobalStats, nullptr}
+		{GET, "get_component_stats", GlobalStats, nullptr},
+		{POST, "new_delta_context", NewDeltaContextSet, nullptr}
 	}};
 
 	constexpr auto size = sizeof(ha_handlers) +

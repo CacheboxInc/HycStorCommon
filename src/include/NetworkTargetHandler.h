@@ -48,6 +48,7 @@ public:
 
 	virtual int RegisterIOProcessor(IOProcessor *processor, bool preferred, int srcid, int destid) override;
 	virtual int UnRegisterIOProcessor() override;
+	int64_t GetSnapID(ActiveVmdk* vmdkp, const uint64_t& ckpt_id);
 
 	int Open();
 

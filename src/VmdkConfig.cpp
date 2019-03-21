@@ -45,6 +45,7 @@ const std::string VmdkConfig::kNetworkTarget = "NetworkTarget";
 
 const std::string VmdkConfig::kFileTarget = "FileTarget";
 const std::string VmdkConfig::kFileTargetPath = "TargetFilePath";
+const std::string VmdkConfig::kDeltaFileTargetPath = "DeltaTargetFilePath";
 const std::string VmdkConfig::kFileTargetSize = "TargetFileSize";
 const std::string VmdkConfig::kFileTargetCreateFile = "CreateFile";
 const std::string VmdkConfig::kErrorHandler = "ErrorHandler";
@@ -441,6 +442,22 @@ std::string VmdkConfig::GetFileTargetPath() const {
 	std::string key;
 
 	StringDelimAppend(key, '.', {kFileTarget, kFileTargetPath});
+	std::string fp;
+
+	auto rc = JsonConfig::GetKey(key, fp);
+
+	if (not rc) {
+		fp.clear();
+	}
+
+	return fp;
+}
+
+std::string VmdkConfig::GetDeltaFileTargetPath() const {
+	LOG(ERROR) << __func__ << "Called";
+	std::string key;
+
+	StringDelimAppend(key, '.', {kFileTarget, kDeltaFileTargetPath});
 	std::string fp;
 
 	auto rc = JsonConfig::GetKey(key, fp);

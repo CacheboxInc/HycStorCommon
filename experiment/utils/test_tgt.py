@@ -17,7 +17,7 @@ h = "http"
 cert = None
 
 # Edit AeroSpike details here
-AeroClusterIPs="192.168.3.193"
+AeroClusterIPs="192.168.4.150"
 AeroClusterPort="3000"
 AeroClusterID="1"
 TargetName="tgt1"
@@ -32,7 +32,7 @@ FileTarget="/tmp/hyc/"
 createfile="false"
 DevTarget="/dev/sdc"
 
-size_in_gb="2" #Size in GB
+size_in_gb="5" #Size in GB
 size_in_bytes=int(size_in_gb) * int(1024) * int(1024) * int(1024)
 
 DevName="iscsi-%s-disk_%s" %(TargetName, LunID)
@@ -75,11 +75,11 @@ assert (r.status_code == 200)
 
 # POST call 3 to stord_svc
 print ("Send POST stord_svc new_vmdk 1")
-parent = True
+parent = False
 if parent == True:
-	data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"16384", "ParentDiskName":"pset721", "ParentDiskVmdkID" : "12", "Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"}, "ReadAhead":{"Enabled":"false"}, "SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true","CreateFile":"%s" %createfile, "TargetFilePath":"%s" %DevTarget,"TargetFileSize":"%s" %size_in_bytes}, "CleanupOnWrite":"true"}
+	data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"16384", "ParentDiskName":"pset721", "ParentDiskVmdkID" : "12", "Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"}, "ReadAhead":{"Enabled":"false"}, "SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true","CreateFile":"%s" %createfile, "TargetFilePath":"%s" %DevTarget,"TargetFileSize":"%s" %size_in_bytes}, "CleanupOnWrite":"true", 'DiskSizeBytes': "%d" %size_in_bytes, 'VmUUID': 'hycvc43primaryiolan_Lin-cho-LINKED_CLONE-19', 'VmdkUUID': 'hycvc43primaryiolan_6000c2936a9b98fd962c959e4f509b91_Lin-cho-LINKED_CLONE-19'}
 else:
-	data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"16384", "Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true","CreateFile":"%s" %createfile, "TargetFilePath":"%s" %DevTarget,"TargetFileSize":"%s" %size_in_bytes}, "CleanupOnWrite":"true", "ReadAhead":{"Enabled":"false"}, 'DiskSizeBytes': "%d" %size_in_bytes, 'VmUUID': 'hycvc43primaryiolan_Lin-cho-LINKED_CLONE-19', 'VmdkUUID': 'hycvc43primaryiolan_6000c2936a9b98fd962c959e4f509b91_Lin-cho-LINKED_CLONE-19'}
+	data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"16384", "Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true","CreateFile":"%s" %createfile, "TargetFilePath":"%s" %DevTarget,"TargetFileSize":"%s" %size_in_bytes, "DeltaTargetFilePath" :"/mnt"}, "CleanupOnWrite":"true", "ReadAhead":{"Enabled":"false"}, 'DiskSizeBytes': "%d" %size_in_bytes, 'VmUUID': 'hycvc43primaryiolan_Lin-cho-LINKED_CLONE-19', 'VmdkUUID': 'hycvc43primaryiolan_6000c2936a9b98fd962c959e4f509b91_Lin-cho-LINKED_CLONE-19', "DeltaTargetFilePath" :"/mnt"}
 
 r = requests.post("%s://127.0.0.1:9000/stord_svc/v1.0/new_vmdk/?vm-id=%s&vmdk-id=%s" % (h,VmId,VmdkID), data=json.dumps(data2), headers=headers, cert=cert, verify=False)
 assert (r.status_code == 200)
@@ -108,6 +108,26 @@ assert (r.status_code == 200)
 print ("Send POST tgt_svc lun_create %s" %LunID)
 data2 = {"DevName": "%s" %(DevName), "VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID, "LunSize":"%s" %size_in_gb}
 r = requests.post("%s://127.0.0.1:9001/tgt_svc/v1.0/lun_create/?tid=%s&lid=%s" % (h, TargetID, LunID), data=json.dumps(data2), headers=headers, cert=cert, verify=False)
+assert (r.status_code == 200)
+
+#Ckpt to snapshot related mapping
+ckptID="1"
+r = requests.post("http://127.0.0.1:9000/stord_svc/v1.0/prepare_ckpt/?vm-id=%s" %(VmId), headers=headers, cert=cert, verify=False)
+assert (r.status_code == 200)
+
+r = requests.post("http://127.0.0.1:9000/stord_svc/v1.0/commit_ckpt/?vm-id=%s&ckpt-id=%s" % (VmId, ckptID), headers=headers, cert=cert, verify=False)
+assert (r.status_code == 200)
+
+ckpt_ids = [1]
+snapshot_id = 1
+data = {"checkpoint-ids": "%s" %ckpt_ids, "snapshot-id": "%s" %snapshot_id}
+r = requests.post("http://127.0.0.1:9000/stord_svc/v1.0/serialize_checkpoints/?vm-id=1",
+        data=json.dumps(data), headers=headers, cert=None, verify=False)
+if r.status_code == 200:
+        print("moving ahead")
+else:
+        print("error")
+
 assert (r.status_code == 200)
 
 '''

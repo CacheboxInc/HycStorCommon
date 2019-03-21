@@ -25,6 +25,7 @@
 #include "QLock.h"
 #include "Rendez.h"
 #include "ReadAhead.h"
+#include "RangeLock.h"
 
 namespace pio {
 
@@ -79,6 +80,7 @@ public:
 
 	std::pair<::ondisk::BlockID, ::ondisk::BlockID> Blocks() const noexcept;
 	const Roaring& GetRoaringBitMap() const noexcept;
+	std::unique_ptr<Roaring*> UnionRoaringBitmaps(const std::vector<Roaring*>& roaring_bitmaps);
 	void SetSerialized() noexcept;
 	void UnsetSerialized() noexcept;
 	bool IsSerialized() const noexcept;
@@ -223,7 +225,11 @@ public:
 	int MoveStage(::ondisk::CheckPointID check_point, uint32_t);
 	int MoveStage_v2(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
 	int MoveStage_v3(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
+	int FlushStages(::ondisk::CheckPointID check_point, bool perform_flush, bool perform_move);
+	int FlushStage(::ondisk::CheckPointID check_point);
+	int MoveStage(::ondisk::CheckPointID check_point);
 	CheckPoint* GetCheckPoint(::ondisk::CheckPointID ckpt_id) const;
+	folly::Future<int> MoveUnflushedToFlushed();
 
 	/* Functions to gathering Vmdk statistics at this point in time */
 	void GetVmdkInfo(st_vmdk_stats& vmdk_stats);
@@ -261,7 +267,11 @@ public:
 		std::unordered_set<::ondisk::BlockID>& blocks);
 
 	const std::vector<PreloadBlock>& GetPreloadBlocks() const noexcept;
+	void UnflushedCheckpoints(std::vector<::ondisk::CheckPointID>& unflushed_ckpts) const noexcept;
 public:
+	int32_t delta_fd_{-1};
+	int CreateNewVmdkDeltaContext(int64_t snap_id);
+	std::string delta_file_path_;
 	size_t BlockSize() const;
 	size_t BlockShift() const;
 	size_t BlockMask() const;
@@ -334,17 +344,15 @@ public:
 private:
 	folly::Future<int> WriteCommon(Request* reqp, ::ondisk::CheckPointID ckpt_id);
 	int WriteRequestComplete(Request* reqp, ::ondisk::CheckPointID ckpt_id);
-	int WriteComplete(Request* reqp);
-	int WriteComplete(const std::vector<std::unique_ptr<Request>>& requests);
+	int WriteComplete(Request* reqp, ::ondisk::CheckPointID ckpt_id);
+	int WriteComplete(const std::vector<std::unique_ptr<Request>>& requests,
+		::ondisk::CheckPointID ckpt_id);
 	std::optional<std::unordered_set<::ondisk::BlockID>>
 		CopyDirtyBlocksSet(::ondisk::CheckPointID ckpt_id);
 	void RemoveDirtyBlockSet(::ondisk::CheckPointID ckpt_id);
 	::ondisk::CheckPointID GetModifiedCheckPoint(::ondisk::BlockID block,
 		const CheckPoints& min_max, bool& found) const;
 	void ComputePreloadBlocks();
-	void SetBlocksModified(CheckPointID ckpt_id,
-		const std::vector<std::unique_ptr<Request>>& requests);
-	void SetBlocksModified(CheckPointID ckpt_id, Request* reqp);
 	int32_t RemoveModifiedBlocks(CheckPointID ckpt_id,
 		iter::Range<BlockID>::iterator begin,
 		iter::Range<BlockID>::iterator end,
@@ -352,6 +360,9 @@ private:
 public:
 	void SetReadCheckPointId(const std::vector<RequestBlock*>& blockps,
 		const CheckPoints& min_max) const;
+	int UpdatefdMap(const int64_t& snap_id, const int32_t& fd);
+	mutable std::mutex mutex_;
+	std::unordered_map<std::string, int32_t> fd_map_;
 
 private:
 	VirtualMachine *vmp_{nullptr};
@@ -399,6 +410,55 @@ public:
 
 private:
 	static constexpr uint32_t kDefaultBlockSize{4096};
+
+private:
+	template <typename Func>
+	auto TakeLockAndInvoke(::ondisk::BlockID start, ::ondisk::BlockID end, Func&& func) {
+		auto lock = std::make_unique<RangeLock::LockGuard>(range_lock_.get(), start, end);
+		return lock->Lock()
+		.then([lock = std::move(lock), func = std::forward<Func>(func)] (int rc) mutable {
+			if (pio_unlikely(not lock->IsLocked() or rc < 0)) {
+				LOG(ERROR) << "Failed to take lock";
+				return folly::makeFuture(rc ? rc : -EINVAL);
+			}
+			return func()
+			.then([lock = std::move(lock)] (auto& rc) {
+				return std::move(rc);
+			});
+		});
+	}
+
+	std::vector<pio::RangeLock::range_t> Ranges(
+			const std::vector<std::unique_ptr<Request>>& requests) {
+		std::vector<pio::RangeLock::range_t> ranges;
+		ranges.reserve(requests.size());
+		for (const auto& request : requests) {
+			ranges.emplace_back(request->Blocks());
+		}
+		return ranges;
+	}
+
+	template <typename Func>
+	auto TakeLockAndBulkInvoke(const std::vector<std::unique_ptr<Request>>& requests,
+			Func&& func) {
+		auto g = std::make_unique<RangeLock::LockGuard>(range_lock_.get(), Ranges(requests));
+		return g->Lock()
+		.then([g = std::move(g), func = std::forward<Func>(func) ]
+				(int rc) mutable {
+			if (pio_unlikely(not g->IsLocked() || rc < 0)) {
+				LOG(ERROR) << "Failed to take lock";
+				return folly::makeFuture(rc ? rc : -EINVAL);
+			}
+			return func()
+			.then([g = std::move(g)] (int rc) {
+				return rc;
+			});
+		});
+
+	}
+private:
+	const std::unique_ptr<RangeLock::RangeLock> range_lock_{nullptr};
+
 };
 
 class SnapshotVmdk : public Vmdk {

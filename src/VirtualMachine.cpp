@@ -180,14 +180,12 @@ void VirtualMachine::NewVmdk(ActiveVmdk* vmdkp) {
 	auto configp = vmdkp->GetJsonConfig();
 
 	auto blktrace = std::make_unique<BlockTraceHandler>(vmdkp);
-	auto lock = std::make_unique<LockHandler>();
 	auto unalingned = std::make_unique<UnalignedHandler>();
 	auto compress = std::make_unique<CompressHandler>(configp);
 	auto encrypt = std::make_unique<EncryptHandler>(configp);
 	auto multi_target = std::make_unique<MultiTargetHandler>(vmdkp, configp);
 
 	vmdkp->RegisterRequestHandler(std::move(blktrace));
-	vmdkp->RegisterRequestHandler(std::move(lock));
 	vmdkp->RegisterRequestHandler(std::move(unalingned));
 	vmdkp->RegisterRequestHandler(std::move(compress));
 	vmdkp->RegisterRequestHandler(std::move(encrypt));
@@ -224,6 +222,80 @@ void VirtualMachine::CheckPointComplete(CheckPointID ckpt_id) {
 void VirtualMachine::FlushComplete(CheckPointID ckpt_id) {
 	log_assert(ckpt_id != MetaData_constants::kInvalidCheckPointID());
 	flush_in_progress_.clear();
+}
+
+/*
+ * Returns a vector of all the unflushed checkpoints for this VM. If no checkpoints
+ * exist then create a new one and return that.
+ */
+
+int VirtualMachine::GetUnflushedCheckpoints(std::vector<CheckPointID>& unflushed_ckpts) {
+	{
+		std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+		for (const auto& vmdkp : vmdk_.list_) {
+			vmdkp->UnflushedCheckpoints(unflushed_ckpts);
+		}
+	}
+
+	if(pio_likely(unflushed_ckpts.empty())) {
+		auto f = TakeCheckPoint();
+		f.wait();
+		auto [ckpt_id, rc] = f.value();
+		if (pio_unlikely(rc)) {
+			LOG(ERROR) << __func__ << ": CheckPoint create failed for VM: "
+				<< vm_id_ << " error returned: " << rc;
+			return rc;
+		}
+		unflushed_ckpts.push_back(ckpt_id);
+	}
+	return 0;
+}
+
+/*
+ * Takes a SnapshotID and a vector of CheckpointIDs to create a map of vmdkid:ckptid as key
+ * and SnapshotID as the value.
+ * Key is : <vmdkID>:<ckpt_id>, value is : <snap_id>
+ * TBD: this map will be persisted as meta data into AS.
+ */
+int VirtualMachine::SerializeCheckpoints(int64_t snap_id, const std::vector<int64_t>& vec_ckpts) {
+	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+	for (const auto& ckpt_id : vec_ckpts) {
+		bool found_ckpt = false;
+		for (const auto& vmdkp : vmdk_.list_) {
+			if (pio_likely(vmdkp->GetCheckPoint(ckpt_id))) {
+				std::string key = vmdkp->GetID() + ":" + std::to_string(ckpt_id);
+				snap_ckpt_map_.emplace(std::make_pair(key, snap_id));
+				found_ckpt = true;
+			}
+		}
+		if(pio_unlikely(not found_ckpt)) {
+			LOG(ERROR) << __func__ << "Failed to find CheckpointID: " << ckpt_id;
+			return -EINVAL;
+		}
+	}
+	return 0;
+}
+
+int64_t VirtualMachine::GetSnapID(ActiveVmdk* vmdkp, const uint64_t& ckpt_id) {
+	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+	auto vmdk_id = vmdkp->GetID();
+	std::string key = vmdk_id + ":" + std::to_string(ckpt_id);
+	auto it = snap_ckpt_map_.find(key);
+	if (it != snap_ckpt_map_.end()) {
+		return it->second;
+	}
+
+	/* Display all elements of map */
+	LOG(ERROR) << __func__ << "Not found snapid entry for ckpt_id " << ckpt_id
+			<< ", printing all elements from map for debugging";
+	LOG(ERROR) << "vmdkID:ckpt_id" << "=>snap_id";
+	std::unordered_map <std::string, int64_t>::iterator it1 = snap_ckpt_map_.begin();
+	while (it1 != snap_ckpt_map_.end()) {
+		LOG(ERROR) << "Element:" << it1->first << " => " << it1->second;
+		++it1;
+	}
+
+	return -1;
 }
 
 folly::Future<CheckPointResult> VirtualMachine::TakeCheckPoint() {
@@ -290,6 +362,56 @@ folly::Future<int> VirtualMachine::CommitCheckPoint(CheckPointID ckpt_id) {
 	});
 }
 
+folly::Future<int> VirtualMachine::MoveUnflushedToFlushed() {
+
+	std::vector<folly::Future<int>> futures;
+	futures.reserve(vmdk_.list_.size());
+
+	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+	for (const auto& vmdkp : vmdk_.list_) {
+		auto fut = vmdkp->MoveUnflushedToFlushed();
+		futures.emplace_back(std::move(fut));
+	}
+
+	return folly::collectAll(std::move(futures))
+	.then([this] (const std::vector<folly::Try<int>>& results)
+				-> folly::Future<int> {
+		for (auto& t : results) {
+			if (pio_likely(t.hasValue() and t.value() == 0)) {
+				continue;
+			} else {
+				return t.value();
+			}
+		}
+		return 0;
+	});
+
+}
+
+folly::Future<int> VirtualMachine::CreateNewVmDeltaContext(int64_t snap_id) {
+
+	std::vector<folly::Future<int>> futures;
+	futures.reserve(vmdk_.list_.size());
+
+	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+	for (const auto& vmdkp : vmdk_.list_) {
+		auto fut = vmdkp->CreateNewVmdkDeltaContext(snap_id);
+		futures.emplace_back(std::move(fut));
+	}
+
+	return folly::collectAll(std::move(futures))
+	.then([this] (const std::vector<folly::Try<int>>& results)
+				-> folly::Future<int> {
+		for (auto& t : results) {
+			if (pio_likely(t.hasValue() and t.value() == 0)) {
+				continue;
+			} else {
+				return t.value();
+			}
+		}
+		return 0;
+	});
+}
 
 int VirtualMachine::FlushStatus(FlushStats &flush_stat) {
 	std::lock_guard<std::mutex> lock(vmdk_.mutex_);

@@ -59,6 +59,7 @@ public:
 	bool IsFileTargetEnabled() const;
 	std::string GetFileCachePath() const;
 	std::string GetFileTargetPath() const;
+	std::string GetDeltaFileTargetPath() const;
 	off_t GetFileTargetSize() const;
 	bool GetFileTargetCreate() const;
 	void ConfigureFileTargetSize(const off_t& file_size);
@@ -193,6 +194,7 @@ public:
 
 	static const std::string kFileTarget;
 	static const std::string kFileTargetPath;
+	static const std::string kDeltaFileTargetPath;
 	static const std::string kFileTargetSize;
 	static const std::string kFileTargetCreateFile;
 

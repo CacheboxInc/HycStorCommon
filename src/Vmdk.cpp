@@ -36,7 +36,7 @@ const uint32_t kMaxFailureTolerateCnt = 10240000;
 
 namespace pio {
 
-const std::string CheckPoint::kCheckPoint = "CheckPoint";
+const std::string CheckPoint::kCheckPoint = "M";
 
 Vmdk::Vmdk(VmdkHandle handle, VmdkID&& id) : handle_(handle), id_(std::move(id)), disk_size_bytes_(0) {
 }
@@ -54,7 +54,8 @@ VmdkHandle Vmdk::GetHandle() const noexcept {
 ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 		const std::string& config)
 		: Vmdk(handle, std::move(id)), vmp_(vmp),
-		config_(std::make_unique<config::VmdkConfig>(config)) {
+		config_(std::make_unique<config::VmdkConfig>(config)),
+		range_lock_ (std::make_unique<RangeLock::RangeLock>()) {
 	if (not config_->GetVmdkUUID(vmdk_uuid_)) {
 		throw std::invalid_argument("vmdk uuid is not set.");
 	}
@@ -68,11 +69,13 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	}
 	block_shift_ = PopCount(block_size-1);
 
-	if (config_->IsRamMetaDataKV()) {
+	if (config_->IsRamMetaDataKV() || 1) {
 		metad_kv_ = std::make_unique<RamMetaDataKV>();
 	} else {
-		metad_kv_ = std::make_unique<AeroMetaDataKV>();
+		LOG(ERROR) << __func__ << "KV store is AeroSpike";
+		metad_kv_ = std::make_unique<AeroMetaDataKV>(this);
 	}
+
 	if (not metad_kv_) {
 		throw std::bad_alloc();
 	}
@@ -108,6 +111,13 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	}
 	else {
 		LOG(INFO) << "ReadAhead is disabled";
+	}
+
+	delta_file_path_ = config_->GetDeltaFileTargetPath();
+	if (delta_file_path_.length()) {
+		delta_file_path_ += "/deltadisk_";
+		delta_file_path_ += ":" ;
+		delta_file_path_ += GetID();
 	}
 }
 
@@ -187,6 +197,50 @@ int ActiveVmdk::Cleanup() {
 
 const std::vector<PreloadBlock>& ActiveVmdk::GetPreloadBlocks() const noexcept {
 	return preload_blocks_;
+}
+
+int ActiveVmdk::UpdatefdMap(const int64_t& snap_id, const int32_t& fd) {
+	std::lock_guard<std::mutex> lock(mutex_);
+	if (fd >= 0) {
+		std::string key = GetID() + ":" + std::to_string(snap_id);
+		fd_map_.emplace(std::make_pair(key, fd));
+		return 0;
+	}
+	return -1;
+}
+
+int ActiveVmdk::CreateNewVmdkDeltaContext(int64_t snap_id) {
+
+	/* TBD: FileTargetHandler with encryption and compression not supported, 
+	 * add a check here */
+
+	std::string file_path = delta_file_path_;
+	LOG(ERROR) << __func__ << "Initial Path is:" << file_path.c_str();
+
+	/* TBD : Check that file doen't exist already, otherwise fail */
+	file_path += ":";
+	file_path += std::to_string(snap_id);
+	LOG(ERROR) << __func__ << "Final Path is:" << file_path.c_str();
+	auto fd = ::open(file_path.c_str(), O_RDWR | O_SYNC | O_DIRECT| O_CREAT, 0777);
+	if (pio_unlikely(fd == -1)) {
+		throw std::runtime_error("Delta File create failed");
+	} else {
+		#if 0
+		if(ftruncate(fd, file_size_)) {
+			throw std::runtime_error("Delta File truncate failed");
+		}
+		#endif
+	}
+
+	LOG(ERROR) << __func__ << "file fd_ is:" << fd;
+	if (delta_fd_ >= 0) {
+		LOG(ERROR) << "Update fd map for delta_fd:" << delta_fd_ << ", snap_id:" << snap_id;
+		UpdatefdMap(snap_id - 1, delta_fd_);
+	}
+	
+	/* Update the fd which is being used for write */
+	delta_fd_ = fd;
+	return 0;
 }
 
 void ActiveVmdk::ComputePreloadBlocks() {
@@ -345,83 +399,90 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp, const CheckPoints& min_max) {
 	if (pio_unlikely(not headp_)) {
 		return -ENXIO;
 	}
+	auto[start, end] = reqp->Blocks();
+	return TakeLockAndInvoke(start, end,
+			[this, reqp, min_max = std::move(min_max)] () {
 
-	auto failed = std::make_unique<std::vector<RequestBlock*>>();
-	auto process = std::make_unique<std::vector<RequestBlock*>>();
-	process->reserve(reqp->NumberOfRequestBlocks());
-	reqp->ForEachRequestBlock([&process] (RequestBlock *blockp) mutable {
-		process->emplace_back(blockp);
-		return true;
-	});
-	SetReadCheckPointId(*process, min_max);
+		auto failed = std::make_unique<std::vector<RequestBlock*>>();
+		auto process = std::make_unique<std::vector<RequestBlock*>>();
+		process->reserve(reqp->NumberOfRequestBlocks());
+		reqp->ForEachRequestBlock([&process] (RequestBlock *blockp) mutable {
+			process->emplace_back(blockp);
+			return true;
+		});
+		SetReadCheckPointId(*process, min_max);
 
-	++stats_.reads_in_progress_;
-	++cache_stats_.total_reads_;
-	return headp_->Read(this, reqp, *process, *failed)
-	.then([this, reqp, process = std::move(process),
-			failed = std::move(failed)] (folly::Try<int>& result) mutable {
-		if (result.hasException<std::exception>()) {
-			reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
-		} else {
-			auto rc = result.value();
-			if (pio_unlikely(rc < 0)) {
-				reqp->SetResult(rc, RequestStatus::kFailed);
-			} else if (pio_unlikely(not failed->empty())) {
-				const auto blockp = failed->front();
-				log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
-				reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
+		++stats_.reads_in_progress_;
+		++cache_stats_.total_reads_;
+		return headp_->Read(this, reqp, *process, *failed)
+		.then([this, reqp, process = std::move(process),
+				failed = std::move(failed)] (folly::Try<int>& result) mutable {
+			if (result.hasException<std::exception>()) {
+				reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
+			} else {
+				auto rc = result.value();
+				if (pio_unlikely(rc < 0)) {
+					reqp->SetResult(rc, RequestStatus::kFailed);
+				} else if (pio_unlikely(not failed->empty())) {
+					const auto blockp = failed->front();
+					log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
+					reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
+				}
 			}
-		}
 
-		--stats_.reads_in_progress_;
-		IncrReadBytes(reqp->GetBufferSize());
-		return reqp->Complete();
+			--stats_.reads_in_progress_;
+			IncrReadBytes(reqp->GetBufferSize());
+			return reqp->Complete();
+		});
 	});
 }
 
 folly::Future<int> ActiveVmdk::BulkRead(const CheckPoints& min_max,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process) {
-	SetReadCheckPointId(process, min_max);
-	stats_.reads_in_progress_ += requests.size();
-	cache_stats_.total_reads_ += requests.size();
+	return TakeLockAndBulkInvoke(requests,
+			[this, &requests, &process, min_max = std::move(min_max)] () {
+		SetReadCheckPointId(process, min_max);
+		stats_.reads_in_progress_ += requests.size();
+		cache_stats_.total_reads_ += requests.size();
 
-	auto failed = std::make_unique<std::vector<RequestBlock*>>();
-	return headp_->BulkRead(this, requests, process, *failed)
-	.then([this, failed = std::move(failed), &requests]
-			(folly::Try<int>& result) mutable {
-		auto failedp = failed.get();
-		auto Fail = [&requests, &failedp] (int rc = -ENXIO, bool all = true) {
-			if (all) {
-				for (auto& request : requests) {
-					request->SetResult(rc, RequestStatus::kFailed);
+		auto failed = std::make_unique<std::vector<RequestBlock*>>();
+		return headp_->BulkRead(this, requests, process, *failed)
+		.then([this, failed = std::move(failed), &requests]
+				(folly::Try<int>& result) mutable {
+			auto failedp = failed.get();
+			auto Fail = [&requests, &failedp] (int rc = -ENXIO, bool all = true) {
+				if (all) {
+					for (auto& request : requests) {
+						request->SetResult(rc, RequestStatus::kFailed);
+					}
+				} else {
+					for (auto& bp : *failedp) {
+						auto reqp = bp->GetRequest();
+						reqp->SetResult(bp->GetResult(), RequestStatus::kFailed);
+					}
 				}
+			};
+			if (pio_unlikely(result.hasException())) {
+				Fail();
 			} else {
-				for (auto& bp : *failedp) {
-					auto reqp = bp->GetRequest();
-					reqp->SetResult(bp->GetResult(), RequestStatus::kFailed);
+				auto rc = result.value();
+				if (pio_unlikely(rc < 0 || not failedp->empty())) {
+					Fail(rc, not failedp->empty());
 				}
 			}
-		};
-		if (pio_unlikely(result.hasException())) {
-			Fail();
-		} else {
-			auto rc = result.value();
-			if (pio_unlikely(rc < 0 || not failedp->empty())) {
-				Fail(rc, not failedp->empty());
-			}
-		}
 
-		int32_t res = 0;
-		stats_.reads_in_progress_ -= requests.size();
-		for (auto& reqp : requests) {
-			auto rc = reqp->Complete();
-			if (pio_unlikely(rc < 0)) {
-				res = rc;
+			int32_t res = 0;
+			stats_.reads_in_progress_ -= requests.size();
+			for (auto& reqp : requests) {
+				auto rc = reqp->Complete();
+				if (pio_unlikely(rc < 0)) {
+					res = rc;
+				}
+				IncrReadBytes(reqp->GetBufferSize());
 			}
-			IncrReadBytes(reqp->GetBufferSize());
-		}
-		return res;
+			return res;
+		});
 	});
 }
 
@@ -604,39 +665,43 @@ folly::Future<int> ActiveVmdk::Move(Request* reqp, const CheckPoints& min_max) {
 		return -ENXIO;
 	}
 
-	auto failed = std::make_unique<std::vector<RequestBlock*>>();
-	auto process = std::make_unique<std::vector<RequestBlock*>>();
+	auto[start, end] = reqp->Blocks();
+	return TakeLockAndInvoke(start, end,
+			[this, reqp, min_max = std::move(min_max)] () {
+		auto failed = std::make_unique<std::vector<RequestBlock*>>();
+		auto process = std::make_unique<std::vector<RequestBlock*>>();
 
-	process->reserve(reqp->NumberOfRequestBlocks());
-	reqp->ForEachRequestBlock([&process] (RequestBlock *blockp) mutable {
-		process->emplace_back(blockp);
-		return true;
-	});
+		process->reserve(reqp->NumberOfRequestBlocks());
+		reqp->ForEachRequestBlock([&process] (RequestBlock *blockp) mutable {
+			process->emplace_back(blockp);
+			return true;
+		});
 
-	SetReadCheckPointId(*process, min_max);
-	++stats_.moves_in_progress_;
-	return headp_->Move(this, reqp, *process, *failed)
-	.then([this, reqp, process = std::move(process),
-			failed = std::move(failed)] (folly::Try<int>& result) mutable {
+		SetReadCheckPointId(*process, min_max);
+		++stats_.moves_in_progress_;
+		return headp_->Move(this, reqp, *process, *failed)
+		.then([this, reqp, process = std::move(process),
+				failed = std::move(failed)] (folly::Try<int>& result) mutable {
 
-		auto rc = 0;
-		if (result.hasException<std::exception>()) {
-			reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
-			rc = -ENOMEM;
-		} else {
-			rc = result.value();
-			if (pio_unlikely(rc < 0)) {
-				reqp->SetResult(rc, RequestStatus::kFailed);
-			} else if (pio_unlikely(not failed->empty())) {
-				const auto blockp = failed->front();
-				log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
-				reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
-				rc = -EIO;
+			auto rc = 0;
+			if (result.hasException<std::exception>()) {
+				reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
+				rc = -ENOMEM;
+			} else {
+				rc = result.value();
+				if (pio_unlikely(rc < 0)) {
+					reqp->SetResult(rc, RequestStatus::kFailed);
+				} else if (pio_unlikely(not failed->empty())) {
+					const auto blockp = failed->front();
+					log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
+					reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
+					rc = -EIO;
+				}
 			}
-		}
 
-		--stats_.moves_in_progress_;
-		return rc;
+			--stats_.moves_in_progress_;
+			return rc;
+		});
 	});
 }
 
@@ -673,51 +738,42 @@ int32_t ActiveVmdk::RemoveModifiedBlocks(CheckPointID ckpt_id,
 	return erased;
 }
 
-void ActiveVmdk::SetBlocksModified(CheckPointID ckpt_id, Request* reqp) {
-	auto [s, e] = reqp->Blocks();
-	auto range_iter = iter::Range(s, e+1);
+int ActiveVmdk::WriteRequestComplete(Request* reqp, CheckPointID ckpt_id) {
+	auto rc = reqp->Complete();
+	if (pio_unlikely(rc < 0)) {
+		return rc;
+	}
+
+	auto[start, end] = reqp->Blocks();
+	std::vector<decltype(start)> modified(end - start + 1);
+	std::iota(modified.begin(), modified.end(), start);
 
 	std::lock_guard<std::mutex> lock(blocks_.mutex_);
 	auto it = blocks_.modified_.find(ckpt_id);
 	if (pio_unlikely(it == blocks_.modified_.end())) {
-		bool inserted{};
-		std::tie(it, inserted) = blocks_.modified_.insert(
-			std::make_pair(ckpt_id, std::unordered_set<BlockID>())
-		);
-		log_assert(inserted);
+		blocks_.modified_.insert(std::make_pair(ckpt_id,
+			std::unordered_set<BlockID>()));
+		it = blocks_.modified_.find(ckpt_id);
 	}
-	it->second.insert(range_iter.begin(), range_iter.end());
+	log_assert(it != blocks_.modified_.end());
+
+	it->second.insert(modified.begin(), modified.end());
+	return 0;
 }
 
-void ActiveVmdk::SetBlocksModified(CheckPointID ckpt_id,
-		const std::vector<std::unique_ptr<Request>>& requests) {
-	std::lock_guard<std::mutex> lock(blocks_.mutex_);
-	auto it = blocks_.modified_.find(ckpt_id);
-	if (pio_unlikely(it == blocks_.modified_.end())) {
-		bool inserted{};
-		std::tie(it, inserted) = blocks_.modified_.insert(
-			std::make_pair(ckpt_id, std::unordered_set<BlockID>())
-		);
-		log_assert(inserted);
-	}
-	for (const auto& request : requests) {
-		auto [s, e] = request->Blocks();
-		auto range_iter = pio::iter::Range(s, e+1);
-		it->second.insert(range_iter.begin(), range_iter.end());
-	}
-}
-
-int ActiveVmdk::WriteComplete(Request* reqp) {
+int ActiveVmdk::WriteComplete(Request* reqp, CheckPointID ckpt_id) {
 	--stats_.writes_in_progress_;
 	IncrWriteBytes(reqp->GetBufferSize());
-	return reqp->Complete();
+	return WriteRequestComplete(reqp, ckpt_id);
 }
 
-int ActiveVmdk::WriteComplete(const std::vector<std::unique_ptr<Request>>& requests) {
+int ActiveVmdk::WriteComplete(
+		const std::vector<std::unique_ptr<Request>>& requests,
+		CheckPointID ckpt_id) {
 	int ret = 0;
 	--stats_.writes_in_progress_;
 	for (auto& request : requests) {
-		auto rc = request->Complete();
+		auto rc = WriteRequestComplete(request.get(), ckpt_id);
 		if (pio_unlikely(rc < 0)) {
 			ret = rc;
 		}
@@ -733,40 +789,41 @@ folly::Future<int> ActiveVmdk::BulkWrite(::ondisk::CheckPointID ckpt_id,
 		return -ENXIO;
 	}
 
-	SetBlocksModified(ckpt_id, requests);
+	return TakeLockAndBulkInvoke(requests,
+		[this, &requests, &process, ckpt_id = std::move(ckpt_id)] () {
+		stats_.writes_in_progress_ += requests.size();
+		cache_stats_.total_writes_ += requests.size();
+		auto failed = std::make_unique<std::vector<RequestBlock*>>();
 
-	stats_.writes_in_progress_ += requests.size();
-	cache_stats_.total_writes_ += requests.size();
-	auto failed = std::make_unique<std::vector<RequestBlock*>>();
-
-	return headp_->BulkWrite(this, ckpt_id, requests, process, *failed)
-	.then([this, &requests, failed = std::move(failed)]
-			(folly::Try<int>& result) mutable {
-		auto failedp = failed.get();
-		auto Fail = [&requests, failedp] (int rc = -ENXIO, bool all = true)
-				mutable {
-			if (all) {
-				for (auto& request : requests) {
-					request->SetResult(rc, RequestStatus::kFailed);
+		return headp_->BulkWrite(this, ckpt_id, requests, process, *failed)
+		.then([this, ckpt_id, &requests, failed = std::move(failed)]
+				(folly::Try<int>& result) mutable {
+			auto failedp = failed.get();
+			auto Fail = [&requests, failedp] (int rc = -ENXIO, bool all = true)
+					mutable {
+				if (all) {
+					for (auto& request : requests) {
+						request->SetResult(rc, RequestStatus::kFailed);
+					}
+				} else {
+					for (auto blockp : *failedp) {
+						auto reqp = blockp->GetRequest();
+						reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
+					}
 				}
+			};
+
+			if (pio_unlikely(result.hasException())) {
+				Fail();
 			} else {
-				for (auto blockp : *failedp) {
-					auto reqp = blockp->GetRequest();
-					reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
+				auto rc = result.value();
+				if (pio_unlikely(rc < 0 || not failedp->empty())) {
+					Fail(rc, failedp->empty());
 				}
 			}
-		};
 
-		if (pio_unlikely(result.hasException())) {
-			Fail();
-		} else {
-			auto rc = result.value();
-			if (pio_unlikely(rc < 0 || not failedp->empty())) {
-				Fail(rc, failedp->empty());
-			}
-		}
-
-		return WriteComplete(requests);
+			return WriteComplete(requests, ckpt_id);
+		});
 	});
 }
 
@@ -795,35 +852,38 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 		return -ENXIO;
 	}
 
-	SetBlocksModified(ckpt_id, reqp);
+	auto[start, end] = reqp->Blocks();
+	return TakeLockAndInvoke(start, end,
+			[this, reqp, ckpt_id = std::move(ckpt_id)] () {
 
-	auto failed = std::make_unique<std::vector<RequestBlock*>>();
-	auto process = std::make_unique<std::vector<RequestBlock*>>();
-	process->reserve(reqp->NumberOfRequestBlocks());
-	reqp->ForEachRequestBlock([&process] (RequestBlock *blockp) mutable {
-		process->emplace_back(blockp);
-		return true;
-	});
+		auto failed = std::make_unique<std::vector<RequestBlock*>>();
+		auto process = std::make_unique<std::vector<RequestBlock*>>();
+		process->reserve(reqp->NumberOfRequestBlocks());
+		reqp->ForEachRequestBlock([&process] (RequestBlock *blockp) mutable {
+			process->emplace_back(blockp);
+			return true;
+		});
 
-	++stats_.writes_in_progress_;
-	++cache_stats_.total_writes_;
-	return headp_->Write(this, reqp, ckpt_id, *process, *failed)
-	.then([this, reqp, process = std::move(process),
-			failed = std::move(failed)] (folly::Try<int>& result) mutable {
-		if (result.hasException<std::exception>()) {
-			reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
-		} else {
-			auto rc = result.value();
-			if (pio_unlikely(rc < 0)) {
-				reqp->SetResult(rc, RequestStatus::kFailed);
-			} else if (pio_unlikely(not failed->empty())) {
-				const auto blockp = failed->front();
-				log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
-				reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
+		++stats_.writes_in_progress_;
+		++cache_stats_.total_writes_;
+		return headp_->Write(this, reqp, ckpt_id, *process, *failed)
+		.then([this, reqp, ckpt_id, process = std::move(process),
+				failed = std::move(failed)] (folly::Try<int>& result) mutable {
+			if (result.hasException<std::exception>()) {
+				reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
+			} else {
+				auto rc = result.value();
+				if (pio_unlikely(rc < 0)) {
+					reqp->SetResult(rc, RequestStatus::kFailed);
+				} else if (pio_unlikely(not failed->empty())) {
+					const auto blockp = failed->front();
+					log_assert(blockp && blockp->IsFailed() && blockp->GetResult() != 0);
+					reqp->SetResult(blockp->GetResult(), RequestStatus::kFailed);
+				}
 			}
-		}
 
-		return WriteComplete(reqp);
+			return WriteComplete(reqp, ckpt_id);
+		});
 	});
 }
 
@@ -2154,44 +2214,48 @@ int ActiveVmdk::SetCkptBitmap(CheckPointID ckpt_id,
 folly::Future<int> ActiveVmdk::BulkMove(const CheckPoints& min_max,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process) {
-	SetReadCheckPointId(process, min_max);
 
-	auto failed = std::make_unique<std::vector<RequestBlock*>>();
-	return headp_->BulkMove(this, min_max.second, requests, process, *failed)
-	.then([failed = std::move(failed), &requests]
-			(folly::Try<int>& result) mutable {
-		auto ret = 0;
-		auto failedp = failed.get();
-		auto Fail = [&requests, &failedp] (int rc = -ENXIO, bool all = true) {
-			if (all) {
-				for (auto& request : requests) {
-					request->SetResult(rc, RequestStatus::kFailed);
+	return TakeLockAndBulkInvoke(requests,
+			[this, &requests, &process, min_max = std::move(min_max)] () {
+		SetReadCheckPointId(process, min_max);
+
+		auto failed = std::make_unique<std::vector<RequestBlock*>>();
+		return headp_->BulkMove(this, min_max.second, requests, process, *failed)
+		.then([failed = std::move(failed), &requests]
+				(folly::Try<int>& result) mutable {
+			auto ret = 0;
+			auto failedp = failed.get();
+			auto Fail = [&requests, &failedp] (int rc = -ENXIO, bool all = true) {
+				if (all) {
+					for (auto& request : requests) {
+						request->SetResult(rc, RequestStatus::kFailed);
+					}
+				} else {
+					for (auto& bp : *failedp) {
+						auto reqp = bp->GetRequest();
+						reqp->SetResult(bp->GetResult(), RequestStatus::kFailed);
+					}
 				}
+			};
+			if (pio_unlikely(result.hasException())) {
+				Fail();
+				ret = -EIO;
 			} else {
-				for (auto& bp : *failedp) {
-					auto reqp = bp->GetRequest();
-					reqp->SetResult(bp->GetResult(), RequestStatus::kFailed);
+				auto rc = result.value();
+				if (pio_unlikely(rc < 0 || not failedp->empty())) {
+					LOG(ERROR) << __func__ << "Error::" << rc;
+					Fail(rc, not failedp->empty());
+					ret = rc;
 				}
 			}
-		};
-		if (pio_unlikely(result.hasException())) {
-			Fail();
-			ret = -EIO;
-		} else {
-			auto rc = result.value();
-			if (pio_unlikely(rc < 0 || not failedp->empty())) {
-				LOG(ERROR) << __func__ << "Error::" << rc;
-				Fail(rc, not failedp->empty());
-				ret = rc;
-			}
-		}
 
-		for (auto& reqp : requests) {
-			if (pio_unlikely(reqp->IsFailed())) {
-				ret = reqp->GetResult();
+			for (auto& reqp : requests) {
+				if (pio_unlikely(reqp->IsFailed())) {
+					ret = reqp->GetResult();
+				}
 			}
-		}
-		return ret;
+			return ret;
+		});
 	});
 }
 
@@ -2690,6 +2754,17 @@ CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
 	return nullptr;
 }
 
+folly::Future<int> ActiveVmdk::MoveUnflushedToFlushed() {
+	std::lock_guard<std::mutex> guard(checkpoints_.mutex_);
+	if (pio_unlikely(checkpoints_.unflushed_.empty())) {
+		LOG(INFO) << "Unflushed checkpoint list is empty.";
+		return 0;
+	}
+	pio::MoveLastElements(checkpoints_.flushed_, checkpoints_.unflushed_,
+			checkpoints_.unflushed_.size());
+	return 0;
+}
+
 uint64_t ActiveVmdk::WritesInProgress() const noexcept {
 	return stats_.writes_in_progress_;
 }
@@ -2714,6 +2789,14 @@ uint64_t ActiveVmdk::FlushedCheckpoints() const noexcept {
 uint64_t ActiveVmdk::UnflushedCheckpoints() const noexcept {
 	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
     return checkpoints_.unflushed_.size();
+}
+
+void ActiveVmdk::UnflushedCheckpoints(
+	std::vector<::ondisk::CheckPointID>& unflushed_ckpts) const noexcept {
+	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
+    for (const auto& ckpt : checkpoints_.unflushed_) {
+		unflushed_ckpts.push_back(ckpt->ID());
+	}
 }
 
 uint64_t ActiveVmdk::GetFlushedBlksCnt() const noexcept {
@@ -2832,6 +2915,23 @@ std::pair<BlockID, BlockID> CheckPoint::Blocks() const noexcept {
 
 const Roaring& CheckPoint::GetRoaringBitMap() const noexcept {
 	return blocks_bitset_;
+}
+
+/*
+ * Takes a vector of Roaring bitmaps and OR/Union those to yield
+ * a merged Roaring bitmap instance
+ */
+std::unique_ptr<Roaring*>CheckPoint::UnionRoaringBitmaps(
+			const std::vector<Roaring*>& roaring_bitmaps) {
+	if(roaring_bitmaps.size() < 2) {
+		LOG(WARNING) << __func__ << "Input vector size must be >= 2";
+		return NULL;
+	}
+
+	auto union_bitmap = std::move(Roaring::fastunion(roaring_bitmaps.size(),
+							(const Roaring**)roaring_bitmaps.data()));
+
+	return std::make_unique<Roaring*>(&union_bitmap);
 }
 
 void CheckPoint::SetSerialized() noexcept {
