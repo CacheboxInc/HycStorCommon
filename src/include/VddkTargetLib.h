@@ -77,15 +77,49 @@ private:
     int line_;
 };
 
-class ArmVddkLib {
+class ArmVmVcConnection {
 public:
-	ArmVddkLib(VixDiskLibConnection Conn,
+	ArmVmVcConnection(char *password, char *username, char* thumbprint, char* vmId, char* vcName):
+				password_(password), username_(username), thumbprint_(thumbprint),
+				vmId_(vmId), vcName_(vcName) {
+		cnxParams_ = VixDiskLib_AllocateConnectParams();
+		cnxParams_->credType = VIXDISKLIB_CRED_UID;
+		cnxParams_->creds.uid.password = password_;
+		cnxParams_->creds.uid.userName = username_;
+		cnxParams_->thumbPrint = thumbprint_;
+		cnxParams_->specType = VIXDISKLIB_SPEC_VMX;
+		cnxParams_->vmxSpec = vmId_;
+		cnxParams_->port = 443;
+		cnxParams_->nfcHostPort = 902;
+		cnxParams_->serverName = vcName_;
+
+		VixError vixError = VixDiskLib_ConnectEx(cnxParams_, false, NULL, "nbdssl", &conn);
+		CHECK_AND_THROW(vixError);
+	}
+	~ArmVmVcConnection() {
+		VixDiskLib_Disconnect(conn);
+		VixDiskLib_FreeConnectParams(cnxParams_);
+		cnxParams_ = NULL;
+	}
+	VixDiskLibConnection conn;
+private:
+	VixDiskLibConnectParams *cnxParams_;
+	char *password_;
+	char *username_;
+	char *thumbprint_;
+	char *vmId_;
+	char *vcName_;
+};
+
+class ArmVddkFile {
+public:
+	ArmVddkFile(VixDiskLibConnection Conn,
 			const char* VmdkPath): conn_(Conn){
 		handle_ = NULL;
 		VixError vixError = VixDiskLib_Open(Conn, VmdkPath, 0, &handle_);
 		CHECK_AND_THROW(vixError);
 	}
-	~ArmVddkLib(){
+	~ArmVddkFile(){
 		VixDiskLib_Close(handle_);
 		handle_ = NULL;
 	}
