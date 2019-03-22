@@ -131,7 +131,7 @@ struct Request {
 		kWriteSame,
 		kTruncate,
 	};
-
+	mutable std::mutex mutex_;
 	RequestID id;
 	Type type;
 	const void* privatep;
@@ -569,6 +569,8 @@ public:
 		int32_t buf_sz, int32_t write_sz, int64_t offset);
 	RequestID ScheduleTruncate(const void* privatep, char* bufferp,
 		int32_t buf_sz);
+	int32_t AbortScheduledRequest(const void* privatep);
+	int32_t AbortRequest(const void* privatep);
 
 	uint32_t GetCompleteRequests(RequestResult* resultsp, uint32_t nresults,
 		bool *has_morep);
@@ -632,6 +634,7 @@ private:
 		std::vector<std::unique_ptr<Request>> complete_;
 	} requests_;
 
+	mutable std::mutex send_rpc_mutex_;
 	MovingAverage<uint64_t, 128> latency_avg_{};
 	MovingAverage<uint64_t, 128> bulk_depth_avg_{};
 	VmdkStats stats_;
@@ -935,8 +938,48 @@ int StordVmdk::PostRequestCompletion() const {
 	return 0;
 }
 
+int32_t StordVmdk::AbortRequest(const void* privatep) {
+	std::lock_guard<std::mutex> lock(send_rpc_mutex_);
+	{
+		std::lock_guard<std::mutex> lock(requests_.mutex_);
+
+		for (auto reqp : requests_.pending_) {
+			std::lock_guard<std::mutex> lock(reqp->mutex_);
+			if (reqp->privatep == privatep) {
+				reqp->privatep = nullptr;
+				break;
+			}
+		}
+
+		auto sit = requests_.complete_.begin();
+		for (auto& reqp : requests_.complete_) {
+			std::lock_guard<std::mutex> lock(reqp->mutex_);
+			if (reqp->privatep == privatep) {
+				reqp->privatep = nullptr;
+				requests_.complete_.erase(sit);
+				return 0;
+			}
+			sit++;
+		}
+
+		for (auto& req_map : requests_.scheduled_) {
+			auto reqp = req_map.second.get();
+			{
+				std::lock_guard<std::mutex> lock(reqp->mutex_);
+				if (reqp->privatep == privatep) {
+					reqp->privatep = nullptr;
+					return 0;
+				}
+			}
+		}
+	}
+	return 0;
+}
+
+
 uint32_t StordVmdk::GetCompleteRequests(RequestResult* resultsp,
 		uint32_t nresults, bool *has_morep) {
+	struct Request *reqp;
 	*has_morep = false;
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
 	auto tocopy = std::min(requests_.complete_.size(), static_cast<size_t>(nresults));
@@ -946,10 +989,17 @@ uint32_t StordVmdk::GetCompleteRequests(RequestResult* resultsp,
 
 	auto eit = requests_.complete_.end();
 	auto sit = std::prev(eit, tocopy);
-	for (auto resultp = resultsp; sit != eit; ++sit, ++resultp) {
-		resultp->privatep   = sit->get()->privatep;
-		resultp->request_id = sit->get()->id;
-		resultp->result     = sit->get()->result;
+	for (auto resultp = resultsp; sit != eit; ++sit) {
+		reqp = sit->get();
+		{
+			std::lock_guard<std::mutex> lock(reqp->mutex_);
+			if (reqp->privatep != nullptr) {
+				resultp->privatep   = reqp->privatep;
+				resultp->request_id = reqp->id;
+				resultp->result     = reqp->result;
+				++resultp;
+			}
+		}
 	}
 	requests_.complete_.erase(std::prev(eit, tocopy), eit);
 	*has_morep = not requests_.complete_.empty();
@@ -957,9 +1007,12 @@ uint32_t StordVmdk::GetCompleteRequests(RequestResult* resultsp,
 }
 
 void StordVmdk::ReadDataCopy(Request* reqp, const ReadResult& result) {
+	std::lock_guard<std::mutex> lock(reqp->mutex_);
+	if (reqp->privatep == nullptr) {
+		return;
+	}
 	log_assert(result.data->computeChainDataLength() ==
 		static_cast<size_t>(reqp->buf_sz));
-
 	auto bufp = reqp->bufferp;
 	auto const* p = result.data.get();
 	auto e = result.data->countChainElements();
@@ -1214,7 +1267,13 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp
 		uint32_t nwrites = 0;
 		uint32_t nreads = 0;
 
+		std::lock_guard<std::mutex> lock(send_rpc_mutex_);
 		for (auto reqp : pending) {
+			std::lock_guard<std::mutex> lock(reqp->mutex_);
+			if (reqp->privatep == nullptr) {
+				continue;
+			}
+
 			reqp->timer.Start();
 			switch (reqp->type) {
 			case Request::Type::kRead:
@@ -1275,6 +1334,15 @@ RequestID StordVmdk::ScheduleRead(const void* privatep, char* bufferp,
 		ScheduleNow(basep, clientp);
 	}
 	return reqp->id;
+}
+
+int32_t StordVmdk::AbortScheduledRequest(const void* privatep) {
+	int32_t rc;
+
+	log_assert(vmdk_handle_ != kInvalidVmdkHandle);
+
+	rc = AbortRequest(privatep);
+	return rc;
 }
 
 RequestID StordVmdk::ScheduleWrite(const void* privatep, char* bufferp,
@@ -1354,6 +1422,7 @@ public:
 		char* bufferp, int32_t buf_sz, int32_t write_sz, int64_t offset);
 	RequestID VmdkTruncate(StordVmdk* vmdkp, const void* privatep,
 		char* bufferp, int32_t buf_sz);
+	int32_t AbortVmdkOp(StordVmdk* vmdkp, const void* privatep);
 	StordVmdk* FindVmdk(::hyc_thrift::VmdkHandle handle);
 	StordVmdk* FindVmdk(const std::string& vmdkid);
 private:
@@ -1473,6 +1542,10 @@ uint32_t Stord::VmdkGetCompleteRequest(StordVmdk* vmdkp,
 	return vmdkp->GetCompleteRequests(resultsp, nresults, has_morep);
 }
 
+int32_t Stord::AbortVmdkOp(StordVmdk* vmdkp, const void* privatep) {
+	return vmdkp->AbortScheduledRequest(privatep);
+}
+
 RequestID Stord::VmdkWrite(StordVmdk* vmdkp, const void* privatep,
 		char* bufferp, int32_t buf_sz, int64_t offset) {
 	return vmdkp->ScheduleWrite(privatep, bufferp, buf_sz, offset);
@@ -1576,6 +1649,16 @@ uint32_t HycGetCompleteRequests(VmdkHandle handle, RequestResult *resultsp,
 		return 0;
 	}
 }
+
+int32_t HycScheduleAbort(VmdkHandle handle, const void* privatep) {
+	try {
+		auto vmdkp = reinterpret_cast<::hyc::StordVmdk*>(handle);
+		return g_stord.AbortVmdkOp(vmdkp, privatep);
+	} catch(std::exception& e) {
+		return 0;
+	}
+}
+
 
 RequestID HycScheduleWrite(VmdkHandle handle, const void* privatep,
 		char* bufferp, int32_t buf_sz, int64_t offset) {
