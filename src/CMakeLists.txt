@@ -76,6 +76,7 @@ set(NEP_LIBRARY_LIST
 	HycNetSim
 	HycGwy
 	HycVddkSync
+	ArmVddkAsync
 	task
 	vaiorpc
 	nanomsg
