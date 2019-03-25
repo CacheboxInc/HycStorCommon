@@ -16,14 +16,14 @@ void WriteCallBack(CallbackData &cbData, VixError result) {
 }
 
 void ArmVddkFile::AsyncRead(
-		unsigned long int offset, size_t size, uint8 *buf) {
-	VixDiskLib_ReadAsync(handle_, offset, size, buf, (VixDiskLibCompletionCB)ReadCallBack, NULL/*(void *)cbData*/);
+		unsigned long int offset, size_t size, uint8 *buf, VixDiskLibCompletionCB ReadCallBack, void *cbData) {
+	VixDiskLib_ReadAsync(handle_, offset, size, buf, (VixDiskLibCompletionCB)ReadCallBack, cbData);
 	VixDiskLib_Wait(handle_);
 }
 
 void ArmVddkFile::AsyncWrite(
-		unsigned long int offset, size_t size, uint8 *buf) {
-	VixDiskLib_WriteAsync(handle_, offset, size, buf, (VixDiskLibCompletionCB)WriteCallBack, NULL /*(void *)cbData*/);
+		unsigned long int offset, size_t size, uint8 *buf, VixDiskLibCompletionCB WriteCallBack, void *cbData) {
+	VixDiskLib_WriteAsync(handle_, offset, size, buf, (VixDiskLibCompletionCB)WriteCallBack, cbData);
 	VixDiskLib_Wait(handle_);
 }
 

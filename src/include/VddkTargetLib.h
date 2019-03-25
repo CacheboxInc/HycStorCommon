@@ -124,8 +124,8 @@ public:
 		handle_ = NULL;
 	}
 
-	void AsyncRead(unsigned long int, size_t, uint8 *);
-	void AsyncWrite(unsigned long int, size_t, uint8 *);
+	void AsyncRead(unsigned long int, size_t, uint8 *, VixDiskLibCompletionCB, void*);
+	void AsyncWrite(unsigned long int, size_t, uint8 *, VixDiskLibCompletionCB, void*);
 
 private:
 	VixDiskLibConnection conn_;
