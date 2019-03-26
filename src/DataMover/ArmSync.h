@@ -6,14 +6,15 @@
 
 #include "RequestHandler.h"
 #include "VmSync.h"
+#include "ArmConfig.h"
 
 namespace pio {
 class VddkTargetHandler;
 
-using VddkPathInfo = int;
-using VCenterInfo = int;
+using VddkPathInfo = config::arm_config::vmdk_info;
+using VCenterInfo = vc_ns::vc_info;
 using VddkTarget = std::unique_ptr<VddkTargetHandler>;
-using VddkPathInfoMap = std::unordered_map<::ondisk::VmdkID, VddkPathInfo>;
+using VddkPathInfoMap = config::arm_config::vmdk_info_map;
 
 class VCenter {
 public:

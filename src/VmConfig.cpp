@@ -7,13 +7,16 @@
 using namespace ::hyc_thrift;
 using namespace ::ondisk;
 
-namespace pio { namespace config {
+namespace pio {
+namespace config {
 
 const std::string VmConfig::kVmID = "VmID";
 const std::string VmConfig::kVmUUID = "VmUUID";
 const std::string VmConfig::kTargetID = "TargetID";
 const std::string VmConfig::kTargetName = "TargetName";
 const std::string VmConfig::kAeroClusterID = "AeroClusterID";
+const std::string VmConfig::kArmMigration = "ArmMigration";
+const std::string VmConfig::kEnabled = "Enabled";
 
 VmConfig::VmConfig(const std::string& config) : JsonConfig(config) {
 }
@@ -66,4 +69,13 @@ bool VmConfig::GetAeroClusterID(AeroClusterID& cluster_id) const {
 	return JsonConfig::GetKey(kAeroClusterID, cluster_id);
 }
 
-}}
+bool VmConfig::GetArmMigration() const {
+	std::string str = JsonConfig::GetValue<std::string>(kArmMigration);
+	if (str == kEnabled) {
+		return true;
+	}
+	return false;
+}
+
+} // namespace config.
+} // namespace pio.

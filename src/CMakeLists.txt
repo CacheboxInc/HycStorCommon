@@ -166,6 +166,7 @@ set(StorageLayerFiles
 	ReadAhead.cpp
 	Analyzer.cpp
 	Rest.cpp
+	ArmConfig.cpp
 
 	"${CMAKE_SOURCE_DIR}/src/DataMover/SyncCookie.cpp"
 	"${CMAKE_SOURCE_DIR}/src/DataMover/CheckPointTraverser.cpp"

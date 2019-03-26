@@ -36,6 +36,22 @@ public:
 		tree_.put(key, value);
 	}
 
+	template <typename V>
+	const V GetValue(const std::string& key) const {
+		V val;
+
+		try {
+			val = tree_.get<V>(key);
+		} catch (const boost::property_tree::ptree_error& e) {
+			throw e;
+		}
+		return val;
+	}
+
+	const boost::property_tree::ptree& GetJsonRoot() const {
+		return tree_;
+	}
+
 protected:
 	boost::property_tree::ptree tree_;
 };

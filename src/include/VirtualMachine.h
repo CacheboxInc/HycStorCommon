@@ -18,7 +18,9 @@
 #include "RecurringTimer.h"
 #include "Analyzer.h"
 #include "Rest.h"
+#include "ArmConfig.h"
 #include "VmSync.h"
+#include "ArmSync.h"
 
 using namespace ::hyc_thrift;
 
@@ -27,6 +29,7 @@ namespace pio {
 class VmdkCacheStats;
 namespace config {
 	class VmConfig;
+	class ArmConfig;
 }
 
 using ReqBlockVec = std::vector<RequestBlock*>;
@@ -102,8 +105,12 @@ public:
 	folly::Future<int> StartPreload(const ::ondisk::VmdkID& id);
 	const ::ondisk::VmID& GetID() const noexcept;
 	const ::ondisk::VmUUID& GetUUID() const noexcept;
-	VmdkHandle GetHandle() const noexcept;
+	VmHandle GetHandle() const noexcept;
 	const config::VmConfig* GetJsonConfig() const noexcept;
+
+	int SetArmJsonConfig(const std::string&);
+	const config::ArmConfig* GetArmJsonConfig() const noexcept;
+	void SetArmSync(std::unique_ptr<ArmSync>&&) noexcept;
 
 	Analyzer* GetAnalyzer() noexcept;
 	folly::Future<RestResponse> RestCall(_ha_instance* instancep,
@@ -137,6 +144,7 @@ private:
 	::ondisk::VmUUID vm_uuid_;
 	std::atomic<RequestID> request_id_{0};
 	std::unique_ptr<config::VmConfig> config_;
+	std::unique_ptr<config::ArmConfig> armconfig_;
 
 	Analyzer analyzer_;
 	RecurringTimer timer_;
@@ -176,5 +184,8 @@ private:
 
 	std::atomic_flag flush_in_progress_ = ATOMIC_FLAG_INIT;
 	std::unordered_map<std::string, int64_t> snap_ckpt_map_;
+
+	std::unique_ptr<ArmSync> armsync_;
 };
+
 }

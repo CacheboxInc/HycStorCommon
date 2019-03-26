@@ -15,6 +15,7 @@
 #include "VirtualMachine.h"
 #include "Vmdk.h"
 #include "VmConfig.h"
+#include "ArmConfig.h"
 #include "FlushManager.h"
 #include "Singleton.h"
 #include "AeroOps.h"
@@ -25,6 +26,7 @@
 #include "EncryptHandler.h"
 #include "MultiTargetHandler.h"
 #include "halib.h"
+#include "ArmSync.h"
 
 using namespace ::hyc_thrift;
 using namespace ::ondisk;
@@ -75,6 +77,17 @@ VmHandle VirtualMachine::GetHandle() const noexcept {
 
 const config::VmConfig* VirtualMachine::GetJsonConfig() const noexcept {
 	return config_.get();
+}
+
+int VirtualMachine::SetArmJsonConfig(const std::string& config) {
+	std::lock_guard<std::mutex> lock1(vmdk_.mutex_);
+	armconfig_ = std::make_unique<config::ArmConfig>(config);
+	// TODO: Need to check if make_unique() fails.
+	return 0;
+}
+
+const config::ArmConfig* VirtualMachine::GetArmJsonConfig() const noexcept {
+	return armconfig_.get();
 }
 
 Analyzer* VirtualMachine::GetAnalyzer() noexcept {
@@ -1099,6 +1112,11 @@ folly::Future<int> VirtualMachine::Stun(CheckPointID ckpt_id) {
 	} else {
 		return it->second->GetFuture();
 	}
+}
+
+void VirtualMachine::SetArmSync(std::unique_ptr<ArmSync>&& armsync) noexcept {
+	std::lock_guard<std::mutex> lock1(sync_.mutex_);
+	sync_.list_.emplace_back(std::move(armsync));
 }
 
 Stun::Stun() : promise(), futures(promise.getFuture()) {
