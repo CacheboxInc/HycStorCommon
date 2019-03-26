@@ -3,7 +3,7 @@
 namespace pio {
 
 /* forward declaration for pimpl */
-class ArmVddkFile;
+class VddkFile;
 class VddkTarget;
 
 class VddkTargetLibHandler : public RequestHandler {
@@ -41,7 +41,7 @@ private:
 	int ReadModifyWrite(ActiveVmdk* vmdkp, RequestBlock* blockp,
 		RequestBuffer* bufferp);
 private:
-	std::unique_ptr<ArmVddkFile> vddk_file_;
+	std::unique_ptr<VddkFile> vddk_file_;
 	std::unique_ptr<VddkTarget> target_;
 };
 

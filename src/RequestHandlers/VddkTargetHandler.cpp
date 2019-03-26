@@ -22,7 +22,7 @@ namespace pio {
 
 VddkTargetLibHandler::VddkTargetLibHandler() noexcept :
 		RequestHandler(VddkTargetLibHandler::kName, nullptr),
-		vddk_file_(std::make_unique<ArmVddkFile>()),
+		vddk_file_(std::make_unique<VddkFile>()),
 		target_(std::make_unique<VddkTarget>()) {
 }
 
