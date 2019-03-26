@@ -77,6 +77,7 @@ set(NEP_LIBRARY_LIST
 	HycNetSim
 	HycGwy
 	HycVddkSync
+	ArmVddkAsync
 	task
 	vaiorpc
 	nanomsg
@@ -190,6 +191,7 @@ set(StorageLayerFiles
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/AeroOps.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/FileTargetHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/MultiTargetHandler.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/VddkTargetHandler.cpp"
 )
 
 if(USE_NEP)

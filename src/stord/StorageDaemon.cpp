@@ -33,6 +33,8 @@
 #include <TargetManagerRest.hpp>
 #endif
 
+#include "VddkTargetLib.h"
+
 /*
  * Max number of pending REST call requests allowed at stord
  * at a time. This is mainly to handle the scenario where their
@@ -2306,6 +2308,15 @@ int main(int argc, char* argv[])
 	auto stord_instance = std::make_unique<::StorD>();
 	stord_instance->InitStordLib();
 
+#define libDir  "/usr/lib/x86_64-linux-gnu/hyc-vddk/disklib"
+#define cfgFile "/usr/lib/x86_64-linux-gnu/hyc-vddk/conf/vddk.conf"
+        VixError vixError = VixDiskLib_InitEx(VIXDISKLIB_VERSION_MAJOR,
+                                     VIXDISKLIB_VERSION_MINOR,
+                                     NULL, NULL, NULL,
+                                     libDir,
+                                     cfgFile);
+        CHECK_AND_THROW(vixError);
+
 #ifdef USE_NEP
 	/* Initialize threadpool for AeroSpike accesses */
 	auto tmgr_rest = std::make_shared<pio::hyc::TargetManagerRest>(
@@ -2337,6 +2348,7 @@ int main(int argc, char* argv[])
 	SingletonHolder<FlushManager>::GetInstance()->DestroyInstance();
 	SingletonHolder<AeroFiberThreads>::GetInstance()->FreeInstance();
 
+	VixDiskLib_Exit();
 	stord_instance->DeinitStordLib();
 
 	ha_deinitialize(g_thread_.ha_instance_);
