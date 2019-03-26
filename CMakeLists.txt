@@ -54,6 +54,7 @@ include_directories(src/include)
 include_directories(src/)
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/install/include)
+include_directories("/usr/local/include/hyc/include/")
 
 link_directories(${PROJECT_SOURCE_DIR}/lib)
 link_directories("/usr/local/lib")
