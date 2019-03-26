@@ -225,6 +225,7 @@ void VirtualMachine::CheckPointComplete(CheckPointID ckpt_id) {
 	std::lock_guard<std::mutex> lock(sync_.mutex_);
 	for (auto& sync : sync_.list_) {
 		sync->NewCheckPointCreated(ckpt_id);
+		sync->SyncStart();
 	}
 }
 

@@ -53,14 +53,35 @@ int VmdkSync::SyncStart() {
 }
 
 VmSync::VmSync(VirtualMachine* vmp,
-			const CkptBatch& batch,
+			const ::ondisk::CheckPointID base,
 			uint16_t batch_size
 		) noexcept :
 			vmp_(vmp),
-			ckpt_batch_(batch),
+			ckpt_base_(base),
+			ckpt_batch_({base, 0, base}),
 			ckpt_batch_size_(batch_size) {
 	ckpt_latest_ = vmp->GetCurCkptID();
 }
+
+#if 0
+VmSync::VmSync(VirtualMachine* vmp,
+			SynceCookie::Cookie cookie
+		) :
+			vmp_(vmp) {
+	cookie_.SetCookie(cookie);
+
+	ckpt_base_ = cookie_.GetCheckPointBase();
+	ckpt_batch_ = cookie_.GetCheckPointBatch();
+	ckpt_batch_size_ = cookie_.GetCheckPointBatchSize();
+
+	ckpt_latest_ = vmp->GetCurCkptID();
+#if 0
+	TODO
+	====
+	make sure UUID in Cookie is correct
+#endif
+}
+#endif
 
 VmSync::~VmSync() noexcept {
 }
@@ -130,23 +151,30 @@ int VmSync::SyncStart() {
 
 	/* validate the progress of existing sync */
 	auto expected_scheduled = std::get<2>(ckpt_batch_);
-	for (const auto& vmdk_sync : vmdks_) {
-		::ondisk::CheckPointID done;
-		::ondisk::CheckPointID progress;
-		::ondisk::CheckPointID scheduled;
+	if (expected_scheduled != ckpt_base_) {
+		for (const auto& vmdk_sync : vmdks_) {
+			::ondisk::CheckPointID done;
+			::ondisk::CheckPointID progress;
+			::ondisk::CheckPointID scheduled;
 
-		vmdk_sync->GetCheckPointSummary(&done, &progress, &scheduled);
-		if (not (done == progress and done == scheduled and done == expected_scheduled)) {
-			LOG(ERROR) << "VmSync: fatal error "
-				<< " done " << done
-				<< " progress " << progress
-				<< " scheduled " << scheduled
-				<< " expected scheduled " << expected_scheduled;
-			return -EINVAL;
+			vmdk_sync->GetCheckPointSummary(&done, &progress, &scheduled);
+			if (not (done == progress and
+						done == scheduled and
+						done == expected_scheduled)) {
+				LOG(ERROR) << "VmSync: fatal error "
+					<< " done " << done
+					<< " progress " << progress
+					<< " scheduled " << scheduled
+					<< " expected scheduled " << expected_scheduled;
+				return -EINVAL;
+			}
 		}
 	}
 
-	++expected_scheduled;
+	if (++expected_scheduled > ckpt_latest_) {
+		return 0;
+	}
+
 	auto sync_till = std::min(expected_scheduled + ckpt_batch_size_, ckpt_latest_);
 	CkptBatch ckpt_batch{expected_scheduled, 0, sync_till};
 	int res = 0;

@@ -40,7 +40,7 @@ private:
 class VmSync {
 protected:
 	VmSync(VirtualMachine* vmp,
-		const CkptBatch& batch,
+		const ::ondisk::CheckPointID base,
 		uint16_t batch_size) noexcept;
 
 	/* TODO: need constructor using SynceCookie */
@@ -56,10 +56,9 @@ private:
 protected:
 	int SetVmdkToSync(std::vector<std::unique_ptr<VmdkSync>> vmdks) noexcept;
 
-protected:
-	VirtualMachine* vmp_{};
-
 private:
+	VirtualMachine* vmp_{};
+	::ondisk::CheckPointID ckpt_base_{};
 	CkptBatch ckpt_batch_{kCkptBatchInitial};
 	uint16_t ckpt_batch_size_{0};
 	::ondisk::CheckPointID ckpt_latest_{};

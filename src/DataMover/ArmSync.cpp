@@ -8,24 +8,34 @@
 #include "CleanHandler.h"
 
 namespace pio {
-ArmSync::ArmSync(
-			VirtualMachine* vmp,
-			const CkptBatch& batch,
+ArmSync::ArmSync(VirtualMachine* vmp,
+			const ::ondisk::CheckPointID base,
 			uint16_t batch_size
 		) noexcept :
-			VmSync(vmp, batch, batch_size) {
+			VmSync(vmp, base, batch_size),
+			vmp_(vmp) {
 }
+
+#if 0
+ArmSync::ArmSync(VirtualMachine* vmp,
+			SynceCookie::Cookie&& cookie
+		) :
+			VmSync(vmp, std::forward<SynceCookie::Cookie>(cookie)),
+			vmp_(vmp) {
+}
+#endif
 
 ArmSync::~ArmSync() noexcept {
 
 }
 
-int ArmSync::VCenterConnnect(VCenterInfo&& info) {
+int ArmSync::VCenterConnnect(std::string&& moid, VCenterInfo&& info) {
 	if (pio_unlikely(vcenter_)) {
 		LOG(ERROR) << "ArmSync: existing VC connection is live";
 		return -EINVAL;
 	}
-	vcenter_ = std::make_unique<VCenter>(std::forward<VCenterInfo>(info));
+	vcenter_ = std::make_unique<VCenter>(std::forward<std::string>(moid),
+		std::forward<VCenterInfo>(info));
 	if (pio_unlikely(not vcenter_)) {
 		LOG(ERROR) << "ArmSync: creating VC connection failed";
 		return -ENOMEM;

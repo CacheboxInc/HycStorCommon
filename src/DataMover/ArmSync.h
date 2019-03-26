@@ -11,10 +11,21 @@ namespace pio {
 class VddkTargetHandler;
 
 using VddkPathInfo = int;
-using VCenter = int;
 using VCenterInfo = int;
 using VddkTarget = std::unique_ptr<VddkTargetHandler>;
 using VddkPathInfoMap = std::unordered_map<::ondisk::VmdkID, VddkPathInfo>;
+
+class VCenter {
+public:
+	VCenter(std::string moid,
+				VCenterInfo info
+			) noexcept :
+				moid_(moid),
+				info_(info) {
+	}
+	std::string moid_;
+	VCenterInfo info_;
+};
 
 class VddkTargetHandler : public virtual RequestHandler {
 public:
@@ -102,10 +113,12 @@ public:
 	ArmSync& operator = (const ArmSync&) = delete;
 	ArmSync& operator = (ArmSync&&) = delete;
 
-	ArmSync(VirtualMachine*, const CkptBatch&, uint16_t batch_size) noexcept;
+	ArmSync(VirtualMachine*, const ::ondisk::CheckPointID base,
+		uint16_t batch_size) noexcept;
+	// ArmSync(VirtualMachine*, SynceCookie::Cookie cookie) noexcept;
 	virtual ~ArmSync() noexcept;
 
-	int VCenterConnnect(VCenterInfo&& info);
+	int VCenterConnnect(std::string&& moid, VCenterInfo&& info);
 	int SyncStart(const VddkPathInfoMap& paths);
 
 private:
