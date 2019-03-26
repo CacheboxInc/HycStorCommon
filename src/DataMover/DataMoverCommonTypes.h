@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "gen-cpp2/MetaData_types.h"
+#include "gen-cpp2/MetaData_constants.h"
 
 namespace pio {
 class Request;
@@ -21,4 +22,23 @@ using RequestBlockPtrVec = std::vector<RequestBlock*>;
 
 using CheckPointPtrVec = std::vector<const CheckPoint*>;
 using CkptBlockPair = std::pair<::ondisk::CheckPointID, ::ondisk::BlockID>;
+
+/*
+ * CkptBatch
+ * - CheckPoints are Synced in batches
+ * - Captures 3 CheckPointIDs
+ *   - base
+ *   - sync in progress
+ *   - last
+ */
+using CkptBatch = std::tuple<
+	::ondisk::CheckPointID,
+	::ondisk::CheckPointID,
+	::ondisk::CheckPointID
+>;
+constexpr CkptBatch kCkptBatchInitial = {
+	::ondisk::MetaData_constants::kInvalidCheckPointID(),
+	::ondisk::MetaData_constants::kInvalidCheckPointID(),
+	::ondisk::MetaData_constants::kInvalidCheckPointID()
+};
 }

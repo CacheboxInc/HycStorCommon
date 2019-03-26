@@ -1408,7 +1408,7 @@ folly::Future<int> AeroSpike::AeroMetaWrite(ActiveVmdk *vmdkp,
 			}
 
 			/* Now write the final record */
-			auto w_batch_rec = std::make_unique<WriteBatch>(vmdkp->GetID(),
+			w_batch_rec = std::make_unique<WriteBatch>(vmdkp->GetID(),
 					ns, kMetaSetName);
 			if (pio_unlikely(w_batch_rec == nullptr)) {
 				LOG(ERROR) << "WriteBatch allocation failed";

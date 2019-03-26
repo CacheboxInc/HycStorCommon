@@ -18,6 +18,7 @@
 #include "RecurringTimer.h"
 #include "Analyzer.h"
 #include "Rest.h"
+#include "VmSync.h"
 
 using namespace ::hyc_thrift;
 
@@ -51,6 +52,9 @@ public:
 	void NewVmdk(ActiveVmdk* vmdkp);
 	int RemoveVmdk(ActiveVmdk* vmdkp);
 	int VmdkCount();
+	const std::vector<ActiveVmdk *> GetAllVmdks() const noexcept;
+	ActiveVmdk* FindVmdk(const ::ondisk::VmdkID& vmdk_id) const;
+
 	RequestID NextRequestID();
 
 	folly::Future<int> Write(ActiveVmdk* vmdkp, Request* reqp);
@@ -111,7 +115,6 @@ public:
 	};
 
 private:
-	ActiveVmdk* FindVmdk(const ::ondisk::VmdkID& vmdk_id) const;
 	ActiveVmdk* FindVmdk(VmdkHandle vmdk_handle) const;
 
 private:
@@ -153,6 +156,11 @@ private:
 		mutable std::mutex mutex_;
 		std::vector<ActiveVmdk *> list_;
 	} vmdk_;
+
+	struct {
+		mutable std::mutex mutex_;
+		std::vector<std::unique_ptr<VmSync>> list_;
+	} sync_;
 
 	struct {
 		std::atomic<uint64_t> writes_in_progress_{0};

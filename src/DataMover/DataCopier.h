@@ -48,6 +48,22 @@ class ActiveVmdk;
 
 class DataCopier {
 public:
+	struct Stats {
+		uint64_t copy_total{0};
+		uint64_t copy_pending{0};
+		uint64_t copy_completed{0};
+		uint64_t copy_avoided{0};
+
+		::ondisk::CheckPointID cbt_in_progress{0};
+		uint64_t read_in_progress{0};
+		uint64_t write_in_progress{0};
+		uint64_t write_queue_size{0};
+
+		bool is_read_complete{false};
+		bool is_failed{false};
+	};
+
+public:
 	DataCopier(ActiveVmdk* vmdkp,
 		const size_t vmdk_block_shift,
 		const size_t max_io_size = 1ul << 20) noexcept;
@@ -60,6 +76,7 @@ public:
 	void SetReadIODepth(const size_t io_depth) noexcept;
 	void SetWriteIODepth(const size_t io_depth) noexcept;
 	folly::Future<int> Begin();
+	DataCopier::Stats GetStats() const noexcept;
 
 private:
 	bool HasPendingIOs() const noexcept;

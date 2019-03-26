@@ -19,6 +19,7 @@ add_executable(StorageLayerTests
 	TestDataWriterReader.cpp
 	TestDataCopier.cpp
 	TestDataSync.cpp
+	TestSyncCookie.cpp
 )
 
 if(USE_NEP)

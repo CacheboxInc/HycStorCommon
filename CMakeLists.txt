@@ -94,6 +94,7 @@ add_compile_options(
   -Wformat-security
   -Werror=format-security
   -Wunused-variable
+  -Wunused-lambda-capture
   -fstack-protector-all
   -fPIE
   -fpie

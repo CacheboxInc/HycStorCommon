@@ -11,6 +11,14 @@ class CheckPoint;
 
 class CheckPointUnionTraverser {
 public:
+	struct Stats {
+		uint64_t blocks_total{0};
+		uint64_t blocks_pending{0};
+		uint64_t blocks_traserved{0};
+		uint64_t blocks_optimized{0};
+		::ondisk::CheckPointID cbt_id{0};
+	};
+public:
 	CheckPointUnionTraverser(const CheckPointUnionTraverser&) = delete;
 	CheckPointUnionTraverser(const CheckPointUnionTraverser&&) = delete;
 	CheckPointUnionTraverser& operator = (const CheckPointUnionTraverser&) = delete;
@@ -20,6 +28,7 @@ public:
 	int SetCheckPoints(CheckPointPtrVec check_points) noexcept;
 
 	bool IsComplete() const noexcept;
+	const Stats& GetStats() const noexcept;
 
 	std::tuple<::ondisk::CheckPointID, ::ondisk::BlockID, BlockCount>
 	MergeConsecutiveBlocks() noexcept;
@@ -28,6 +37,8 @@ private:
 	void SortCheckPoints() noexcept;
 	void InitializeNextCheckPoint() noexcept;
 	int InitializeCheckPoint(bool *has_more) noexcept;
+	uint64_t BlocksPending(CheckPointPtrVec::reverse_iterator begin,
+		CheckPointPtrVec::reverse_iterator end) const noexcept;
 
 private:
 	CheckPointPtrVec check_points_;
@@ -57,6 +68,8 @@ private:
 	Roaring bitmap_traversing_{};
 	Roaring::const_iterator traversing_it_;
 	Roaring::const_iterator traversing_end_;
+
+	Stats stats_;
 
 	const BlockCount kMaxMerge{256};
 };

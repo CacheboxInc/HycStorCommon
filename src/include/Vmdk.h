@@ -177,6 +177,8 @@ public:
 	virtual ~ActiveVmdk();
 
 	void RegisterRequestHandler(std::unique_ptr<RequestHandler> handler);
+	RequestHandler* GetRequestHandler(const char* namep) noexcept;
+
 	int Cleanup();
 	void SetEventFd(int eventfd) noexcept;
 

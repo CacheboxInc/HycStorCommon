@@ -166,11 +166,14 @@ set(StorageLayerFiles
 	Analyzer.cpp
 	Rest.cpp
 
+	"${CMAKE_SOURCE_DIR}/src/DataMover/SyncCookie.cpp"
 	"${CMAKE_SOURCE_DIR}/src/DataMover/CheckPointTraverser.cpp"
 	"${CMAKE_SOURCE_DIR}/src/DataMover/DataReader.cpp"
 	"${CMAKE_SOURCE_DIR}/src/DataMover/DataWriter.cpp"
 	"${CMAKE_SOURCE_DIR}/src/DataMover/DataCopier.cpp"
 	"${CMAKE_SOURCE_DIR}/src/DataMover/DataSync.cpp"
+	"${CMAKE_SOURCE_DIR}/src/DataMover/VmSync.cpp"
+	"${CMAKE_SOURCE_DIR}/src/DataMover/ArmSync.cpp"
 
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/RequestHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/UnalignedHandler.cpp"

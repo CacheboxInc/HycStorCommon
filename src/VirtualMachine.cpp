@@ -200,6 +200,10 @@ int VirtualMachine::VmdkCount() {
 	return vmdk_.list_.size();
 }
 
+const std::vector<ActiveVmdk *> VirtualMachine::GetAllVmdks() const noexcept {
+	return vmdk_.list_;
+}
+
 int VirtualMachine::RemoveVmdk(ActiveVmdk* vmdkp) {
 	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
 	auto eit = vmdk_.list_.end();
@@ -217,6 +221,11 @@ int VirtualMachine::RemoveVmdk(ActiveVmdk* vmdkp) {
 void VirtualMachine::CheckPointComplete(CheckPointID ckpt_id) {
 	log_assert(ckpt_id != MetaData_constants::kInvalidCheckPointID());
 	checkpoint_.in_progress_.clear();
+
+	std::lock_guard<std::mutex> lock(sync_.mutex_);
+	for (auto& sync : sync_.list_) {
+		sync->NewCheckPointCreated(ckpt_id);
+	}
 }
 
 void VirtualMachine::FlushComplete(CheckPointID ckpt_id) {
@@ -374,7 +383,7 @@ folly::Future<int> VirtualMachine::MoveUnflushedToFlushed() {
 	}
 
 	return folly::collectAll(std::move(futures))
-	.then([this] (const std::vector<folly::Try<int>>& results)
+	.then([] (const std::vector<folly::Try<int>>& results)
 				-> folly::Future<int> {
 		for (auto& t : results) {
 			if (pio_likely(t.hasValue() and t.value() == 0)) {
@@ -400,7 +409,7 @@ folly::Future<int> VirtualMachine::CreateNewVmDeltaContext(int64_t snap_id) {
 	}
 
 	return folly::collectAll(std::move(futures))
-	.then([this] (const std::vector<folly::Try<int>>& results)
+	.then([] (const std::vector<folly::Try<int>>& results)
 				-> folly::Future<int> {
 		for (auto& t : results) {
 			if (pio_likely(t.hasValue() and t.value() == 0)) {

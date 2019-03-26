@@ -188,6 +188,10 @@ void ActiveVmdk::RegisterRequestHandler(std::unique_ptr<RequestHandler> handler)
 	headp_->RegisterNextRequestHandler(std::move(handler));
 }
 
+RequestHandler* ActiveVmdk::GetRequestHandler(const char* namep) noexcept {
+	return headp_->GetRequestHandler(namep);
+}
+
 int ActiveVmdk::Cleanup() {
 	if (not headp_) {
 		return 0;
@@ -2928,8 +2932,7 @@ std::unique_ptr<Roaring*>CheckPoint::UnionRoaringBitmaps(
 		return NULL;
 	}
 
-	auto union_bitmap = std::move(Roaring::fastunion(roaring_bitmaps.size(),
-							(const Roaring**)roaring_bitmaps.data()));
+	auto union_bitmap = Roaring::fastunion(roaring_bitmaps.size(), (const Roaring**)roaring_bitmaps.data());
 
 	return std::make_unique<Roaring*>(&union_bitmap);
 }

@@ -15,6 +15,20 @@ class DataCopier;
 
 class DataSync {
 public:
+	struct Stats {
+		uint64_t sync_total{0};
+		uint64_t sync_pending{0};
+		uint64_t sync_completed{0};
+		uint64_t sync_avoided{0};
+
+		uint64_t cbt_sync_scheduled{0};
+		uint64_t cbt_sync_in_progress{0};
+		uint64_t cbt_sync_done{0};
+
+		bool sync_stopped{false};
+		bool sync_failed{false};
+	};
+public:
 	DataSync(DataSync&& rhs) = delete;
 	DataSync(const DataSync&) = delete;
 	DataSync& operator == (const DataSync&) = delete;
@@ -30,6 +44,7 @@ public:
 	int ReStart();
 	int Start();
 	void GetStatus(bool* is_stopped, int* resp) const noexcept;
+	DataSync::Stats GetStats() const noexcept;
 
 private:
 	int StartInternal();
@@ -38,6 +53,10 @@ private:
 	std::unique_ptr<DataCopier> NewDataCopier(int *errnop);
 	CheckPointPtrVec GetNextCheckPointsToSync();
 	void SortCheckPoints(CheckPointPtrVec& check_points) const;
+
+	uint64_t BlocksPending() const noexcept;
+	void UpdateDataCopierStats(std::unique_ptr<DataCopier> copier) noexcept;
+
 private:
 	ActiveVmdk* vmdkp_{};
 	const size_t kCkptPerCopy{0};
@@ -62,5 +81,7 @@ private:
 		bool failed_{false};
 		int res_{0};
 	} status_;
+
+	Stats stats_;
 };
 }

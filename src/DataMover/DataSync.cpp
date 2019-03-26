@@ -1,3 +1,4 @@
+#include <numeric>
 
 #include <glog/logging.h>
 
@@ -40,6 +41,57 @@ void DataSync::SetDataDestination(RequestHandlerPtrVec dest) {
 		throw std::runtime_error(msg);
 	}
 	data_dest_.swap(dest);
+}
+
+uint64_t DataSync::BlocksPending() const noexcept {
+	return std::accumulate(check_points_.begin(),
+		check_points_.end(),
+		static_cast<uint64_t>(0),
+		[] (uint64_t init, const CheckPoint* ckptp) {
+			const auto& bitmap = ckptp->GetRoaringBitMap();
+			return init + bitmap.cardinality();
+		}
+	);
+}
+
+DataSync::Stats DataSync::GetStats() const noexcept {
+	DataSync::Stats rc;
+	DataCopier::Stats cs;
+	if (copier_) {
+		cs = copier_->GetStats();
+	}
+
+	auto blocks_not_scheduled = BlocksPending();
+	rc.sync_total = stats_.sync_total + blocks_not_scheduled;
+	rc.sync_pending = blocks_not_scheduled;
+	rc.sync_completed = stats_.sync_completed + cs.copy_completed;
+	rc.sync_avoided = stats_.sync_avoided +  cs.copy_avoided;
+
+	rc.cbt_sync_done = ckpt_.done_;
+	rc.cbt_sync_in_progress = cs.cbt_in_progress;
+	rc.cbt_sync_scheduled = ckpt_.last_;
+
+	rc.sync_stopped = status_.stoppped_;
+	rc.sync_failed = status_.failed_;
+	return rc;
+}
+
+void DataSync::UpdateDataCopierStats(std::unique_ptr<DataCopier> copier) noexcept {
+	if (pio_unlikely(not copier)) {
+		return;
+	}
+	const auto cs = copier->GetStats();
+	stats_.sync_total += cs.copy_total;
+	stats_.sync_pending = 0;
+	stats_.sync_completed += cs.copy_completed;
+	stats_.sync_avoided += cs.copy_avoided;
+
+	stats_.cbt_sync_scheduled = ckpt_.done_;
+	stats_.cbt_sync_in_progress = 0;
+	stats_.cbt_sync_scheduled = ckpt_.last_;
+
+	stats_.sync_stopped = status_.stoppped_;
+	stats_.sync_failed = status_.failed_;
 }
 
 int DataSync::SetCheckPoints(CheckPointPtrVec check_points, bool* restartp) {
@@ -109,7 +161,11 @@ int DataSync::Start() {
 }
 
 int DataSync::StartInternal() {
+	if (pio_likely(not status_.failed_)) {
+		UpdateDataCopierStats(std::move(copier_));
+	}
 	copier_ = nullptr;
+	log_assert(not copier_);
 
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
@@ -120,7 +176,7 @@ int DataSync::StartInternal() {
 			status_.stoppped_ = true;
 			return status_.res_;
 		}
-		if (check_points_.empty() or  ckpt_.done_ >= check_points_.back()->ID()) {
+		if (check_points_.empty()) {
 			LOG(INFO) << "DataSync: completed successfully "
 				<< " CBT last synced " << ckpt_.done_;
 			status_.stoppped_ = true;
@@ -142,7 +198,7 @@ int DataSync::StartInternal() {
 		if (pio_unlikely(rc < 0)) {
 			LOG(ERROR) << "DataSync failed: with error " << rc;
 			SetStatus(rc);
-			return rc;
+			return StartInternal();
 		}
 
 		SetStatus(0);

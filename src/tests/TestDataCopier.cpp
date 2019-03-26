@@ -55,7 +55,6 @@ const BlockID kNumberOfBlocks = 1024;
 
 class TestDataCopier : public TestWithParam<::testing::tuple<bool, int, int>> {
 protected:
-	CheckPointID ckpt_id{1};
 	std::unique_ptr<ActiveVmdk> vmdk;
 	std::vector<std::unique_ptr<RequestHandler>> handlers;
 	RequestHandler* src_handlerp;
@@ -63,6 +62,7 @@ protected:
 
 	std::map<CheckPointID, std::unique_ptr<CheckPoint>> check_points;
 	std::map<BlockID, CheckPointID> block_to_ckpt;
+	uint64_t kTotalBlocksWritten{0};
 
 	bool data_verification;
 	int read_io_depth;
@@ -172,8 +172,9 @@ protected:
 			return rc;
 		});
 		f.wait(5s);
-		EXPECT_TRUE(f.isReady());
+		ASSERT_TRUE(f.isReady());
 		EXPECT_EQ(f.value(), 0);
+		kTotalBlocksWritten += blocks.size();
 	}
 
 	void TakeCheckPoint(CheckPointID ckpt, std::unordered_set<BlockID>& blocks) {
@@ -185,6 +186,7 @@ protected:
 		std::copy(blocks.begin(), blocks.end(),
 			std::ostream_iterator<BlockID>(os, " "));
 		VLOG(5) << os.str();
+		UpdateBlockToCheckPointMapping(ckpt, blocks);
 	}
 
 	void UpdateBlockToCheckPointMapping(CheckPointID ckpt,
@@ -205,7 +207,6 @@ protected:
 		std::unordered_set<BlockID> blocks(r.begin(), r.end());
 		WriteToDataSource(src_handlerp, ckpt, blocks, CheckPointIDToFillChar(ckpt));
 		TakeCheckPoint(ckpt, blocks);
-		UpdateBlockToCheckPointMapping(ckpt, blocks);
 
 		for (BlockID step : std::vector<int>{1, 2, 3, 4, 8}) {
 			++ckpt;
@@ -223,7 +224,6 @@ protected:
 
 			WriteToDataSource(src_handlerp, ckpt, blocks, CheckPointIDToFillChar(ckpt));
 			TakeCheckPoint(ckpt, blocks);
-			UpdateBlockToCheckPointMapping(ckpt, blocks);
 		}
 
 		for (auto& bc : block_to_ckpt) {
@@ -285,6 +285,16 @@ TEST_P(TestDataCopier, SimpleDataSync) {
 	f.wait(5s);
 	EXPECT_TRUE(f.isReady());
 	EXPECT_EQ(f.value(), 0);
+
+	auto stats = copier.GetStats();
+	EXPECT_TRUE(stats.is_read_complete);
+	EXPECT_FALSE(stats.is_failed);
+	EXPECT_EQ(stats.copy_total, kTotalBlocksWritten);
+	EXPECT_EQ(stats.copy_pending, 0);
+	EXPECT_EQ(stats.copy_completed, block_to_ckpt.size());
+	EXPECT_LT(block_to_ckpt.size(), kTotalBlocksWritten);
+	EXPECT_EQ(stats.copy_avoided, kTotalBlocksWritten - block_to_ckpt.size());
+	EXPECT_EQ(stats.cbt_in_progress, check_points.begin()->second->ID());
 
 	if (data_verification) {
 		/* Read and verify data */
