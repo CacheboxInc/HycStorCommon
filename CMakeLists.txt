@@ -95,7 +95,6 @@ add_compile_options(
   -Wformat-security
   -Werror=format-security
   -Wunused-variable
-  -Wunused-lambda-capture
   -fstack-protector-all
   -fPIE
   -fpie
@@ -107,6 +106,10 @@ add_compile_options(
   -DAS_USE_LIBUV
   -g
   -ggdb
+)
+
+add_compile_options(
+	"$<$<AND:$<STREQUAL:$<TARGET_PROPERTY:LINKER_LANGUAGE>,CXX>,$<CXX_COMPILER_ID:Clang>>:-Wunused-lambda-capture>"
 )
 
 set(CMAKE_EXE_LINKER_FLAGS

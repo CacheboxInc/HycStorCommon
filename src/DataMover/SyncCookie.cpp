@@ -14,6 +14,7 @@ std::ostream& operator << (std::ostream& os, enum SyncCookie::Traversal rhs) {
 	case SyncCookie::kTopDown:
 		return os << 'U';
 	}
+	return os;
 }
 
 std::istream& operator >> (std::istream& is, enum SyncCookie::Traversal& rhs) {
