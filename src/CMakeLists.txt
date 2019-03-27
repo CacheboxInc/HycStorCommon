@@ -21,6 +21,7 @@ include_directories(${CMAKE_SOURCE_DIR}/thirdparty/hyc-datapack/src/include)
 link_directories(${CMAKE_BINARY_DIR}/thirdparty/hyc-datapack/src/compression/)
 link_directories(${CMAKE_BINARY_DIR}/thirdparty/hyc-datapack/src/encryption/)
 link_directories(${CMAKE_BINARY_DIR}/lib/)
+link_directories("/usr/local/hyc/vixlib/lib64")
 
 #Set this to OFF if don't want to include NEP changes
 OPTION(USE_NEP "Set ON/OFF to use/avoid NEP with storD" ON)
