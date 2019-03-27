@@ -5,12 +5,13 @@ namespace pio {
 /* forward declaration for pimpl */
 class VddkFile;
 class VddkTarget;
+class VCenter;
 
-class VddkTargetLibHandler : public RequestHandler {
+class VddkTargetHandler : public RequestHandler {
 public:
 	static constexpr char kName[] = "VddkTargetLib";
-	VddkTargetLibHandler() noexcept;
-	virtual ~VddkTargetLibHandler();
+	VddkTargetHandler(ActiveVmdk*, VCenter* connp, const std::string& path);
+	virtual ~VddkTargetHandler();
 
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
