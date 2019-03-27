@@ -27,6 +27,7 @@ target_link_libraries(stord
 	${LIBRARY_LIST}
 	${AEROSPIKE_LIBS}
 	${IOA_LIB_LIST}
+	${VDDK_LIBS}
 	-Wl,--end-group
 )
 
