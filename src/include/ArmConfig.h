@@ -25,7 +25,7 @@ namespace config {
 
 namespace arm_config {
 
-using vmdk_info = std::map<std::string, std::string>;
+using vmdk_info = std::string;
 using vmdk_info_map = std::map<std::string, vmdk_info>;
 
 } // namespace arm_config.
@@ -47,9 +47,7 @@ public:
 
 	static const std::string kVmdkList;
 	static const std::string kVmdkId;
-	static const std::string kVmdkDStore;
-	static const std::string kVmdkDir;
-	static const std::string kVmdkFile;
+	static const std::string kVmdkPath;
 	static const std::string kVcIp;
 	static const std::string kCookie;
 	static const std::string kCkptId;

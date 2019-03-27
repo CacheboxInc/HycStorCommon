@@ -47,9 +47,7 @@ namespace config {
 
 const std::string ArmConfig::kVmdkList = "VMDK_LIST";
 const std::string ArmConfig::kVmdkId = "VMDK_ID";
-const std::string ArmConfig::kVmdkDStore = "VMDK_DSTORE";
-const std::string ArmConfig::kVmdkDir = "VMDK_DIR";
-const std::string ArmConfig::kVmdkFile = "VMDK_FILE";
+const std::string ArmConfig::kVmdkPath = "VMDK_PATH";
 const std::string ArmConfig::kVcIp = "VCENTER_IP";
 const std::string ArmConfig::kCookie = "CKPT_COOKIE";
 const std::string ArmConfig::kCkptId = "CKPT_ID";
@@ -135,23 +133,15 @@ ArmConfig::GetVmdkPathInfo() {
 	auto& config = GetJsonRoot();
 	auto& vmdklist = config.get_child(kVmdkList);
 	for (auto& row : vmdklist) {
-		arm_config::vmdk_info vmdk;
-
 		/* TODO: Error handling for json data. */
 		auto vmdk_id = row.second.get(kVmdkId, "");
-		auto vmdk_dstore = row.second.get(kVmdkDStore, "");
-		auto vmdk_dir = row.second.get(kVmdkDir, "");
-		auto vmdk_file = row.second.get(kVmdkFile, "");
-
-		vmdk.insert(std::make_pair(kVmdkDStore, std::move(vmdk_dstore)));
-		vmdk.insert(std::make_pair(kVmdkDir, std::move(vmdk_dir)));
-		vmdk.insert(std::make_pair(kVmdkFile, std::move(vmdk_file)));
+		arm_config::vmdk_info vmdk_path = row.second.get(kVmdkPath, "");
 
 		if (vmdks.find(vmdk_id) == vmdks.end()) {
 			vmdks.insert(std::make_pair(std::move(vmdk_id),
-				std::move(vmdk)));
+				std::move(vmdk_path)));
 		} else {
-			vmdks[vmdk_id] = std::move(vmdk);
+			vmdks[vmdk_id] = std::move(vmdk_path);
 		}
 	}
 
