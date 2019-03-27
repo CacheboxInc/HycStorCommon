@@ -16,7 +16,7 @@ namespace pio {
 class VddkWriteBatch {
 public:
 	VddkWriteBatch(const std::vector<RequestBlock*>& process) noexcept;
-	folly::Future<int> Submit(ArmVddkFile* filep);
+	folly::Future<int> Submit(VddkFile* filep);
 	void WriteComplete(VixError result);
 private:
 	const std::vector<RequestBlock*>& process_;
@@ -82,7 +82,7 @@ void VddkWriteBatch::WriteComplete(VixError result) {
 	}
 }
 
-folly::Future<int> VddkTarget::VddkWrite(ArmVddkFile* filep,
+folly::Future<int> VddkTarget::VddkWrite(VddkFile* filep,
 		const std::vector<RequestBlock*>& process) {
 	auto batch = std::make_unique<VddkWriteBatch>(process);
 	if (pio_unlikely(not batch)) {
