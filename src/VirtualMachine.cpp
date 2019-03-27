@@ -82,8 +82,16 @@ const config::VmConfig* VirtualMachine::GetJsonConfig() const noexcept {
 int VirtualMachine::SetArmJsonConfig(const std::string& config) {
 	std::lock_guard<std::mutex> lock1(vmdk_.mutex_);
 	armconfig_ = std::make_unique<config::ArmConfig>(config);
-	// TODO: Need to check if make_unique() fails.
+	if (pio_unlikely(armconfig_ == nullptr)) {
+		return -ENOMEM;
+	}
 	return 0;
+}
+
+void VirtualMachine::UnsetArmJsonConfig() {
+	if (armconfig_ != nullptr) {
+		armconfig_.reset();
+	}
 }
 
 const config::ArmConfig* VirtualMachine::GetArmJsonConfig() const noexcept {

@@ -109,6 +109,7 @@ public:
 	const config::VmConfig* GetJsonConfig() const noexcept;
 
 	int SetArmJsonConfig(const std::string&);
+	void UnsetArmJsonConfig();
 	const config::ArmConfig* GetArmJsonConfig() const noexcept;
 	void SetArmSync(std::unique_ptr<ArmSync>&&) noexcept;
 
@@ -144,7 +145,7 @@ private:
 	::ondisk::VmUUID vm_uuid_;
 	std::atomic<RequestID> request_id_{0};
 	std::unique_ptr<config::VmConfig> config_;
-	std::unique_ptr<config::ArmConfig> armconfig_;
+	std::unique_ptr<config::ArmConfig> armconfig_{nullptr};
 
 	Analyzer analyzer_;
 	RecurringTimer timer_;

@@ -522,7 +522,10 @@ enum StordSvcErr {
 	STORD_ERR_CKPT_MOVE_FAILED,
 	STORD_ERR_ARM_MIGRATION_NOT_ENABLED,
 	STORD_ERR_ARM_INVALID_INFO,
-	STORD_ERR_CREATE_CKPT
+	STORD_ERR_ARM_SYNC_START_FAILED,
+	STORD_ERR_ARM_VCENTER_CONN,
+	STORD_ERR_CREATE_CKPT,
+	STORD_ERR_ALLOC_FAILED
 };
 
 void HaHeartbeat(void *userp) {
@@ -2319,10 +2322,10 @@ static int ArmSyncStart(const _ha_request *reqp, _ha_response *resp, void *)
 	// TODO: Check correctness of p_cnt_-- use here.
 	g_thread_.rest_guard.p_cnt_--;
 
+	std::ostringstream es;
+
 	auto vm_handle = pio::GetVmHandle(vmid);
 	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
-		std::ostringstream es;
-
 		es << "Retriving information related to VM failed. Invalid vm-id = " << vmid;
 		LOG(ERROR) << es.str();
 		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
@@ -2332,13 +2335,18 @@ static int ArmSyncStart(const _ha_request *reqp, _ha_response *resp, void *)
 	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
 	log_assert(vmp);
 
+	auto err_msg = [&vmp, &es, &resp] (bool unset, StordSvcErr err) {
+		if (unset) {
+			vmp->UnsetArmJsonConfig();
+		}
+		LOG(ERROR) << es.str();
+		SetErrMsg(resp, err, es.str());
+	};
+
 	auto vm_config = vmp->GetJsonConfig();
 	if (not vm_config->GetArmMigration()) {
-		std::ostringstream es;
-
 		es << "ARM migration not enabled for vm-id = " << vmid;
-		LOG(ERROR) << es.str();
-		SetErrMsg(resp, STORD_ERR_ARM_MIGRATION_NOT_ENABLED, es.str());
+		err_msg(false, STORD_ERR_ARM_MIGRATION_NOT_ENABLED);
 		return HA_CALLBACK_CONTINUE;
 	}
 
@@ -2347,17 +2355,22 @@ static int ArmSyncStart(const _ha_request *reqp, _ha_response *resp, void *)
 	::free(data);
 	LOG(INFO) << req_data;
 
-	vmp->SetArmJsonConfig(req_data);
-	// TODO: const_cast not needed.
+	auto rc = vmp->SetArmJsonConfig(req_data);
+	if (pio_unlikely(rc)) {
+		es << "Stord allocation failure rc = " << rc << " for vm-id = " << vmid;
+		err_msg(false, STORD_ERR_ALLOC_FAILED);
+		return HA_CALLBACK_CONTINUE;
+	}
+
 	auto arm_jsonconfig = const_cast<pio::config::ArmConfig *>(vmp->GetArmJsonConfig());
 
 	std::string cookie;
 	try {
 		cookie = arm_jsonconfig->GetCookie();
 	} catch (boost::exception const&  ex) {
-		std::ostringstream es;
 		es << "No cookie present for vm-id = " << vmid;
 		LOG(INFO) << es.str();
+		es.clear();
 	}
 
 	ondisk::CheckPointID ckpt_id = MetaData_constants::kInvalidCheckPointID();
@@ -2365,18 +2378,14 @@ static int ArmSyncStart(const _ha_request *reqp, _ha_response *resp, void *)
 		try {
 			ckpt_id = arm_jsonconfig->GetCkptId();
 		} catch (boost::exception const&  ex) {
-			std::ostringstream es;
-
 			es << "No ckpt id present for vm-id = " << vmid;
 			LOG(INFO) << es.str();
+			es.clear();
 		}
 
-		if (ckpt_id == MetaData_constants::kInvalidCheckPointID()) {
-			std::ostringstream es;
-
+		if (pio_unlikely(ckpt_id == MetaData_constants::kInvalidCheckPointID())) {
 			es << "Neither cookie nor ckpt id provided for vm-id = " << vmid;
-			LOG(ERROR) << es.str();
-			SetErrMsg(resp, STORD_ERR_ARM_INVALID_INFO, es.str());
+			err_msg(true, STORD_ERR_ARM_INVALID_INFO);
 			return HA_CALLBACK_CONTINUE;
 		}
 	}
@@ -2385,23 +2394,40 @@ static int ArmSyncStart(const _ha_request *reqp, _ha_response *resp, void *)
 	auto vc_ip = arm_jsonconfig->GetVcIp();
 	auto mo_id = arm_jsonconfig->GetMoId();
 	auto vcinfo_map = pio::vc_ns::vc_info {
-		{vc_ns::kVcIp, vc_ip},
-		{vc_ns::kVcUser, arm_jsonconfig->GetVcUser()},
-		{vc_ns::kVcPasswd, arm_jsonconfig->GetVcPasswd()},
-		{vc_ns::kVcFprint1, arm_jsonconfig->GetVcFprint1()},
-		{vc_ns::kVcFprint256, arm_jsonconfig->GetVcFprint256()},
+		{vc_ns::kVcIp, std::move(vc_ip)},
+		{vc_ns::kVcUser, std::move(arm_jsonconfig->GetVcUser())},
+		{vc_ns::kVcPasswd, std::move(arm_jsonconfig->GetVcPasswd())},
+		{vc_ns::kVcFprint1, std::move(arm_jsonconfig->GetVcFprint1())},
+		{vc_ns::kVcFprint256, std::move(arm_jsonconfig->GetVcFprint256())},
 	};
 
-	/* TODO: Make_unique failure. */
 	std::unique_ptr<ArmSync> armsync;
 	if (ckpt_id != MetaData_constants::kInvalidCheckPointID()) {
 		armsync = std::make_unique<ArmSync>(vmp, ckpt_id, kBatchSize);
+		if (pio_unlikely(armsync == nullptr)) {
+			es << "Stord allocation failures for vm-id = " << vmid;
+			err_msg(true, STORD_ERR_ALLOC_FAILED);
+			return HA_CALLBACK_CONTINUE;
+		}
 	} else {
 		// TODO: Need this version with cookie.
 		//armsync = std::make_unique<ArmSync>(vmp, std::move(cookie));
 	}
-	armsync->VCenterConnnect(std::move(mo_id), std::move(vcinfo_map));
-	armsync->SyncStart(vpath_info);
+
+	rc = armsync->VCenterConnnect(std::move(mo_id),
+			std::move(vcinfo_map));
+	if (pio_unlikely(rc)) {
+		es << "Cannot connect to vcenter rc = " << rc << " for vm-id = " << vmid;
+		err_msg(true, STORD_ERR_ARM_VCENTER_CONN);
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	rc = armsync->SyncStart(vpath_info);
+	if (pio_unlikely(rc)) {
+		es << "Stord ARM sync start failed rc = " << rc << " for vm-id = " << vmid;
+		err_msg(true, STORD_ERR_ARM_SYNC_START_FAILED);
+		return HA_CALLBACK_CONTINUE;
+	}
 	vmp->SetArmSync(std::move(armsync));
 
 	const auto res = std::to_string(0);
