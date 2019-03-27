@@ -120,6 +120,10 @@ set(HA_LIBS
 	yder
 )
 
+set(VDDK_LIBS
+	vixDiskLib
+)
+
 set(IOA_LIB_LIST
 	${CMAKE_SOURCE_DIR}/thirdparty/vk-proto/ioa/client/build/64/libioaclient.a
 	${CMAKE_SOURCE_DIR}/thirdparty/vk-proto/ioa/client/build/64/libjansson.a

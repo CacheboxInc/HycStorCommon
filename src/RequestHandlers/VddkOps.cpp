@@ -22,10 +22,9 @@ private:
 	const std::vector<RequestBlock*>& process_;
 	mutable std::mutex mutex_;
 	struct {
-		uint16_t total_{0};
+		uint16_t failed_{0};
+		uint16_t submitted_{0};
 		uint16_t complete_{0};
-		uint16_t failed_;
-		bool submitted_{false};
 	} request_blocks_;
 
 	int result_{0};
@@ -34,7 +33,6 @@ private:
 
 VddkWriteBatch::VddkWriteBatch(const std::vector<RequestBlock*>& process)
 		noexcept : process_(process) {
-	request_blocks_.total_ = process_.size();
 };
 
 static void WriteCallBack(void *datap, VixError result) {
@@ -42,16 +40,29 @@ static void WriteCallBack(void *datap, VixError result) {
 	batchp->WriteComplete(result);
 }
 
-folly::Future<int> VddkWriteBatch::Submit(ArmVddkFile* filep) {
+folly::Future<int> VddkWriteBatch::Submit(VddkFile* filep) {
+	size_t submitted = 0;
 	for (auto blockp : process_) {
+		if (blockp->GetAlignedOffset() != blockp->Offset()) {
+			LOG(ERROR) << "VddkTarget: VDDK does not accept unaligned IOs";
+			result_ = -EINVAL;
+			break;
+		}
+
 		auto buf = blockp->GetBufferAtBack();
-		filep->AsyncWrite(blockp->GetAlignedOffset(), buf->PayloadSize(),
-			buf->Payload(), WriteCallBack, this);
+		auto rc = filep->AsyncWrite(blockp->GetAlignedOffset(),
+			buf->PayloadSize(), buf->Payload(), WriteCallBack, this);
+		if (pio_unlikely(rc < 0)) {
+			LOG(ERROR) << "VddkTarget: VDDK IO failed to submit " << rc;
+			result_ = rc;
+			break;
+		}
+		++submitted;
 	}
 
 	std::lock_guard<std::mutex> lock(mutex_);
-	request_blocks_.submitted_ = true;
-	if (request_blocks_.total_ == request_blocks_.complete_) {
+	request_blocks_.submitted_ = submitted;
+	if (request_blocks_.submitted_ == request_blocks_.complete_) {
 		process_.setValue(result_);
 	}
 }
@@ -63,10 +74,10 @@ void VddkWriteBatch::WriteComplete(VixError result) {
 		++request_blocks_.failed_;
 		result_ = VIX_ERROR_CODE(result);
 		result_ = result_ < 0 ? result_ : -result_;
+		LOG(ERROR) << "VddkTarget: VDDK IO failed " << result_;
 	}
 
-	if (request_blocks_.total_ == request_blocks_.complete_ and
-			request_blocks_.submitted_) {
+	if (request_blocks_.submitted_ == request_blocks_.complete_) {
 		promise_.setValue(result_);
 	}
 }

@@ -31,7 +31,7 @@
 #include <TargetManagerRest.hpp>
 #endif
 
-#include "VddkTargetLib.h"
+#include "VddkLib.h"
 
 /*
  * Max number of pending REST call requests allowed at stord
