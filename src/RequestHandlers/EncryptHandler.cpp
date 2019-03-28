@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "gen-cpp2/MetaData_types.h"
+#include "Vmdk.h"
 #include "VmdkConfig.h"
 #include "Request.h"
 #include "EncryptHandler.h"
@@ -13,7 +14,7 @@ using namespace ::ondisk;
 using namespace pio::hyc;
 
 namespace pio {
-EncryptHandler::EncryptHandler(const config::VmdkConfig* configp) :
+EncryptHandler::EncryptHandler(const ActiveVmdk* vmdkp, const config::VmdkConfig* configp) :
 		RequestHandler(EncryptHandler::kName, nullptr) {
 	enabled_ = configp->IsEncryptionEnabled();
 	if (not enabled_) {
@@ -21,14 +22,25 @@ EncryptHandler::EncryptHandler(const config::VmdkConfig* configp) :
 	}
 
 	algorithm_ = configp->GetEncryptionType();
-	//TODO: Must be replaced with vmid and vmdkid 
-	uint32_t srcid = 0, destid = 0;
-	hyc_disk_uuid_t uuid = {srcid, destid};
+	configp->GetEncryptionKeyIDs(keyids_);
+	//TBD: error if keyids are not given
 
-	auto encrypt_type = get_encrypt_type(algorithm_.c_str());
-	log_assert(encrypt_type != HYC_ENCRYPT_UNKNOWN);
+	::ondisk::VmdkUUID vmdk_uuid;
+	::ondisk::VmUUID vm_uuid;
+	configp->GetVmdkUUID(vmdk_uuid);
+	configp->GetVmUUID(vm_uuid);
 
-	ctxp_ = hyc_encrypt_ctx_init(uuid, encrypt_type);
+	LOG(ERROR) << "VMDKUUID: "<< vmdk_uuid;
+	LOG(ERROR) << "VMUUID: "<< vm_uuid;
+	LOG(ERROR) << "n_KEYIDS:" << keyids_.size();
+
+	void *ha_instancep = nullptr;
+	if (nullptr != vmdkp->GetVM()) {
+		ha_instancep = vmdkp->GetVM()->GetHaInstancePtr();
+	}
+
+	ctxp_ = new HycEncrypt(vm_uuid, vmdk_uuid, algorithm_, keyids_,
+			ha_instancep);
 	log_assert(ctxp_ != nullptr);
 }
 
@@ -37,7 +49,7 @@ EncryptHandler::~EncryptHandler() {
 		return;
 	}
 	log_assert(ctxp_ != nullptr);
-	hyc_encrypt_ctx_dinit(ctxp_);
+	delete ctxp_;
 }
 
 int EncryptHandler::ReadComplete(const std::vector<RequestBlock*>& process,
@@ -46,7 +58,7 @@ int EncryptHandler::ReadComplete(const std::vector<RequestBlock*>& process,
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
 
-		auto dest_bufsz = hyc_encrypt_plain_bufsz(ctxp_, srcp->Payload(),
+		auto dest_bufsz = ctxp_->GetOrigBufSz(srcp->Payload(),
 			srcp->PayloadSize());
 		auto destp = pio::NewRequestBuffer(dest_bufsz);
 		if (pio_unlikely(not destp)) {
@@ -55,7 +67,7 @@ int EncryptHandler::ReadComplete(const std::vector<RequestBlock*>& process,
 			continue;
 		}
 
-		auto rc = hyc_decrypt(ctxp_, srcp->Payload(), srcp->PayloadSize(),
+		auto rc = ctxp_->Decrypt(srcp->Payload(), srcp->PayloadSize(),
 			destp->Payload(), &dest_bufsz);
 		if (pio_unlikely(rc != HYC_ENCRYPT_SUCCESS)) {
 			failed.emplace_back(blockp);
@@ -101,7 +113,7 @@ int EncryptHandler::ProcessWrite(ActiveVmdk *,
 	for (auto blockp : process) {
 		auto srcp = blockp->GetRequestBufferAtBack();
 
-		auto dest_bufsz = hyc_encrypt_get_maxlen(ctxp_, srcp->PayloadSize());
+		auto dest_bufsz = ctxp_->GetMaxBufSz(srcp->PayloadSize());
 		std::unique_ptr<char[]> dst_uptr(new char[dest_bufsz]);
 		if (pio_unlikely(not dst_uptr)) {
 			error = -ENOMEM;
@@ -109,7 +121,7 @@ int EncryptHandler::ProcessWrite(ActiveVmdk *,
 		}
 		auto dest_bufp = dst_uptr.get();
 
-		auto rc = hyc_encrypt(ctxp_, srcp->Payload(), srcp->PayloadSize(),
+		auto rc = ctxp_->Encrypt(srcp->Payload(), srcp->PayloadSize(),
 			dest_bufp, &dest_bufsz);
 		if (pio_unlikely(rc != HYC_ENCRYPT_SUCCESS)) {
 			error = -ENOMEM;

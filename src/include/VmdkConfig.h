@@ -37,11 +37,12 @@ public:
 	uint16_t GetCompressionLevel() const;
 
 	void DisableEncryption();
-	void ConfigureEncryption(const std::string& algo, const std::string& ekey);
+	void ConfigureEncryption(const std::string& algo,
+		const std::string& ekey, std::vector<uint64_t> key_ids);
 	bool IsEncryptionEnabled() const;
 	std::string GetEncryptionKey() const;
+	void GetEncryptionKeyIDs(std::vector<uint64_t>& key_ids) const;
 	std::string GetEncryptionType() const;
-
 
 	void DisableRamCache();
 	void ConfigureRamCache(uint16_t size_mb);
@@ -182,6 +183,7 @@ public:
 	static const std::string kEncryption;
 	static const std::string kEncryptionType;
 	static const std::string kEncryptionKey;
+	static const std::string kEncryptionKeyIDs;
 	static const std::vector<std::string> kEncryptionAlgos;
 
 	static const std::string kRamCache;

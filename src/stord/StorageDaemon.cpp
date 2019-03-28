@@ -634,7 +634,7 @@ static int NewVm(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto basep = thrift_server->getServeEventBase();
 	log_assert(basep);
 	vmp->StartTimer(g_thread_.ha_instance_, basep);
-
+	vmp->SetHaInstancePtr(g_thread_.ha_instance_);
 	LOG(INFO) << "Added successfully VmID " << vmid << ", VmHandle is " << vm_handle;
 	const auto res = std::to_string(vm_handle);
 

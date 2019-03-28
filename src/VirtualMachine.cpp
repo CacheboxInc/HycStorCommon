@@ -182,7 +182,7 @@ void VirtualMachine::NewVmdk(ActiveVmdk* vmdkp) {
 	auto blktrace = std::make_unique<BlockTraceHandler>(vmdkp);
 	auto unalingned = std::make_unique<UnalignedHandler>();
 	auto compress = std::make_unique<CompressHandler>(configp);
-	auto encrypt = std::make_unique<EncryptHandler>(configp);
+	auto encrypt = std::make_unique<EncryptHandler>(vmdkp, configp);
 	auto multi_target = std::make_unique<MultiTargetHandler>(vmdkp, configp);
 
 	vmdkp->RegisterRequestHandler(std::move(blktrace));

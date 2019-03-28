@@ -38,7 +38,7 @@ public:
 		config.SetVmUUID("vmuuid");
 		config.SetVmdkUUID("vmdkuuid");
 		config.SetBlockSize(block_size);
-		config.ConfigureEncryption("aes128-gcm", "abcd");
+		config.ConfigureEncryption("aes128-gcm", "abcd", {0});
 		config.DisableCompression();
 		config.ConfigureRamCache(1024);
 		config.DisableNetworkTarget();
@@ -56,7 +56,7 @@ public:
 		EXPECT_NE(unalign, nullptr);
 
 		auto configp = vmdkp->GetJsonConfig();
-		auto encrypt = std::make_unique<EncryptHandler>(configp);
+		auto encrypt = std::make_unique<EncryptHandler>(vmdkp.get(), configp);
 		EXPECT_NE(encrypt, nullptr);
 
 		auto multi_target = std::make_unique<MultiTargetHandler>(vmdkp.get(), configp);

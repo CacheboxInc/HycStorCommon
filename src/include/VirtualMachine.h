@@ -110,6 +110,8 @@ public:
 		return setname_;
 	};
 
+	void SetHaInstancePtr(void *instancep) { ha_instancep_ = instancep;}
+	void *GetHaInstancePtr() { return ha_instancep_;}
 private:
 	ActiveVmdk* FindVmdk(const ::ondisk::VmdkID& vmdk_id) const;
 	ActiveVmdk* FindVmdk(VmdkHandle vmdk_handle) const;
@@ -134,6 +136,7 @@ private:
 	::ondisk::VmUUID vm_uuid_;
 	std::atomic<RequestID> request_id_{0};
 	std::unique_ptr<config::VmConfig> config_;
+	void *ha_instancep_{nullptr};
 
 	Analyzer analyzer_;
 	RecurringTimer timer_;
