@@ -50,6 +50,8 @@ void HycDumpVmdk(VmdkHandle handle);
 void HycSetExpectedWanLatency(uint32_t latency);
 RequestID HycScheduleTruncate(VmdkHandle handle, const void* privatep,
 	char* bufferp, int32_t buf_sz);
+RequestID HycScheduleSyncCache(VmdkHandle handle, const void* privatep,
+	uint64_t lba, uint32_t num_blks);
 int HycGetVmdkStats(const char* vmdkid, vmdk_stats_t *vmdk_stats);
 
 #ifdef __cplusplus
