@@ -38,6 +38,11 @@
 
 #include "VddkLib.h"
 
+namespace pio {
+extern void init_vix();
+extern void exit_vix();
+}
+
 /*
  * Max number of pending REST call requests allowed at stord
  * at a time. This is mainly to handle the scenario where their
@@ -2574,14 +2579,7 @@ int main(int argc, char* argv[])
 	auto stord_instance = std::make_unique<::StorD>();
 	stord_instance->InitStordLib();
 
-#define libDir  "/usr/lib/x86_64-linux-gnu/hyc-vddk/vddk6.7/"
-#define cfgFile "/usr/lib/x86_64-linux-gnu/hyc-vddk/conf/vddk.conf"
-        VixError vixError = VixDiskLib_InitEx(VIXDISKLIB_VERSION_MAJOR,
-                                     VIXDISKLIB_VERSION_MINOR,
-                                     NULL, NULL, NULL,
-                                     libDir,
-                                     cfgFile);
-        CHECK_AND_THROW(vixError);
+	pio::init_vix();
 
 #ifdef USE_NEP
 	/* Initialize threadpool for AeroSpike accesses */
@@ -2614,7 +2612,7 @@ int main(int argc, char* argv[])
 	SingletonHolder<FlushManager>::GetInstance()->DestroyInstance();
 	SingletonHolder<AeroFiberThreads>::GetInstance()->FreeInstance();
 
-	VixDiskLib_Exit();
+	pio::exit_vix();
 	stord_instance->DeinitStordLib();
 
 	ha_deinitialize(g_thread_.ha_instance_);

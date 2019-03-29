@@ -122,7 +122,6 @@ set(HA_LIBS
 )
 
 set(VDDK_LIBS
-	vixDiskLib
 	ArmVddkAsync
 )
 
