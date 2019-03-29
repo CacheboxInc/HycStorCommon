@@ -3,7 +3,7 @@
 #include <string>
 #include <map>
 #include "include/JsonConfig.h"
-#include "include/custom_struct.h"
+//#include "include/custom_struct.h"
 
 namespace pio {
 

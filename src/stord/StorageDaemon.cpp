@@ -2395,10 +2395,10 @@ static int ArmSyncStart(const _ha_request *reqp, _ha_response *resp, void *)
 	auto mo_id = arm_jsonconfig->GetMoId();
 	auto vcinfo_map = pio::vc_ns::vc_info {
 		{vc_ns::kVcIp, std::move(vc_ip)},
-		{vc_ns::kVcUser, std::move(arm_jsonconfig->GetVcUser())},
-		{vc_ns::kVcPasswd, std::move(arm_jsonconfig->GetVcPasswd())},
-		{vc_ns::kVcFprint1, std::move(arm_jsonconfig->GetVcFprint1())},
-		{vc_ns::kVcFprint256, std::move(arm_jsonconfig->GetVcFprint256())},
+		{vc_ns::kVcUser, arm_jsonconfig->GetVcUser()},
+		{vc_ns::kVcPasswd, arm_jsonconfig->GetVcPasswd()},
+		{vc_ns::kVcFprint1, arm_jsonconfig->GetVcFprint1()},
+		{vc_ns::kVcFprint256, arm_jsonconfig->GetVcFprint256()},
 	};
 
 	std::unique_ptr<ArmSync> armsync;

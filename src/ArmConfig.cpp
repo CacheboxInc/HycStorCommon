@@ -88,7 +88,7 @@ std::string ArmConfig::GetVcUser() {
 	std::lock_guard<std::mutex> lock1(mtx_);
 
 	const std::string vcip = GetVcIp();
-	if (nullptr) {
+	if (false) {
 		return std::string();
 	}
 	return *vc_ns::GetVcInfo(vcip, vc_ns::kVcUser);
@@ -98,7 +98,7 @@ std::string ArmConfig::GetVcPasswd() {
 	std::lock_guard<std::mutex> lock1(mtx_);
 
 	const std::string vcip = GetVcIp();
-	if (nullptr) {
+	if (false) {
 		return std::string();
 	}
 	return *vc_ns::GetVcInfo(vcip, vc_ns::kVcPasswd);
@@ -108,7 +108,7 @@ std::string ArmConfig::GetVcFprint1() {
 	std::lock_guard<std::mutex> lock1(mtx_);
 
 	const std::string vcip = GetVcIp();
-	if (nullptr) {
+	if (false) {
 		return std::string();
 	}
 	return *vc_ns::GetVcInfo(vcip, vc_ns::kVcFprint1);
@@ -118,7 +118,7 @@ std::string ArmConfig::GetVcFprint256() {
 	std::lock_guard<std::mutex> lock1(mtx_);
 
 	const std::string vcip = GetVcIp();
-	if (nullptr) {
+	if (false) {
 		return std::string();
 	}
 	return *vc_ns::GetVcInfo(vcip, vc_ns::kVcFprint256);
