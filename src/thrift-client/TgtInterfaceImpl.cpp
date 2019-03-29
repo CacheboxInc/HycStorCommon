@@ -1425,6 +1425,7 @@ public:
 	int32_t AbortVmdkOp(StordVmdk* vmdkp, const void* privatep);
 	StordVmdk* FindVmdk(::hyc_thrift::VmdkHandle handle);
 	StordVmdk* FindVmdk(const std::string& vmdkid);
+	std::vector<StordVmdk*> GetVmdkList();
 private:
 	struct {
 		std::unique_ptr<StordRpc> rpc_;
@@ -1474,6 +1475,15 @@ int32_t Stord::Disconnect(bool force) {
 	}
 	stord_.rpc_ = nullptr;
 	return 0;
+}
+
+std::vector<StordVmdk*> Stord::GetVmdkList() {
+	std::vector<StordVmdk*> vmdks;
+	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+	for (auto& it : vmdk_.ids_) {
+		vmdks.push_back(it.second.get());
+	}
+	return vmdks;
 }
 
 StordVmdk* Stord::FindVmdk(const std::string& vmdkid) {
@@ -1737,6 +1747,34 @@ int HycGetVmdkStats(const char* vmdkid, vmdk_stats_t *vmdk_stats)
 	vmdk_stats->pending = stats.pending_;
 	vmdk_stats->rpc_requests_scheduled = stats.rpc_requests_scheduled_;
 
+	return 0;
+}
+
+int HycGetComponentStats(component_stats_t *g_stats)
+{
+	std::vector<::hyc::StordVmdk*> vmdks = g_stord.GetVmdkList();
+	if (not vmdks.size()) {
+		return -EINVAL;
+	}
+
+	for (unsigned i=0; i<vmdks.size(); i++) {
+		const ::hyc::VmdkStats& stats = vmdks[i]->GetVmdkStats();
+		g_stats->vmdk_stats.read_requests += stats.read_requests_;
+		g_stats->vmdk_stats.read_failed += stats.read_failed_;
+		g_stats->vmdk_stats.read_bytes += stats.read_bytes_;
+		g_stats->vmdk_stats.read_latency += stats.read_latency_;
+		g_stats->vmdk_stats.write_requests += stats.write_requests_;
+		g_stats->vmdk_stats.write_failed += stats.write_failed_;
+		g_stats->vmdk_stats.write_same_requests += stats.write_same_requests_;
+		g_stats->vmdk_stats.write_same_failed += stats.write_same_failed_;
+		g_stats->vmdk_stats.write_bytes += stats.write_bytes_;
+		g_stats->vmdk_stats.write_latency += stats.write_latency_;
+		g_stats->vmdk_stats.truncate_requests += stats.truncate_requests_;
+		g_stats->vmdk_stats.truncate_failed += stats.truncate_failed_;
+		g_stats->vmdk_stats.truncate_latency += stats.truncate_latency_;
+		g_stats->vmdk_stats.pending += stats.pending_;
+		g_stats->vmdk_stats.rpc_requests_scheduled += stats.rpc_requests_scheduled_;
+	}
 	return 0;
 }
 
