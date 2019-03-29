@@ -2574,8 +2574,8 @@ int main(int argc, char* argv[])
 	auto stord_instance = std::make_unique<::StorD>();
 	stord_instance->InitStordLib();
 
-#define libDir  "/usr/local/hyc/lib"
-#define cfgFile "/usr/local/hyc/conf/vddk.conf"
+#define libDir  "/usr/lib/x86_64-linux-gnu/hyc-vddk/vddk6.7/"
+#define cfgFile "/usr/lib/x86_64-linux-gnu/hyc-vddk/conf/vddk.conf"
         VixError vixError = VixDiskLib_InitEx(VIXDISKLIB_VERSION_MAJOR,
                                      VIXDISKLIB_VERSION_MINOR,
                                      NULL, NULL, NULL,

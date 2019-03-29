@@ -22,10 +22,10 @@ include_directories(${CMAKE_SOURCE_DIR}/thirdparty/hyc-datapack/src/include)
 link_directories(${CMAKE_BINARY_DIR}/thirdparty/hyc-datapack/src/compression/)
 link_directories(${CMAKE_BINARY_DIR}/thirdparty/hyc-datapack/src/encryption/)
 link_directories(${CMAKE_BINARY_DIR}/lib/)
-link_directories("/usr/local/hyc/vixlib/lib64")
+link_directories("/usr/lib/x86_64-linux-gnu/hyc-vddk/vddk6.7/")
 
 #Set this to OFF if don't want to include NEP changes
-OPTION(USE_NEP "Set ON/OFF to use/avoid NEP with storD" ON)
+OPTION(USE_NEP "Set ON/OFF to use/avoid NEP with storD" OFF)
 if(USE_NEP)
     include_directories(/usr/include/hyc-net)
     link_directories(/usr/lib/x86_64-linux-gnu/hyc-net/)
@@ -78,7 +78,6 @@ set(NEP_LIBRARY_LIST
 	HycNetSim
 	HycGwy
 	HycVddkSync
-	ArmVddkAsync
 	task
 	vaiorpc
 	nanomsg
@@ -124,6 +123,7 @@ set(HA_LIBS
 
 set(VDDK_LIBS
 	vixDiskLib
+	ArmVddkAsync
 )
 
 set(IOA_LIB_LIST
@@ -198,6 +198,7 @@ set(StorageLayerFiles
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/FileTargetHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/MultiTargetHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/VddkTargetHandler.cpp"
+	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/VddkOps.cpp"
 )
 
 if(USE_NEP)

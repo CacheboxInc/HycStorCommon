@@ -9,7 +9,7 @@ class VCenter;
 
 class VddkTargetHandler : public RequestHandler {
 public:
-	static constexpr char kName[] = "VddkTargetLib";
+	static constexpr char kName[] = "VddkTarget";
 	VddkTargetHandler(ActiveVmdk*, VCenter* connp, const std::string& path);
 	virtual ~VddkTargetHandler();
 
@@ -35,12 +35,6 @@ public:
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) override;
-	virtual folly::Future<int> Delete(ActiveVmdk* vmdkp,
-		const ::ondisk::CheckPointID ckpt_id,
-		const std::pair<::ondisk::BlockID, ::ondisk::BlockID> range) override;
-private:
-	int ReadModifyWrite(ActiveVmdk* vmdkp, RequestBlock* blockp,
-		RequestBuffer* bufferp);
 private:
 	std::unique_ptr<VddkFile> vddk_file_;
 	std::unique_ptr<VddkTarget> target_;

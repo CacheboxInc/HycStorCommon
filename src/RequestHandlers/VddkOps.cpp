@@ -8,10 +8,13 @@
 #include "Vmdk.h"
 #include "Request.h"
 #include "VddkLib.h"
+#include "VddkOps.h"
 
 using namespace ::ondisk;
 
 namespace pio {
+class VddkFile;
+class VddkTarget;
 
 class VddkWriteBatch {
 public:
@@ -43,15 +46,15 @@ static void WriteCallBack(void *datap, VixError result) {
 folly::Future<int> VddkWriteBatch::Submit(VddkFile* filep) {
 	size_t submitted = 0;
 	for (auto blockp : process_) {
-		if (blockp->GetAlignedOffset() != blockp->Offset()) {
+		if (blockp->GetAlignedOffset() != blockp->GetOffset()) {
 			LOG(ERROR) << "VddkTarget: VDDK does not accept unaligned IOs";
 			result_ = -EINVAL;
 			break;
 		}
 
-		auto buf = blockp->GetBufferAtBack();
+		auto buf = blockp->GetRequestBufferAtBack();
 		auto rc = filep->AsyncWrite(blockp->GetAlignedOffset(),
-			buf->PayloadSize(), buf->Payload(), WriteCallBack, this);
+			buf->PayloadSize(), (uint8*)buf->Payload(), WriteCallBack, this);
 		if (pio_unlikely(rc < 0)) {
 			LOG(ERROR) << "VddkTarget: VDDK IO failed to submit " << rc;
 			result_ = rc;
@@ -63,8 +66,9 @@ folly::Future<int> VddkWriteBatch::Submit(VddkFile* filep) {
 	std::lock_guard<std::mutex> lock(mutex_);
 	request_blocks_.submitted_ = submitted;
 	if (request_blocks_.submitted_ == request_blocks_.complete_) {
-		process_.setValue(result_);
+		promise_.setValue(result_);
 	}
+	return result_;
 }
 
 void VddkWriteBatch::WriteComplete(VixError result) {

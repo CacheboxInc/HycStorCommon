@@ -7,105 +7,17 @@
 #include "RequestHandler.h"
 #include "VmSync.h"
 #include "ArmConfig.h"
+#include "VddkLib.h"
+#include "VddkTargetHandler.h"
 
 namespace pio {
 class VddkTargetHandler;
+class VCenter;
 
 using VddkPathInfo = config::arm_config::vmdk_info;
 using VCenterInfo = vc_ns::vc_info;
-using VddkTarget = std::unique_ptr<VddkTargetHandler>;
+using VddkTargetHandlerPtr = std::unique_ptr<VddkTargetHandler>;
 using VddkPathInfoMap = config::arm_config::vmdk_info_map;
-
-class VCenter {
-public:
-	VCenter(std::string moid,
-				VCenterInfo info
-			) noexcept :
-				moid_(moid),
-				info_(info) {
-	}
-	std::string moid_;
-	VCenterInfo info_;
-};
-
-class VddkTargetHandler : public virtual RequestHandler {
-public:
-	VddkTargetHandler(ActiveVmdk* vmdkp,
-				VCenter* vcp,
-				const VddkPathInfo& path
-			) noexcept :
-				RequestHandler("vddk", nullptr) {
-		(void) vmdkp;
-		(void) vcp;
-		(void) path;
-	}
-
-	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
-			const std::vector<RequestBlock*>& process,
-			std::vector<RequestBlock *>& failed) override {
-		(void) vmdkp;
-		(void) reqp;
-		(void) process;
-		(void) failed;
-		return 0;
-	}
-
-	virtual folly::Future<int> Write(ActiveVmdk *vmdkp, Request *reqp,
-			CheckPointID ckpt, const std::vector<RequestBlock*>& process,
-			std::vector<RequestBlock *>& failed) override {
-		(void) vmdkp;
-		(void) reqp;
-		(void) ckpt;
-		(void) process;
-		(void) failed;
-		return 0;
-	}
-
-	virtual folly::Future<int> ReadPopulate(ActiveVmdk *vmdkp,
-			Request *reqp, const std::vector<RequestBlock*>& process,
-			std::vector<RequestBlock *>& failed) override {
-		(void) vmdkp;
-		(void) reqp;
-		(void) process;
-		(void) failed;
-		return 0;
-	}
-
-	virtual folly::Future<int> BulkWrite(ActiveVmdk* vmdkp,
-			::ondisk::CheckPointID ckpt,
-			const std::vector<std::unique_ptr<Request>>& requests,
-			const std::vector<RequestBlock*>& process,
-			std::vector<RequestBlock*>& failed) override {
-		(void) vmdkp;
-		(void) ckpt;
-		(void) requests;
-		(void) process;
-		(void) failed;
-		return 0;
-	}
-
-	virtual folly::Future<int> BulkRead(ActiveVmdk* vmdkp,
-			const std::vector<std::unique_ptr<Request>>& requests,
-			const std::vector<RequestBlock*>& process,
-			std::vector<RequestBlock*>& failed) override {
-		(void) vmdkp;
-		(void) requests;
-		(void) process;
-		(void) failed;
-		return 0;
-	}
-
-	virtual folly::Future<int> BulkReadPopulate(ActiveVmdk* vmdkp,
-			const std::vector<std::unique_ptr<Request>>& requests,
-			const std::vector<RequestBlock*>& process,
-			std::vector<RequestBlock*>& failed) override {
-		(void) vmdkp;
-		(void) requests;
-		(void) process;
-		(void) failed;
-		return 0;
-	}
-};
 
 class ArmSync : public virtual VmSync {
 public:
@@ -123,7 +35,7 @@ public:
 	int SyncStart(const VddkPathInfoMap& paths);
 
 private:
-	std::unordered_map<::ondisk::VmdkID, VddkTarget>
+	std::unordered_map<::ondisk::VmdkID, VddkTargetHandlerPtr>
 		CreateVddkTargets(const VddkPathInfoMap& paths);
 	std::unordered_map<::ondisk::VmdkID, RequestHandlerPtrVec>
 		FindSyncSource();
@@ -132,7 +44,7 @@ private:
 	VirtualMachine* vmp_{};
 	std::unique_ptr<VCenter> vcenter_;
 
-	std::unordered_map<::ondisk::VmdkID, VddkTarget> targets_;
+	std::unordered_map<::ondisk::VmdkID, VddkTargetHandlerPtr> targets_;
 };
 
 }

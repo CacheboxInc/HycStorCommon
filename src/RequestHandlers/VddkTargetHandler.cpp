@@ -20,6 +20,9 @@
 using namespace ::ondisk;
 
 namespace pio {
+class VddkFile;
+class VddkTarget;
+class VCenter;
 
 VddkTargetHandler::VddkTargetHandler(ActiveVmdk*,
 			VCenter* connp,
@@ -58,7 +61,7 @@ folly::Future<int> VddkTargetHandler::Read(ActiveVmdk*, Request*,
 }
 
 folly::Future<int> VddkTargetHandler::Write(ActiveVmdk*, Request*,
-		CheckPointID, const std::vector<RequestBlock*>& process,
+		::ondisk::CheckPointID, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) {
 	if (pio_unlikely(not failed.empty() || process.empty())) {
 		return -EINVAL;

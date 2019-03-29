@@ -107,9 +107,9 @@ int ArmSync::SyncStart(const VddkPathInfoMap& paths) {
 	return VmSync::SyncStart();
 }
 
-std::unordered_map<::ondisk::VmdkID, VddkTarget>
+std::unordered_map<::ondisk::VmdkID, VddkTargetHandlerPtr>
 ArmSync::CreateVddkTargets(const VddkPathInfoMap& paths) {
-	std::unordered_map<::ondisk::VmdkID, VddkTarget> targets;
+	std::unordered_map<::ondisk::VmdkID, VddkTargetHandlerPtr> targets;
 
 	for (ActiveVmdk* vmdkp : vmp_->GetAllVmdks()) {
 		auto it = paths.find(vmdkp->GetID());

@@ -10,9 +10,6 @@ class RequestBlock;
 
 class VddkTarget {
 public:
-	VddkTarget() noexcept;
-	~VddkTarget() noexcept;
-
 	folly::Future<int> VddkWrite(VddkFile* filep,
 		const std::vector<RequestBlock*>& process);
 };
