@@ -2372,7 +2372,7 @@ static int ArmSyncStart(const _ha_request *reqp, _ha_response *resp, void *)
 	std::string cookie;
 	try {
 		cookie = arm_jsonconfig->GetCookie();
-	} catch (boost::exception const&  ex) {
+	} catch (std::runtime_error const&  ex) {
 		es << "No cookie present for vm-id = " << vmid;
 		LOG(INFO) << es.str();
 		es.clear();
