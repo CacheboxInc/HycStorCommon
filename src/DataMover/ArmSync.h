@@ -19,6 +19,7 @@ using VCenterInfo = vc_ns::vc_info;
 using VddkTargetHandlerPtr = std::unique_ptr<VddkTargetHandler>;
 using VddkPathInfoMap = config::arm_config::vmdk_info_map;
 
+
 class ArmSync : public virtual VmSync {
 public:
 	ArmSync(const ArmSync&) = delete;
@@ -33,6 +34,7 @@ public:
 
 	int VCenterConnnect(std::string&& moid, VCenterInfo&& info);
 	int SyncStart(const VddkPathInfoMap& paths);
+	void SetCheckPoints(CheckPointID latest, CheckPointID flushed);
 
 private:
 	std::unordered_map<::ondisk::VmdkID, VddkTargetHandlerPtr>

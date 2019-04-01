@@ -112,7 +112,8 @@ int DataSync::SetCheckPoints(CheckPointPtrVec check_points, bool* restartp) {
 	}
 
 	std::lock_guard<std::mutex> lock(mutex_);
-	if (check_points.front()->ID() != ckpt_.last_ + 1) {
+	if (ckpt_.last_ != ::ondisk::MetaData_constants::kInvalidCheckPointID() and
+			check_points.front()->ID() != ckpt_.last_ + 1) {
 		LOG(ERROR) << "DataSync: CBTs are not consecutive "
 			<< " Previous last CBT ID " << ckpt_.last_
 			<< " New CBT ID " << check_points.front()->ID();
@@ -236,7 +237,8 @@ CheckPointPtrVec DataSync::GetNextCheckPointsToSync() {
 	auto begin = check_points_.begin();
 	std::copy(begin, std::next(begin, count), std::back_inserter(sync));
 
-	log_assert(ckpt_.done_ + 1 == sync.front()->ID());
+	log_assert(ckpt_.done_ == MetaData_constants::kInvalidCheckPointID() or
+		ckpt_.done_ + 1 == sync.front()->ID());
 	ckpt_.scheduled_ = sync.back()->ID();
 	LOG(INFO) << "Scheduling DataCopier till CBT " << ckpt_.scheduled_;
 	return sync;

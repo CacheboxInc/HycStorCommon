@@ -26,6 +26,7 @@ using namespace ::hyc_thrift;
 
 namespace pio {
 /* forward declaration for Pimpl */
+class VmSync;
 class VmdkCacheStats;
 namespace config {
 	class VmConfig;
@@ -55,7 +56,8 @@ public:
 	void NewVmdk(ActiveVmdk* vmdkp);
 	int RemoveVmdk(ActiveVmdk* vmdkp);
 	int VmdkCount();
-	const std::vector<ActiveVmdk *> GetAllVmdks() const noexcept;
+	const std::vector<ActiveVmdk *>& GetAllVmdks() const noexcept;
+
 	ActiveVmdk* FindVmdk(const ::ondisk::VmdkID& vmdk_id) const;
 
 	RequestID NextRequestID();
@@ -99,6 +101,7 @@ public:
 	int SerializeCheckpoints(int64_t snap_id, const std::vector<int64_t>& vec_ckpts);
 	int64_t GetSnapID(ActiveVmdk* vmdkp, const uint64_t& ckpt_id);
 
+	void AddVmSync(std::unique_ptr<VmSync> sync);
 	friend std::ostream& operator << (std::ostream& os, const VirtualMachine& vm);
 public:
 	void AddVmdk(ActiveVmdk* vmdkp);

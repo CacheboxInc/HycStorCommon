@@ -170,6 +170,7 @@ set(StorageLayerFiles
 	ReadAhead.cpp
 	Analyzer.cpp
 	Rest.cpp
+	LibAio.cpp
 	ArmConfig.cpp
 
 	"${CMAKE_SOURCE_DIR}/src/DataMover/SyncCookie.cpp"
@@ -180,6 +181,7 @@ set(StorageLayerFiles
 	"${CMAKE_SOURCE_DIR}/src/DataMover/DataSync.cpp"
 	"${CMAKE_SOURCE_DIR}/src/DataMover/VmSync.cpp"
 	"${CMAKE_SOURCE_DIR}/src/DataMover/ArmSync.cpp"
+	"${CMAKE_SOURCE_DIR}/src/DataMover/SyncAny.cpp"
 
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/RequestHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/UnalignedHandler.cpp"

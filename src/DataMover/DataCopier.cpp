@@ -162,6 +162,7 @@ DataCopier::GetBlocksToRead() {
 		to_read.emplace_back(ckpt_.traverser_.MergeConsecutiveBlocks());
 	}
 	read_.schedule_pending_ += to_read.size();
+	VLOG(5) << "DataCopier: blocks to read " << to_read.size();
 	return to_read;
 }
 
@@ -277,6 +278,11 @@ std::vector<std::unique_ptr<CopyInternalInfo>> DataCopier::GetBlocksToWrite() {
 		write_.queue_.pop();
 	}
 	write_.schedule_pending_ += to_write.size();
+	VLOG(5) << "DataCopier: blocks to write " << to_write.size()
+		<< " write_.in_progress_ " << write_.in_progress_
+		<< " write_.schedule_pending_ " << write_.schedule_pending_
+		<< " write_.io_depth_ " << write_.io_depth_
+		<< " write_.queue_.size " << write_.queue_.size();
 	return to_write;
 }
 

@@ -26,6 +26,8 @@
 #include "EncryptHandler.h"
 #include "MultiTargetHandler.h"
 #include "halib.h"
+
+#include "VmSync.h"
 #include "ArmSync.h"
 
 using namespace ::hyc_thrift;
@@ -221,7 +223,7 @@ int VirtualMachine::VmdkCount() {
 	return vmdk_.list_.size();
 }
 
-const std::vector<ActiveVmdk *> VirtualMachine::GetAllVmdks() const noexcept {
+const std::vector<ActiveVmdk *>& VirtualMachine::GetAllVmdks() const noexcept {
 	return vmdk_.list_;
 }
 
@@ -243,11 +245,30 @@ void VirtualMachine::CheckPointComplete(CheckPointID ckpt_id) {
 	log_assert(ckpt_id != MetaData_constants::kInvalidCheckPointID());
 	checkpoint_.in_progress_.clear();
 
+	CheckPointID flushed = std::numeric_limits<CheckPointID>::max();
+	{
+		std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+		for (const ActiveVmdk* vmdkp : vmdk_.list_) {
+			if (vmdkp->FlushedCheckpoints()) {
+				flushed = std::min(flushed, vmdkp->GetFlushedCheckPointID());
+			}
+		}
+	}
+
 	std::lock_guard<std::mutex> lock(sync_.mutex_);
 	for (auto& sync : sync_.list_) {
-		sync->NewCheckPointCreated(ckpt_id);
-		sync->SyncStart();
+		auto thread = std::thread([ckpt_id, flushed, syncp = sync.get()] () mutable {
+				syncp->SetCheckPoints(ckpt_id, flushed);
+				syncp->SyncStart();
+			}
+		);
+		thread.detach();
 	}
+}
+
+void VirtualMachine::AddVmSync(std::unique_ptr<VmSync> sync) {
+	std::lock_guard<std::mutex> lock(sync_.mutex_);
+	sync_.list_.emplace_back(std::move(sync));
 }
 
 void VirtualMachine::FlushComplete(CheckPointID ckpt_id) {

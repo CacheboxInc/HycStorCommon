@@ -89,6 +89,8 @@ int CheckPointUnionTraverser::InitializeCheckPoint(bool *has_more) noexcept {
 		if (pio_unlikely(nbits == 0)) {
 			continue;
 		}
+		VLOG(5) << "CBT " << (*check_points_iter_)->ID()
+			<< " cardinality " << nbits;
 
 		try {
 			bitmap_traversing_ = bitmap - bitmap_traversed_;

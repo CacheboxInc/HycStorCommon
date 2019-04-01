@@ -21,6 +21,8 @@ int VmdkSync::SetCheckPointBatch(const CkptBatch& batch, bool* restart) noexcept
 	CheckPointPtrVec ckpts;
 
 	auto [begin, progress, end] = batch;
+	log_assert(begin <= end);
+
 	(void) progress;
 	for (auto b = begin; b <= end; ++b) {
 		CheckPoint* ckptp = vmdkp_->GetCheckPoint(b);
@@ -37,12 +39,16 @@ void VmdkSync::SyncStatus(bool* is_stoppedp, int* resultp) const noexcept {
 	sync_.GetStatus(is_stoppedp, resultp);
 }
 
+DataSync::Stats VmdkSync::GetStats() const noexcept {
+	return sync_.GetStats();
+}
+
 void VmdkSync::GetCheckPointSummary(
 			::ondisk::CheckPointID* donep,
 			::ondisk::CheckPointID* progressp,
 			::ondisk::CheckPointID* scheduledp
 		) const noexcept {
-	auto stats = sync_.GetStats();
+	auto stats = GetStats();
 	*donep = stats.cbt_sync_done;
 	*progressp = stats.cbt_sync_in_progress;
 	*scheduledp = stats.cbt_sync_scheduled;
@@ -60,7 +66,6 @@ VmSync::VmSync(VirtualMachine* vmp,
 			ckpt_base_(base),
 			ckpt_batch_({base, 0, base}),
 			ckpt_batch_size_(batch_size) {
-	ckpt_latest_ = vmp->GetCurCkptID();
 }
 
 #if 0
@@ -74,7 +79,6 @@ VmSync::VmSync(VirtualMachine* vmp,
 	ckpt_batch_ = cookie_.GetCheckPointBatch();
 	ckpt_batch_size_ = cookie_.GetCheckPointBatchSize();
 
-	ckpt_latest_ = vmp->GetCurCkptID();
 #if 0
 	TODO
 	====
@@ -86,10 +90,11 @@ VmSync::VmSync(VirtualMachine* vmp,
 VmSync::~VmSync() noexcept {
 }
 
-void VmSync::NewCheckPointCreated(::ondisk::CheckPointID id) {
-	VLOG(5) << "VmSync: updated Sync CBT ID from " << ckpt_latest_
-		<< " to " << id;
-	ckpt_latest_ = id;
+void VmSync::SyncTill(::ondisk::CheckPointID till) noexcept {
+	till = std::max(ckpt_sync_till_, till);
+	VLOG(5) << "VmSync: updated Sync CBT ID from " << ckpt_sync_till_
+		<< " to " << till;
+	ckpt_sync_till_ = till;
 }
 
 int VmSync::SetVmdkToSync(std::vector<std::unique_ptr<VmdkSync>> vmdks) noexcept {
@@ -101,11 +106,9 @@ int VmSync::SetVmdkToSync(std::vector<std::unique_ptr<VmdkSync>> vmdks) noexcept
 	return 0;
 }
 
-void VmSync::SyncStatus(bool* stopped, int* result) const noexcept {
+void VmSync::SyncStatusLocked(bool* stopped, int* result) const noexcept {
 	*stopped = true;
 	*result = 0;
-
-	std::lock_guard<std::mutex> lock(mutex_);
 	for (const auto& vmdk_sync : vmdks_) {
 		bool s;
 		int rc;
@@ -117,6 +120,11 @@ void VmSync::SyncStatus(bool* stopped, int* result) const noexcept {
 			*stopped = false;
 		}
 	}
+}
+
+void VmSync::SyncStatus(bool* stopped, int* result) const noexcept {
+	std::lock_guard<std::mutex> lock(mutex_);
+	SyncStatusLocked(stopped, result);
 }
 
 int VmSync::SyncRestart() {
@@ -135,7 +143,8 @@ int VmSync::SyncStart() {
 	/* ensure existing sync is stopped */
 	bool stopped;
 	int result;
-	SyncStatus(&stopped, &result);
+  
+	SyncStatusLocked(&stopped, &result);
 	if (pio_unlikely(result < 0)) {
 		LOG(ERROR) << "VmSync: previous sync failed. Restarting it";
 		return SyncRestart();
@@ -158,8 +167,7 @@ int VmSync::SyncStart() {
 			::ondisk::CheckPointID scheduled;
 
 			vmdk_sync->GetCheckPointSummary(&done, &progress, &scheduled);
-			if (not (done == progress and
-						done == scheduled and
+			if (not (done == scheduled and
 						done == expected_scheduled)) {
 				LOG(ERROR) << "VmSync: fatal error "
 					<< " done " << done
@@ -171,11 +179,11 @@ int VmSync::SyncStart() {
 		}
 	}
 
-	if (++expected_scheduled > ckpt_latest_) {
+	if (++expected_scheduled > ckpt_sync_till_) {
 		return 0;
 	}
 
-	auto sync_till = std::min(expected_scheduled + ckpt_batch_size_, ckpt_latest_);
+	auto sync_till = std::min(expected_scheduled + ckpt_batch_size_, ckpt_sync_till_);
 	CkptBatch ckpt_batch{expected_scheduled, 0, sync_till};
 	int res = 0;
 	for (auto& vmdk_sync : vmdks_) {

@@ -14,6 +14,7 @@ ArmSync::ArmSync(VirtualMachine* vmp,
 		) noexcept :
 			VmSync(vmp, base, batch_size),
 			vmp_(vmp) {
+	SyncTill(vmp_->GetCurCkptID());
 }
 
 #if 0
@@ -27,6 +28,11 @@ ArmSync::ArmSync(VirtualMachine* vmp,
 
 ArmSync::~ArmSync() noexcept {
 
+}
+
+void ArmSync::SetCheckPoints(CheckPointID latest, CheckPointID flushed) {
+	(void) flushed;
+	SyncTill(latest);
 }
 
 int ArmSync::VCenterConnnect(std::string&& moid, VCenterInfo&& info) {

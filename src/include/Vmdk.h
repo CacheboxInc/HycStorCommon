@@ -232,6 +232,7 @@ public:
 	int MoveStage(::ondisk::CheckPointID check_point);
 	CheckPoint* GetCheckPoint(::ondisk::CheckPointID ckpt_id) const;
 	folly::Future<int> MoveUnflushedToFlushed();
+	::ondisk::CheckPointID GetFlushedCheckPointID() const noexcept;
 
 	/* Functions to gathering Vmdk statistics at this point in time */
 	void GetVmdkInfo(st_vmdk_stats& vmdk_stats);

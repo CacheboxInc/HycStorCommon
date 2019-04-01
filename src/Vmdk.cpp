@@ -2790,6 +2790,10 @@ uint64_t ActiveVmdk::FlushedCheckpoints() const noexcept {
     return checkpoints_.flushed_.size();
 }
 
+::ondisk::CheckPointID ActiveVmdk::GetFlushedCheckPointID() const noexcept {
+	return checkpoints_.flushed_.back()->ID();
+}
+
 uint64_t ActiveVmdk::UnflushedCheckpoints() const noexcept {
 	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
     return checkpoints_.unflushed_.size();

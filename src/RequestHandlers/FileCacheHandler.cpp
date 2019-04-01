@@ -1,8 +1,10 @@
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <cerrno>
+
 #include <vector>
 #include <string>
-#include <fstream>
-#include <sys/stat.h>
-#include <errno.h>
+#include <stdexcept>
 
 #include <folly/futures/Future.h>
 
@@ -15,7 +17,7 @@
 #include "RequestHandler.h"
 #include "FileCacheHandler.h"
 #include "VmdkConfig.h"
-#include <fcntl.h>
+#include "LibAio.h"
 
 using namespace ::ondisk;
 
@@ -30,92 +32,152 @@ FileCacheHandler::FileCacheHandler(const config::VmdkConfig* configp) :
 	enabled_ = configp->IsFileCacheEnabled();
 	if (enabled_) {
 		file_path_ = configp->GetFileCachePath();
-
-		std::ofstream {file_path_};
-		fd_ = ::open(file_path_.c_str(), O_RDWR | O_CREAT, 0777);
+		fd_ = ::open(file_path_.c_str(), O_DIRECT | O_RDWR | O_CREAT | O_TRUNC, 0777);
 		if (pio_unlikely(fd_ == -1)) {
 			LOG(ERROR) << file_path_ << errno;
 			throw std::runtime_error("File open failed");
 		}
+	}
+
+	thread_ = std::make_unique<std::thread>([basep = &base_] () mutable {
+		basep->loopForever();
+	});
+	if (pio_unlikely(not thread_)) {
+		throw std::bad_alloc();
+	}
+
+	libaio_ = std::make_unique<LibAio>(&base_, 128);
+	if (pio_unlikely(not libaio_)) {
+		throw std::bad_alloc();
 	}
 }
 
 FileCacheHandler::~FileCacheHandler() {
 	::close(fd_);
 	::remove(file_path_.c_str());
+
+	libaio_ = nullptr;
+
+	base_.terminateLoopSoon();
+	thread_->join();
+
+	thread_ = nullptr;
 }
 
 const std::string& FileCacheHandler::GetFileCachePath() const {
 	return file_path_;
 }
 
+folly::Future<int> FileCacheHandler::Read(const size_t block_size,
+		const std::vector<RequestBlock*> process,
+		std::vector<RequestBlock*>& failed) {
+	std::vector<folly::Future<int>> futures;
+	for (auto blockp : process) {
+		auto dest = NewAlignedRequestBuffer(block_size);
+		auto destp = dest.get();
+
+		auto f = libaio_->AsyncRead(fd_, destp->Payload(), destp->Size(), blockp->GetAlignedOffset())
+		.then([&failed, blockp, dest = std::move(dest)]
+			(const ssize_t read) mutable {
+				if (pio_unlikely(read != static_cast<ssize_t>(dest->Size()))) {
+					int rc = read < 0 ? read : -EIO;
+					blockp->SetResult(rc, RequestStatus::kFailed);
+					failed.emplace_back(blockp);
+					return rc;
+				}
+				blockp->SetResult(0, RequestStatus::kSuccess);
+				blockp->PushRequestBuffer(std::move(dest));
+				return 0;
+			}
+		);
+		futures.emplace_back(std::move(f));
+	}
+	libaio_->Drain();
+	return folly::collectAll(std::move(futures))
+	.then([] (const folly::Try<std::vector<folly::Try<int>>>& tries) {
+		if (pio_unlikely(tries.hasException())) {
+			return -EIO;
+		}
+		const auto& vec = tries.value();
+		for (const auto& tri : vec) {
+			if (pio_unlikely(tri.hasException())) {
+				return -EIO;
+			}
+			auto rc = tri.value();
+			if (pio_unlikely(rc < 0)) {
+				return rc;
+			}
+		}
+		return 0;
+	});
+}
+
+folly::Future<int> FileCacheHandler::Write(const size_t block_size,
+		const std::vector<RequestBlock*> process,
+		std::vector<RequestBlock*>& failed) {
+	std::vector<folly::Future<int>> futures;
+	for (auto blockp : process) {
+		auto srcp = blockp->GetRequestBufferAtBack();
+		log_assert(srcp->Size() == block_size);
+
+		// copy data to a mem-aligned buffer needed for directIO
+		auto buf = NewAlignedRequestBuffer(block_size);
+		::memcpy(buf->Payload(), srcp->Payload(), srcp->Size());
+		auto bufp = buf.get();
+
+		auto f = libaio_->AsyncWrite(fd_, bufp->Payload(), srcp->Size(),
+			blockp->GetAlignedOffset())
+		.then([&failed, blockp, buf = std::move(buf)]
+			(const ssize_t wrote) mutable {
+				if (pio_unlikely(wrote != static_cast<ssize_t>(buf->Size()))) {
+					int rc = wrote < 0 ? wrote : -EIO;
+					blockp->SetResult(rc, RequestStatus::kFailed);
+					failed.emplace_back(blockp);
+					return rc;
+				}
+				blockp->SetResult(0, RequestStatus::kSuccess);
+				return 0;
+			}
+		);
+		futures.emplace_back(std::move(f));
+	}
+
+	libaio_->Drain();
+	return folly::collectAll(std::move(futures))
+	.then([] (const folly::Try<std::vector<folly::Try<int>>>& tries) {
+		if (pio_unlikely(tries.hasException())) {
+			return -EIO;
+		}
+		const auto& vec = tries.value();
+		for (const auto& tri : vec) {
+			if (pio_unlikely(tri.hasException())) {
+				return -EIO;
+			}
+			auto rc = tri.value();
+			if (pio_unlikely(rc < 0)) {
+				return rc;
+			}
+		}
+		return 0;
+	});
+}
+
 folly::Future<int> FileCacheHandler::Read(ActiveVmdk *vmdkp, Request *,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
-	int ret = 0;
 	if (pio_unlikely(not failed.empty() || process.empty())) {
 		return -EINVAL;
 	}
-
-	for (auto blockp : process) {
-		auto destp = NewAlignedRequestBuffer(vmdkp->BlockSize());
-		ssize_t nread = 0;
-		while ((nread = ::pread(fd_, destp->Payload(), destp->Size(),
-				blockp->GetAlignedOffset())) < 0) {
-			if (nread == -1) {
-				if (errno == EINTR) {
-					continue;
-				}
-			ret = -1;
-			break;
-			}
-		}
-
-		if (pio_unlikely(ret != 0)) {
-			return ret;
-		}
-		blockp->PushRequestBuffer(std::move(destp));
-	}
-	log_assert(failed.empty());
-
-	return ret;
+	return Read(vmdkp->BlockSize(), process, failed);
 }
 
 folly::Future<int> FileCacheHandler::Write(ActiveVmdk *vmdkp, Request *,
 		CheckPointID, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
-	int ret = 0;
 	if (pio_unlikely(not failed.empty() || process.empty())) {
 		return -EINVAL;
 	}
-
-	log_assert(not file_path_.empty());
-
-	for (auto blockp : process) {
-		auto srcp = blockp->GetRequestBufferAtBack();
-		log_assert(srcp->Size() == vmdkp->BlockSize());
-
-		// copy data to a mem-aligned buffer needed for directIO
-		auto bufp = NewAlignedRequestBuffer(vmdkp->BlockSize());
-		::memcpy(bufp->Payload(), srcp->Payload(), srcp->Size());
-
-		ssize_t nwrite = 0;
-		while ((nwrite = ::pwrite(fd_, bufp->Payload(), srcp->Size(),
-				blockp->GetAlignedOffset())) < 0) {
-			if (nwrite == -1) {
-				if (errno == EINTR) {
-					continue;
-				}
-				// hard error
-				ret = -1;
-				break;
-			}
-		}
-		if (pio_unlikely(ret != 0)) {
-			return ret;
-		}
-	}
-	return ret;
+	return Write(vmdkp->BlockSize(), process, failed);
 }
 
 folly::Future<int> FileCacheHandler::ReadPopulate(ActiveVmdk *vmdkp,
@@ -135,49 +197,15 @@ folly::Future<int> FileCacheHandler::BulkWrite(ActiveVmdk* vmdkp,
 		::ondisk::CheckPointID,
 		const std::vector<std::unique_ptr<Request>>&,
 		const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock*>&) {
-	for (const auto& blockp : process) {
-		auto srcp = blockp->GetRequestBufferAtBack();
-		log_assert(srcp->Size() == vmdkp->BlockSize());
-
-		ssize_t nwrite = 0;
-		while ((nwrite = ::pwrite(fd_, srcp->Payload(), srcp->Size(),
-				blockp->GetAlignedOffset())) < 0) {
-			if (nwrite == -1) {
-				if (errno == EINTR) {
-					continue;
-				}
-				return -errno;
-			}
-		}
-	}
-	return 0;
+		std::vector<RequestBlock*>& failed) {
+	return Write(vmdkp->BlockSize(), process, failed);
 }
 
 folly::Future<int> FileCacheHandler::BulkRead(ActiveVmdk* vmdkp,
 		const std::vector<std::unique_ptr<Request>>&,
 		const std::vector<RequestBlock*>& process,
-		std::vector<RequestBlock*>&) {
-	for (const auto& blockp : process) {
-		auto destp = NewAlignedRequestBuffer(vmdkp->BlockSize());
-		if (pio_unlikely(not destp)) {
-			return -ENOMEM;
-		}
-
-		ssize_t nread = 0;
-		while ((nread = ::pread(fd_, destp->Payload(), destp->Size(),
-				blockp->GetAlignedOffset())) < 0) {
-			if (nread == -1) {
-				if (errno == EINTR) {
-					continue;
-				}
-				return -errno;
-			}
-		}
-
-		blockp->PushRequestBuffer(std::move(destp));
-	}
-	return 0;
+		std::vector<RequestBlock*>& failed) {
+	return Read(vmdkp->BlockSize(), process, failed);
 }
 
 folly::Future<int> FileCacheHandler::BulkReadPopulate(ActiveVmdk* vmdkp,
