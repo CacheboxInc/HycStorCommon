@@ -25,7 +25,7 @@ link_directories(${CMAKE_BINARY_DIR}/lib/)
 link_directories("/usr/lib/x86_64-linux-gnu/hyc-vddk/vddk6.7/")
 
 #Set this to OFF if don't want to include NEP changes
-OPTION(USE_NEP "Set ON/OFF to use/avoid NEP with storD" OFF)
+OPTION(USE_NEP "Set ON/OFF to use/avoid NEP with storD" ON)
 if(USE_NEP)
     include_directories(/usr/include/hyc-net)
     link_directories(/usr/lib/x86_64-linux-gnu/hyc-net/)
