@@ -46,6 +46,16 @@ int ArmSync::VCenterConnnect(std::string&& moid, VCenterInfo&& info) {
 		LOG(ERROR) << "ArmSync: creating VC connection failed";
 		return -ENOMEM;
 	}
+
+	auto rc = vcenter_->Connect();
+	if (pio_unlikely(rc < 0)) {
+		vcenter_.reset();
+
+		std::ostringstream oss;
+		oss << "ArmSync: connecting to VC failed, rc = " << rc << std::endl;
+		LOG(ERROR) << oss.str();
+		return rc;
+	}
 	return 0;
 }
 

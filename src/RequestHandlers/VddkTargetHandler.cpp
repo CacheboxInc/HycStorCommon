@@ -34,7 +34,7 @@ VddkTargetHandler::VddkTargetHandler(ActiveVmdk*,
 	if (pio_unlikely(rc < 0)) {
 		std::ostringstream os;
 		os << "VddkTarget: VDDK open failed "
-			<< " path " << path;
+			<< " path = \"" << path << "\" rc = " << rc << std::endl;
 		LOG(ERROR) << os.str();
 		throw std::runtime_error(os.str());
 	}
