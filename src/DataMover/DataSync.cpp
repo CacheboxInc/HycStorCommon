@@ -175,6 +175,7 @@ int DataSync::StartInternal() {
 		}
 		if (pio_unlikely(status_.failed_)) {
 			status_.stoppped_ = true;
+			LOG(ERROR) << "DataSync: failed " << status_.res_;
 			return status_.res_;
 		}
 		if (check_points_.empty()) {
@@ -191,6 +192,7 @@ int DataSync::StartInternal() {
 	copier_ = NewDataCopier(&rc);
 	if (pio_unlikely(not copier_ or rc < 0)) {
 		SetStatus(rc);
+		LOG(ERROR) << "DataSync: copier failed rc = " << rc;
 		return rc;
 	}
 

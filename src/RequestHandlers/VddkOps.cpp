@@ -65,10 +65,10 @@ folly::Future<int> VddkWriteBatch::Submit(VddkFile* filep) {
 
 	std::lock_guard<std::mutex> lock(mutex_);
 	request_blocks_.submitted_ = submitted;
-	if (request_blocks_.submitted_ == request_blocks_.complete_) {
+	if (not submitted or request_blocks_.submitted_ == request_blocks_.complete_) {
 		promise_.setValue(result_);
 	}
-	return result_;
+	return promise_.getFuture();
 }
 
 void VddkWriteBatch::WriteComplete(VixError result) {

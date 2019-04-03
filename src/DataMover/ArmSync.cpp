@@ -14,7 +14,7 @@ ArmSync::ArmSync(VirtualMachine* vmp,
 		) noexcept :
 			VmSync(vmp, base, batch_size),
 			vmp_(vmp) {
-	SyncTill(vmp_->GetCurCkptID());
+	SyncTill(vmp_->GetCurCkptID() - 1);
 }
 
 #if 0
@@ -51,11 +51,10 @@ int ArmSync::VCenterConnnect(std::string&& moid, VCenterInfo&& info) {
 	if (pio_unlikely(rc < 0)) {
 		vcenter_.reset();
 
-		std::ostringstream oss;
-		oss << "ArmSync: connecting to VC failed, rc = " << rc << std::endl;
-		LOG(ERROR) << oss.str();
+		LOG(ERROR) << "ArmSync: connecting to VC failed, rc = " << rc;
 		return rc;
 	}
+
 	return 0;
 }
 
@@ -74,7 +73,7 @@ int ArmSync::SyncStart(const VddkPathInfoMap& paths) {
 			LOG(ERROR) << "ArmSync: could not figure out data source";
 			return -EINVAL;
 		}
-		if (pio_unlikely(targets.size() == sources.size())) {
+		if (pio_unlikely(targets.size() != sources.size())) {
 			LOG(ERROR) << "ArmSync: source and target do not match";
 			return -EINVAL;
 		}

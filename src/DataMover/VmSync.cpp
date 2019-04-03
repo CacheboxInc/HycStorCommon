@@ -128,10 +128,11 @@ void VmSync::SyncStatus(bool* stopped, int* result) const noexcept {
 }
 
 int VmSync::SyncRestart() {
-	int res;
+	int res = 0;
 	for (auto& vmdk_sync : vmdks_) {
 		auto rc = vmdk_sync->SyncStart();
 		if (pio_unlikely(rc < 0)) {
+			LOG(ERROR) << __func__ << ": rc = " << rc;
 			res = rc;
 		}
 	}
@@ -184,6 +185,9 @@ int VmSync::SyncStart() {
 	}
 
 	auto sync_till = std::min(expected_scheduled + ckpt_batch_size_, ckpt_sync_till_);
+	LOG(INFO) << " expected_scheduled " << expected_scheduled
+			<< " ckpt_batch_size_ " << ckpt_batch_size_
+			<< " ckpt_sync_till_ " << ckpt_sync_till_;
 	CkptBatch ckpt_batch{expected_scheduled, 0, sync_till};
 	int res = 0;
 	for (auto& vmdk_sync : vmdks_) {
