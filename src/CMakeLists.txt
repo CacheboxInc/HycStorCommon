@@ -22,7 +22,7 @@ include_directories(${CMAKE_SOURCE_DIR}/thirdparty/hyc-datapack/src/include)
 link_directories(${CMAKE_BINARY_DIR}/thirdparty/hyc-datapack/src/compression/)
 link_directories(${CMAKE_BINARY_DIR}/thirdparty/hyc-datapack/src/encryption/)
 link_directories(${CMAKE_BINARY_DIR}/lib/)
-link_directories("/usr/lib/x86_64-linux-gnu/hyc-vddk/vddk6.7/")
+link_directories("/usr/lib/x86_64-linux-gnu/hyc/hyc-vddk/vddk6.7")
 
 #Set this to OFF if don't want to include NEP changes
 OPTION(USE_NEP "Set ON/OFF to use/avoid NEP with storD" ON)
