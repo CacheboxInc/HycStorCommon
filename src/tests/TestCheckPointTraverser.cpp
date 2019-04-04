@@ -284,7 +284,7 @@ TEST(CheckPointUnionTraverserTest, CheckPointExpectedResult) {
 		[] (uint64_t init, auto& entry) { return init + entry.second; }
 	);
 
-	size_t modified_blocks_count = 0;
+	[[maybe_unused]] size_t modified_blocks_count = 0;
 
 	std::vector<std::unique_ptr<CheckPoint>> check_points;
 	CheckPointPtrVec ckpt_ptrs;
