@@ -43,7 +43,7 @@ public:
 	char* bufferp;
 	int32_t buf_sz;
 	TimePoint timer;
-	std::shared_ptr<RequestBase> reqp;
+	std::shared_ptr<RequestBase> sync_req;
 
 public:
 	Request(RequestID id, Type t, const void* privatep, char *bufferp,
@@ -55,7 +55,7 @@ public:
 class SyncRequest : public RequestBase {
 public:
 	uint32_t count;
-	std::vector<std::weak_ptr<RequestBase>> write_pending;
+	std::vector<std::shared_ptr<RequestBase>> write_pending;
 	StordVmdk* vmdkp;
 
 	SyncRequest(RequestID id, Type t, const void* privatep, uint64_t length,

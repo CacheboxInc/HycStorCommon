@@ -747,13 +747,13 @@ bool StordVmdk::PrepareRequest(std::shared_ptr<SyncRequest> request) {
 	}
 
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
-	SyncRequest *reqp = dynamic_cast<SyncRequest*>(nreqp);
+	//SyncRequest *reqp = dynamic_cast<SyncRequest*>(nreqp);
 	for (auto& req_map : requests_.scheduled_) {
 		auto req_ptr = req_map.second.get();
 		if ((req_ptr->type == Request::Type::kWrite or
 			req_ptr->type == Request::Type::kWriteSame) &&
-			req_ptr->IsOverlapped(reqp->offset, reqp->length)) {
-				req_ptr->reqp = request;
+			req_ptr->IsOverlapped(nreqp->offset, nreqp->length)) {
+				req_ptr->sync_req = request;
 				nreqp->count++;
 				/* Do not complete a sync request as overlapping writes on
 				   sync are not completed */
@@ -779,8 +779,8 @@ bool StordVmdk::PrepareRequest(std::shared_ptr<Request> request) {
 	if (nreqp->type == Request::Type::kWrite or
 		nreqp->type == Request::Type::kWriteSame) {
 		for (auto& sync_req : requests_.sync_pending_) {
-			SyncRequest *syncp =
-				dynamic_cast<SyncRequest *>(sync_req.second.get());
+			SyncRequest *syncp = sync_req.second.get();
+			//	dynamic_cast<SyncRequest *>(sync_req.second.get());
 			if (nreqp->IsOverlapped(syncp->offset, syncp->length)) {
 				syncp->write_pending.emplace_back(request);
 				overlapped_write = true;
@@ -905,7 +905,8 @@ const RequestBase::Type& RequestBase::GetType() const noexcept {
 
 bool RequestBase::IsOverlapped(uint64_t req_offset,
 	uint64_t req_length) const noexcept {
-	return ((length - req_offset > 0) && (req_length - offset > 0));
+	return ((int64_t)(length - req_offset) > 0 &&
+		(int64_t)(req_length - offset) > 0);
 }
 
 Request::Request(RequestID id, Type t, const void* privatep, char *bufferp,
@@ -923,7 +924,7 @@ SyncRequest::SyncRequest(RequestID id, Type t, const void* privatep,
 
 SyncRequest::~SyncRequest() {
 	for (auto write_req : write_pending) {
-		Request *reqp = reinterpret_cast<Request *>(write_req.lock().get());
+		Request *reqp = reinterpret_cast<Request *>(write_req.get());
 		vmdkp->ScheduleNow(reqp);
 	}
 }
@@ -984,8 +985,8 @@ bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
 
 	/* Special handling for sync completion */
 	if ((reqp->type == RequestBase::Type::kWrite ||
-		reqp->type == RequestBase::Type::kWriteSame) && reqp->reqp) {
-		auto sync_req = std::move(reqp->reqp);
+		reqp->type == RequestBase::Type::kWriteSame) && reqp->sync_req) {
+		auto sync_req = std::move(reqp->sync_req);
 		SyncRequest *sync_reqp = reinterpret_cast<SyncRequest *>(sync_req.get());
 
 		sync_reqp->count--;
