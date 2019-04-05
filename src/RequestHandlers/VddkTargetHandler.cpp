@@ -19,16 +19,17 @@
 
 using namespace ::ondisk;
 
+using vddk::VddkFile;
+using vddk::VCenter;
+
 namespace pio {
-class VddkFile;
 class VddkTarget;
-class VCenter;
 
 VddkTargetHandler::VddkTargetHandler(ActiveVmdk*,
 			VCenter* connp,
 			const std::string& path):
 			RequestHandler(VddkTargetHandler::kName, nullptr),
-			vddk_file_(std::make_unique<VddkFile>(connp, path)),
+			vddk_file_(std::make_unique<vddk::VddkFile>(connp, path)),
 			target_(std::make_unique<VddkTarget>()) {
 	int rc = vddk_file_->Open();
 	if (pio_unlikely(rc < 0)) {

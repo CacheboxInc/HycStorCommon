@@ -10,9 +10,12 @@
 #include "VddkLib.h"
 #include "VddkTargetHandler.h"
 
+namespace vddk {
+class VCenter;
+}
+
 namespace pio {
 class VddkTargetHandler;
-class VCenter;
 
 using VddkPathInfo = config::arm_config::vmdk_info;
 using VCenterInfo = vc_ns::vc_info;
@@ -44,7 +47,7 @@ private:
 
 private:
 	VirtualMachine* vmp_{};
-	std::unique_ptr<VCenter> vcenter_;
+	std::unique_ptr<vddk::VCenter> vcenter_;
 
 	std::unordered_map<::ondisk::VmdkID, VddkTargetHandlerPtr> targets_;
 };

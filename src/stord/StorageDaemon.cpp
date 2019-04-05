@@ -38,11 +38,6 @@
 
 #include "VddkLib.h"
 
-namespace pio {
-extern void init_vix();
-extern void exit_vix();
-}
-
 /*
  * Max number of pending REST call requests allowed at stord
  * at a time. This is mainly to handle the scenario where their
@@ -2580,8 +2575,6 @@ int main(int argc, char* argv[])
 	auto stord_instance = std::make_unique<::StorD>();
 	stord_instance->InitStordLib();
 
-	pio::init_vix();
-
 #ifdef USE_NEP
 	/* Initialize threadpool for AeroSpike accesses */
 	auto tmgr_rest = std::make_shared<pio::hyc::TargetManagerRest>(
@@ -2613,7 +2606,6 @@ int main(int argc, char* argv[])
 	SingletonHolder<FlushManager>::GetInstance()->DestroyInstance();
 	SingletonHolder<AeroFiberThreads>::GetInstance()->FreeInstance();
 
-	pio::exit_vix();
 	stord_instance->DeinitStordLib();
 
 	ha_deinitialize(g_thread_.ha_instance_);

@@ -1,16 +1,18 @@
 #pragma once
 
+namespace vddk {
+class VddkFile;
+class VCenter;
+}
+
 namespace pio {
 
-/* forward declaration for pimpl */
-class VddkFile;
 class VddkTarget;
-class VCenter;
 
 class VddkTargetHandler : public RequestHandler {
 public:
 	static constexpr char kName[] = "VddkTarget";
-	VddkTargetHandler(ActiveVmdk*, VCenter* connp, const std::string& path);
+	VddkTargetHandler(ActiveVmdk*, vddk::VCenter* connp, const std::string& path);
 	virtual ~VddkTargetHandler();
 
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
@@ -36,7 +38,7 @@ public:
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) override;
 private:
-	std::unique_ptr<VddkFile> vddk_file_;
+	std::unique_ptr<vddk::VddkFile> vddk_file_;
 	std::unique_ptr<VddkTarget> target_;
 };
 

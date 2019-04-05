@@ -3,6 +3,12 @@
 #include <memory>
 #include <mutex>
 
+#include <boost/range.hpp>
+#include <boost/range/algorithm.hpp>
+#include <boost/range/algorithm_ext.hpp>
+#include <boost/range/any_range.hpp>
+#include <boost/range/adaptors.hpp>
+
 #include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_types.h"
 #include "Vmdk.h"
@@ -12,8 +18,10 @@
 
 using namespace ::ondisk;
 
+using boost::adaptors::transformed;
+using vddk::VddkFile;
+
 namespace pio {
-class VddkFile;
 class VddkTarget;
 
 class VddkWriteBatch {
@@ -45,6 +53,24 @@ static void WriteCallBack(void *datap, VixError result) {
 
 folly::Future<int> VddkWriteBatch::Submit(VddkFile* filep) {
 	size_t submitted = 0;
+#if 1
+	filep->ScheduleWrite([this] () {
+		return process_ | transformed(
+				[this] (RequestBlock* blockp) {
+					auto bufferp = blockp->GetRequestBufferAtBack();
+					VddkFile::IO io;
+					io.offset = blockp->GetAlignedOffset();
+					io.size = bufferp->PayloadSize();
+					io.bufferp = reinterpret_cast<uint8_t*>(bufferp->Payload());
+					io.cbp = WriteCallBack;
+					io.datap = this;
+					return io;
+				}
+			);
+		}
+	);
+	submitted = process_.size();
+#else
 	for (auto blockp : process_) {
 		if (blockp->GetAlignedOffset() != blockp->GetOffset()) {
 			LOG(ERROR) << "VddkTarget: VDDK does not accept unaligned IOs";
@@ -62,6 +88,7 @@ folly::Future<int> VddkWriteBatch::Submit(VddkFile* filep) {
 		}
 		++submitted;
 	}
+#endif
 
 	std::lock_guard<std::mutex> lock(mutex_);
 	request_blocks_.submitted_ = submitted;

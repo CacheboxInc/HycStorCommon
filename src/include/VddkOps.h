@@ -4,13 +4,16 @@
 
 #include <folly/futures/Future.h>
 
-namespace pio {
+namespace vddk {
 class VddkFile;
+}
+
+namespace pio {
 class RequestBlock;
 
 class VddkTarget {
 public:
-	folly::Future<int> VddkWrite(VddkFile* filep,
+	folly::Future<int> VddkWrite(vddk::VddkFile* filep,
 		const std::vector<RequestBlock*>& process);
 };
 }

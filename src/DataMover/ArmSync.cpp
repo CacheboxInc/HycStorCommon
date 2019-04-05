@@ -40,21 +40,17 @@ int ArmSync::VCenterConnnect(std::string&& moid, VCenterInfo&& info) {
 		LOG(ERROR) << "ArmSync: existing VC connection is live";
 		return -EINVAL;
 	}
-	vcenter_ = std::make_unique<VCenter>(std::forward<std::string>(moid),
+	vcenter_ = std::make_unique<vddk::VCenter>(std::forward<std::string>(moid),
 		std::forward<VCenterInfo>(info));
 	if (pio_unlikely(not vcenter_)) {
 		LOG(ERROR) << "ArmSync: creating VC connection failed";
 		return -ENOMEM;
 	}
-
 	auto rc = vcenter_->Connect();
 	if (pio_unlikely(rc < 0)) {
-		vcenter_.reset();
-
-		LOG(ERROR) << "ArmSync: connecting to VC failed, rc = " << rc;
+		LOG(ERROR) << "ArmSync: VC connection failed";
 		return rc;
 	}
-
 	return 0;
 }
 
