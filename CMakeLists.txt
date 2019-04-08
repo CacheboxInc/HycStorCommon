@@ -54,7 +54,7 @@ include_directories(src/include)
 include_directories(src/)
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/install/include)
-include_directories("/usr/local/include/hyc/hyc-vddk/vddk6.7")
+include_directories("/usr/include/hyc/hyc-vddk/vddk6.7")
 
 link_directories(${PROJECT_SOURCE_DIR}/lib)
 link_directories("/usr/local/lib")
@@ -95,7 +95,6 @@ add_compile_options(
   -Wformat-security
   -Werror=format-security
   -Wunused-variable
-  -Wunused-lambda-capture
   -fstack-protector-all
   -fPIE
   -fpie
