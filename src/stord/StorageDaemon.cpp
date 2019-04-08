@@ -2436,6 +2436,67 @@ static int ArmSyncStart(const _ha_request *reqp, _ha_response *resp, void *)
 	return HA_CALLBACK_CONTINUE;
 }
 
+
+static int ArmSyncInfo(const _ha_request *reqp, _ha_response *resp, void *)
+{
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+
+	if (param_valuep  == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM, "vmid param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	// TODO: Check correctness of p_cnt_-- use here.
+	g_thread_.rest_guard.p_cnt_--;
+
+	std::ostringstream es;
+
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
+		es << "Retriving information related to VM failed. Invalid vm-id = " << vmid << std::endl;
+		LOG(ERROR) << es.str();
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
+	log_assert(vmp);
+
+	// get the arm sync object
+	auto arm_sync = vmp->GetArmSync();
+	if (arm_sync  == nullptr) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM, "no arm_sync in progress");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	// now that we have a valid arm_sync object we can extract the stats
+	auto stats_vec = arm_sync->GetStats();
+	// TODO set the correct return parameters
+
+	json_t *json_stats = json_array();
+	for (auto stats:stats_vec) {
+		auto vmdk = json_object();
+		json_object_set_new(vmdk, "sync_total" . json_integer(vmdk->sync_total));
+		json_object_set_new(vmdk, "sync_pending" . json_integer(vmdk->sync_pending));
+		json_object_set_new(vmdk, "sync_completed" . json_integer(vmdk->sync_completed));
+		json_object_set_new(vmdk, "sync_avoided" . json_integer(vmdk->sync_avoided));
+		json_array_append_new(json_stats, vmdk);
+	}
+	std::string resp_str = json_dumps(json_stats, JSON_ENCODE_ANY);
+	json_decref(json_stats);
+	ha_set_response_body(resp, HTTP_STATUS_OK, resp_str.c_str(),
+				strlen(resp_str.c_str()));
+	return HA_CALLBACK_CONTINUE;
+}
+
 /************************************************************************ 
  		REST APIs to serve RTO/RPO HA workflow -- END 
  ************************************************************************
@@ -2487,7 +2548,8 @@ RestHandlers GetRestCallHandlers() {
 
 		{POST, "create_ckpt", CreateCkpt, nullptr},
 		{POST, "add_vcenter_details", AddVcenterDetails, nullptr},
-		{POST, "arm_sync_start", ArmSyncStart, nullptr}
+		{POST, "arm_sync_start", ArmSyncStart, nullptr},
+		{POST, "arm_sync_info", ArmSyncInfo, nullptr}
 	}};
 
 	constexpr auto size = sizeof(ha_handlers) +

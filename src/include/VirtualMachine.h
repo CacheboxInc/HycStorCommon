@@ -115,7 +115,7 @@ public:
 	void UnsetArmJsonConfig();
 	const config::ArmConfig* GetArmJsonConfig() const noexcept;
 	void SetArmSync(std::unique_ptr<ArmSync>&&) noexcept;
-
+	ArmSync *GetArmSync(void) noexcept;
 	Analyzer* GetAnalyzer() noexcept;
 	folly::Future<RestResponse> RestCall(_ha_instance* instancep,
 		std::string ep, std::string body);
