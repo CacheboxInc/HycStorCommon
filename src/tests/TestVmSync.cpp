@@ -338,6 +338,7 @@ TEST_F(VmSyncTest, Basic) {
 	}
 }
 
+#if 0
 TEST_F(VmSyncTest, FewInitialCheckPoints) {
 	ASSERT_EQ(vmdks_.size(), 2);
 
@@ -426,3 +427,4 @@ TEST_F(VmSyncTest, FewInitialCheckPoints) {
 		}
 	}
 }
+#endif
