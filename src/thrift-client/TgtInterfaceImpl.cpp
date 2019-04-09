@@ -582,6 +582,8 @@ public:
 	const VmdkStats& GetVmdkStats() const noexcept;
 
 	friend std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
+	mutable std::mutex stats_mutex_;
+
 private:
 	void ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp);
 	int64_t RpcRequestScheduledCount() const noexcept;
@@ -609,6 +611,7 @@ private:
 		RequestID reqid, std::vector<TruncateReq>&& requests);
 	void ScheduleTruncate(folly::EventBase* basep, StorRpcAsyncClient* clientp,
 		Request* reqp);
+
 private:
 	void RequestComplete(RequestID id, int32_t result);
 	template <typename T = Request>
@@ -737,6 +740,7 @@ int StordVmdk::CloseVmdk() {
 	if (vmdk_handle_ == kInvalidVmdkHandle) {
 		return 0;
 	}
+	std::lock_guard<std::mutex> lock(stats_mutex_);
 
 	if (PendingOperations() != 0) {
 		LOG(ERROR) << "Close VMDK Failed" << *this;
@@ -1758,6 +1762,11 @@ int HycGetComponentStats(component_stats_t *g_stats)
 	}
 
 	for (unsigned i=0; i<vmdks.size(); i++) {
+		if (not vmdks[i]) {
+			LOG(INFO) << "vmdk object got deleted in between";
+			continue;
+		}
+		std::unique_lock<std::mutex> lock(vmdks[i]->stats_mutex_);
 		const ::hyc::VmdkStats& stats = vmdks[i]->GetVmdkStats();
 		g_stats->vmdk_stats.read_requests += stats.read_requests_;
 		g_stats->vmdk_stats.read_failed += stats.read_failed_;
@@ -1774,6 +1783,7 @@ int HycGetComponentStats(component_stats_t *g_stats)
 		g_stats->vmdk_stats.truncate_latency += stats.truncate_latency_;
 		g_stats->vmdk_stats.pending += stats.pending_;
 		g_stats->vmdk_stats.rpc_requests_scheduled += stats.rpc_requests_scheduled_;
+		lock.unlock();
 	}
 	return 0;
 }
