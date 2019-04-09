@@ -125,7 +125,7 @@ void VmSync::SyncStatusLocked(bool* stopped, int* result) const noexcept {
 std::vector<DataSync::Stats> VmSync::GetStats() const noexcept {
 	std::vector<DataSync::Stats> ret;
 	for (const auto& vmdk_sync : vmdks_) {
-		ret.emplace_back(vmdk_sync->GetStats())
+		ret.emplace_back(vmdk_sync->GetStats());
 	}
 	return ret;
 }

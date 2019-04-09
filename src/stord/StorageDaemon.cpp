@@ -2478,22 +2478,27 @@ static int ArmSyncInfo(const _ha_request *reqp, _ha_response *resp, void *)
 	}
 
 	// now that we have a valid arm_sync object we can extract the stats
-	auto stats_vec = arm_sync->GetStats();
-	// TODO set the correct return parameters
-
 	json_t *json_stats = json_array();
-	for (auto stats:stats_vec) {
+	for (auto& stats : arm_sync->GetStats()) {
 		auto vmdk = json_object();
-		json_object_set_new(vmdk, "sync_total" . json_integer(vmdk->sync_total));
-		json_object_set_new(vmdk, "sync_pending" . json_integer(vmdk->sync_pending));
-		json_object_set_new(vmdk, "sync_completed" . json_integer(vmdk->sync_completed));
-		json_object_set_new(vmdk, "sync_avoided" . json_integer(vmdk->sync_avoided));
+		json_object_set_new(vmdk, "sync_total", json_integer(vmdk->sync_total));
+		json_object_set_new(vmdk, "sync_pending", json_integer(vmdk->sync_pending));
+		json_object_set_new(vmdk, "sync_completed", json_integer(vmdk->sync_completed));
+		json_object_set_new(vmdk, "sync_avoided", json_integer(vmdk->sync_avoided));
 		json_array_append_new(json_stats, vmdk);
 	}
-	std::string resp_str = json_dumps(json_stats, JSON_ENCODE_ANY);
+
+	const char* jsonp = json_dumps(json_stats, JSON_ENCODE_ANY);
+	if (not jsonp) {
+		SetErrMsg(resp, STORD_ERR_ARM_SYNC_START_FAILED,
+			"creating json response failed");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::string_view json(jsonp);
+	ha_set_response_body(resp, HTTP_STATUS_OK, json.data(), json.length());
 	json_decref(json_stats);
-	ha_set_response_body(resp, HTTP_STATUS_OK, resp_str.c_str(),
-				strlen(resp_str.c_str()));
+	std::free(jsonp);
 	return HA_CALLBACK_CONTINUE;
 }
 

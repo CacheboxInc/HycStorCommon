@@ -1149,13 +1149,13 @@ void VirtualMachine::SetArmSync(std::unique_ptr<ArmSync>&& armsync) noexcept {
 }
 
 ArmSync *VirtualMachine::GetArmSync(void) noexcept {
-	std::lock_guard<std::mutex> lock1(sync_.mutex_);
+	std::lock_guard<std::mutex> lock(sync_.mutex_);
 	ArmSync *armsync = nullptr;
 	if (sync_.list_.size() > 0) {
 		// Until we have other consumers of the datamover we
 		// can expect only arm sync here i.e. only one.
 		log_assert(sync_.list_.size() == 1);
-		armsync = sync_.list_.first.get();
+		armsync = dynamic_cast<ArmSync*>(sync_.list_.front().get());
 	}
 	return armsync;
 }
