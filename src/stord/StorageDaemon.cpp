@@ -111,9 +111,7 @@ public:
 		iobuf->coalesce();
 		assert(pio_likely(not iobuf->isChained()));
 
-		std::unique_lock<std::mutex> r_lock(vmdkp->r_stat_lock_);
-		vmdkp->r_pending_count++;
-		r_lock.unlock();
+		vmdkp->stats_->r_pending_count++;
 
 		//LOG(ERROR) << "Size ::" << size << "Offset::" << offset;
 		auto reqp = std::make_unique<Request>(reqid, vmdkp, Request::Type::kRead,
@@ -133,32 +131,30 @@ public:
 			/* Overflow wrap, hoping that wrap logic works with temp var too*/
 			/* Track only MAX_R_IOS_IN_HISTORY previous IOs in histoty, after that reset */
 
-			std::unique_lock<std::mutex> r_lock(vmdkp->r_stat_lock_);
-			if ((vmdkp->r_total_latency + duration < vmdkp->r_total_latency) ||
-					vmdkp->r_io_count >= MAX_R_IOS_IN_HISTORY) {
-				vmdkp->r_total_latency = 0;
-				vmdkp->r_io_count = 0;
-				vmdkp->r_io_blks_count = 0;
+			if ((vmdkp->stats_->r_total_latency + duration < vmdkp->stats_->r_total_latency) ||
+					vmdkp->stats_->r_io_count >= MAX_R_IOS_IN_HISTORY) {
+				vmdkp->stats_->r_total_latency = 0;
+				vmdkp->stats_->r_io_count = 0;
+				vmdkp->stats_->r_io_blks_count = 0;
 			} else {
-				vmdkp->r_total_latency += duration;
-				vmdkp->r_io_blks_count += reqp->NumberOfRequestBlocks();
-				vmdkp->r_io_count += 1;
+				vmdkp->stats_->r_total_latency += duration;
+				vmdkp->stats_->r_io_blks_count += reqp->NumberOfRequestBlocks();
+				vmdkp->stats_->r_io_count += 1;
 			}
 
 			/* We may not hit the modulo condition, keep the value somewhat agressive */
-			if (((vmdkp->r_io_count % 100) == 0) && vmdkp->r_io_count && vmdkp->r_io_blks_count) {
+			if (((vmdkp->stats_->r_io_count % 100) == 0) && vmdkp->stats_->r_io_count && vmdkp->stats_->r_io_blks_count) {
 				VLOG(5) << __func__ <<
 					"[Read:VmdkID:" << vmdkp->GetID() <<
-					", Total latency(microsecs) :" << vmdkp->r_total_latency <<
-					", Total blks IO count (in blk size):" << vmdkp->r_io_blks_count <<
-					", Total IO count:" << vmdkp->r_io_count <<
-					", avg blk access latency:" << vmdkp->r_total_latency / vmdkp->r_io_blks_count <<
-					", avg IO latency:" << vmdkp->r_total_latency / vmdkp->r_io_count <<
-					", pending IOs:" << vmdkp->r_pending_count;
+					", Total latency(microsecs) :" << vmdkp->stats_->r_total_latency <<
+					", Total blks IO count (in blk size):" << vmdkp->stats_->r_io_blks_count <<
+					", Total IO count:" << vmdkp->stats_->r_io_count <<
+					", avg blk access latency:" << vmdkp->stats_->r_total_latency / vmdkp->stats_->r_io_blks_count <<
+					", avg IO latency:" << vmdkp->stats_->r_total_latency / vmdkp->stats_->r_io_count <<
+					", pending IOs:" << vmdkp->stats_->r_pending_count;
 			}
 
-			vmdkp->r_pending_count--;
-			r_lock.unlock();
+			vmdkp->stats_->r_pending_count--;
 			cb->result(std::move(read));
 		});
 	}
@@ -204,9 +200,7 @@ public:
 		iobuf->coalesce();
 		assert(pio_likely(not iobuf->isChained()));
 
-		std::unique_lock<std::mutex> w_lock(vmdkp->w_stat_lock_);
-		vmdkp->w_pending_count++;
-		w_lock.unlock();
+		vmdkp->stats_->w_pending_count++;
 
 		auto reqp = std::make_unique<Request>(reqid, vmdkp, Request::Type::kWrite,
 			iobuf->writableData(), size, size, offset);
@@ -223,32 +217,30 @@ public:
 			/* Overflow wrap, hoping that wrap logic works with temp var too*/
 			/* Track only MAX_W_IOS_IN_HISTORY previous IOs in histoty, after that reset */
 
-			std::unique_lock<std::mutex> w_lock(vmdkp->w_stat_lock_);
-			if ((vmdkp->w_total_latency + duration < vmdkp->w_total_latency)
-					|| vmdkp->w_io_count >= MAX_W_IOS_IN_HISTORY) {
-				vmdkp->w_total_latency = 0;
-				vmdkp->w_io_count = 0;
-				vmdkp->w_io_blks_count = 0;
+			if ((vmdkp->stats_->w_total_latency + duration < vmdkp->stats_->w_total_latency)
+					|| vmdkp->stats_->w_io_count >= MAX_W_IOS_IN_HISTORY) {
+				vmdkp->stats_->w_total_latency = 0;
+				vmdkp->stats_->w_io_count = 0;
+				vmdkp->stats_->w_io_blks_count = 0;
 			} else {
-				vmdkp->w_total_latency += duration;
-				vmdkp->w_io_blks_count += reqp->NumberOfRequestBlocks();
-				vmdkp->w_io_count += 1;
+				vmdkp->stats_->w_total_latency += duration;
+				vmdkp->stats_->w_io_blks_count += reqp->NumberOfRequestBlocks();
+				vmdkp->stats_->w_io_count += 1;
 			}
 
 			/* We may not hit the modulo condition, keep the value somewhat agressive */
-			if (((vmdkp->w_io_count % 100) == 0) && vmdkp->w_io_count && vmdkp->w_io_blks_count) {
+			if (((vmdkp->stats_->w_io_count % 100) == 0) && vmdkp->stats_->w_io_count && vmdkp->stats_->w_io_blks_count) {
 				VLOG(5) << __func__ <<
 					"[Write:VmdkID:" << vmdkp->GetID() <<
-					", Total latency(microsecs) :" << vmdkp->w_total_latency <<
-					", Total blks IO count (in blk size):" << vmdkp->w_io_blks_count <<
-					", Total IO count:" << vmdkp->w_io_count <<
-					", avg blk access latency:" << vmdkp->w_total_latency / vmdkp->w_io_blks_count <<
-					", avg IO latency:" << vmdkp->w_total_latency / vmdkp->w_io_count <<
-					", pending IOs:" << vmdkp->w_pending_count;
+					", Total latency(microsecs) :" << vmdkp->stats_->w_total_latency <<
+					", Total blks IO count (in blk size):" << vmdkp->stats_->w_io_blks_count <<
+					", Total IO count:" << vmdkp->stats_->w_io_count <<
+					", avg blk access latency:" << vmdkp->stats_->w_total_latency / vmdkp->stats_->w_io_blks_count <<
+					", avg IO latency:" << vmdkp->stats_->w_total_latency / vmdkp->stats_->w_io_count <<
+					", pending IOs:" << vmdkp->stats_->w_pending_count;
 			}
 
-			vmdkp->w_pending_count--;
-			w_lock.unlock();
+			vmdkp->stats_->w_pending_count--;
 
 			cb->result(std::move(write));
 		});
@@ -1572,8 +1564,18 @@ static int GlobalStats([[maybe_unused]] const _ha_request *reqp, _ha_response *r
 
 	json_array_append_new(stat_params, GetElement("read_miss", 
 		g_stats.vmdk_cache_stats_.read_miss_, "number of read miss across of all vmdks"));
+	json_array_append_new(stat_params, GetElement("read_populates",
+		g_stats.vmdk_cache_stats_.read_populates_, "number of read populated into cache"));
+	json_array_append_new(stat_params, GetElement("total_blk_reads",
+		g_stats.vmdk_cache_stats_.total_blk_reads_, "total blocks read"));
+
 	json_array_append_new(stat_params, GetElement("read_hits", 
 		g_stats.vmdk_cache_stats_.read_hits_, "number of read hits across of all vmdks"));
+	json_array_append_new(stat_params, GetElement("nw_bytes_read",
+		g_stats.vmdk_cache_stats_.nw_bytes_read_, "network read bytes"));
+	json_array_append_new(stat_params, GetElement("nw_bytes_write",
+		g_stats.vmdk_cache_stats_.nw_bytes_write_, "network write bytes"));
+	
 	json_array_append_new(stat_params, GetElement("total_reads",
 		g_stats.vmdk_cache_stats_.total_reads_, "total number of reads across vmdks"));
 	json_array_append_new(stat_params, GetElement("total_writes",
@@ -1582,16 +1584,16 @@ static int GlobalStats([[maybe_unused]] const _ha_request *reqp, _ha_response *r
 		g_stats.vmdk_cache_stats_.total_bytes_reads_, "total bytes read across vmdks"));
 	json_array_append_new(stat_params, GetElement("total_writes_in_bytes",
 		g_stats.vmdk_cache_stats_.total_bytes_writes_, "total bytes written across vmdks"));
+	
+
 	json_array_append_new(stat_params, GetElement("read_failed", 
 		g_stats.vmdk_cache_stats_.read_failed_, "number of read failed across all vmdks"));
 	json_array_append_new(stat_params, GetElement("write_failed", 
 		g_stats.vmdk_cache_stats_.write_failed_, "number of write failed across all vmdks"));
-	json_array_append_new(stat_params, GetElement("dirty_cnt", 
-		g_stats.aero_cache_stats_.dirty_cnt_, "number of dirty blocks across all vmdks"));
-	json_array_append_new(stat_params, GetElement("clean_cnt", 
-		g_stats.aero_cache_stats_.clean_cnt_, "number of clean blocks across all vmdks"));
-	json_array_append_new(stat_params, GetElement("parent_cnt", 
-		g_stats.aero_cache_stats_.parent_cnt_, "number of parent blocks across all vmdks"));
+	json_array_append_new(stat_params, GetElement("reads_in_progress", 
+		g_stats.vmdk_cache_stats_.reads_in_progress_, "reads in progress across of all vmdks"));
+	json_array_append_new(stat_params, GetElement("writes_in_progress_", 
+		g_stats.vmdk_cache_stats_.writes_in_progress_, "writes in progress across of all vmdks"));
 
 
 	auto *stat_params_str = json_dumps(stat_params, JSON_ENCODE_ANY);
@@ -2217,7 +2219,7 @@ RestHandlers GetRestCallHandlers() {
 		{POST, "delete_snapshots", DeleteSnapshots, nullptr},
 		{GET, "move_status", GetMoveStatus, nullptr},
 		{GET, "read_ahead_stats", ReadAheadStatsReq, nullptr},
-		{GET, "get_component_stats", GlobalStats, nullptr},
+		{GET, "get_stord_stats", GlobalStats, nullptr},
 		{POST, "new_delta_context", NewDeltaContextSet, nullptr}
 	}};
 

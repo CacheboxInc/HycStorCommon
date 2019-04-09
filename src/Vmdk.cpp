@@ -2,6 +2,7 @@
 #include <memory>
 #include <vector>
 #include <numeric>
+#include <atomic>
 
 #include <cstdint>
 #include <sys/eventfd.h>
@@ -112,6 +113,7 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	else {
 		LOG(INFO) << "ReadAhead is disabled";
 	}
+	stats_ = new VmdkCacheStats();
 
 	delta_file_path_ = config_->GetDeltaFileTargetPath();
 	if (delta_file_path_.length()) {
@@ -124,6 +126,7 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 ActiveVmdk::~ActiveVmdk() {
 	/* destroy layers before rest of the ActiveVmdk object is destroyed */
 	headp_ = nullptr;
+	delete stats_;
 }
 
 size_t ActiveVmdk::BlockShift() const {
@@ -138,35 +141,6 @@ size_t ActiveVmdk::BlockMask() const {
 	return BlockSize() - 1;
 }
 
-void ActiveVmdk::IncrReadBytes(size_t read_bytes) {
-	cache_stats_.total_bytes_reads_ += read_bytes;
-	return;
-}
-
-void ActiveVmdk::IncrWriteBytes(size_t write_bytes) {
-	cache_stats_.total_bytes_writes_ += write_bytes;
-	return;
-}
-
-void ActiveVmdk::IncrNwReadBytes(size_t read_bytes) {
-	cache_stats_.nw_bytes_read_ += read_bytes;
-	return;
-}
-
-void ActiveVmdk::IncrNwWriteBytes(size_t write_bytes) {
-	cache_stats_.nw_bytes_write_ += write_bytes;
-	return;
-}
-
-void ActiveVmdk::IncrAeroReadBytes(size_t read_bytes) {
-	cache_stats_.aero_bytes_read_ += read_bytes;
-	return;
-}
-
-void ActiveVmdk::IncrAeroWriteBytes(size_t write_bytes) {
-	cache_stats_.aero_bytes_write_ += write_bytes;
-	return;
-}
 void ActiveVmdk::SetEventFd(int eventfd) noexcept {
 	eventfd_ = eventfd;
 }
@@ -279,31 +253,31 @@ void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
 	if (pio_likely(read_aheadp_)) {
 		vmdk_stats->read_ahead_blks_ = read_aheadp_->StatsTotalReadAheadBlocks();
 
-		auto app_reads               = cache_stats_.total_blk_reads_ -
+		auto app_reads               = stats_->total_blk_reads_ -
 						vmdk_stats->read_ahead_blks_;
 		vmdk_stats->total_blk_reads_ = app_reads;
 
-		vmdk_stats->total_reads_     = cache_stats_.total_reads_;
+		atomic_store(&vmdk_stats->total_reads_, atomic_load(&(stats_->total_reads_)));
 		vmdk_stats->read_miss_       = read_aheadp_->StatsTotalReadMissBlocks();
 		vmdk_stats->read_hits_       = app_reads - vmdk_stats->read_miss_;
 	} else {
-		vmdk_stats->total_blk_reads_ = cache_stats_.total_blk_reads_;
-		vmdk_stats->total_reads_     = cache_stats_.total_reads_;
-		vmdk_stats->read_miss_       = cache_stats_.read_miss_;
-		vmdk_stats->read_hits_       = cache_stats_.read_hits_;
+		atomic_store(&vmdk_stats->total_blk_reads_, atomic_load(&stats_->total_blk_reads_));
+		atomic_store(&vmdk_stats->total_reads_, atomic_load(&stats_->total_reads_));
+		atomic_store(&vmdk_stats->read_miss_, atomic_load(&stats_->read_miss_));
+		atomic_store(&vmdk_stats->read_hits_, atomic_load(&stats_->read_hits_));
 	}
 
-	vmdk_stats->total_writes_   = cache_stats_.total_writes_;
-	vmdk_stats->read_populates_ =  cache_stats_.read_populates_;
-	vmdk_stats->cache_writes_   =  cache_stats_.cache_writes_;
-	vmdk_stats->read_failed_    = cache_stats_.read_failed_;
-	vmdk_stats->write_failed_   = cache_stats_.write_failed_;
+	atomic_store(&vmdk_stats->total_writes_, atomic_load(&stats_->total_writes_));
+	atomic_store(&vmdk_stats->read_populates_, atomic_load(&stats_->read_populates_));
+	atomic_store(&vmdk_stats->cache_writes_   , atomic_load(&stats_->cache_writes_));
+	atomic_store(&vmdk_stats->read_failed_    , atomic_load(&stats_->read_failed_));
+	atomic_store(&vmdk_stats->write_failed_   , atomic_load(&stats_->write_failed_));
 
-	vmdk_stats->reads_in_progress_  = stats_.reads_in_progress_;
-	vmdk_stats->writes_in_progress_ = stats_.writes_in_progress_;
+	atomic_store(&vmdk_stats->reads_in_progress_, atomic_load(&stats_->reads_in_progress_));
+	atomic_store(&vmdk_stats->writes_in_progress_, atomic_load(&stats_->writes_in_progress_));
 
-	vmdk_stats->flushes_in_progress_ = FlushesInProgress();
-	vmdk_stats->moves_in_progress_   = MovesInProgress();
+	vmdk_stats->flushes_in_progress_ = stats_->FlushesInProgress();
+	vmdk_stats->moves_in_progress_   = stats_->MovesInProgress();
 
 	vmdk_stats->block_size_  = BlockSize();
 
@@ -313,28 +287,25 @@ void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
 	vmdk_stats->flushed_blocks_ = GetFlushedBlksCnt();
 	vmdk_stats->moved_blocks_   = GetMovedBlksCnt() ;
 	vmdk_stats->pending_blocks_ = GetPendingBlksCnt();
-	vmdk_stats->dirty_blocks_   = GetDirtyBlockCount();
-	vmdk_stats->clean_blocks_   = GetCleanBlockCount();
 
-	vmdk_stats->nw_bytes_write_   = cache_stats_.nw_bytes_write_;
-	vmdk_stats->nw_bytes_read_    = cache_stats_.nw_bytes_read_;
-	vmdk_stats->aero_bytes_write_ = cache_stats_.aero_bytes_write_;
-	vmdk_stats->aero_bytes_read_  = cache_stats_.aero_bytes_read_;
+	atomic_store(&vmdk_stats->nw_bytes_write_   , atomic_load(&stats_->nw_bytes_write_));
+	atomic_store(&vmdk_stats->nw_bytes_read_    , atomic_load(&stats_->nw_bytes_read_));
+	atomic_store(&vmdk_stats->aero_bytes_write_ , atomic_load(&stats_->aero_bytes_write_));
+	atomic_store(&vmdk_stats->aero_bytes_read_  , atomic_load(&stats_->aero_bytes_read_));
 
-	vmdk_stats->total_bytes_reads_  = cache_stats_.total_bytes_reads_;
-	vmdk_stats->total_bytes_writes_ = cache_stats_.total_bytes_writes_;
+	atomic_store(&vmdk_stats->total_bytes_reads_  , atomic_load(&stats_->total_bytes_reads_));
+	atomic_store(&vmdk_stats->total_bytes_writes_ , atomic_load(&stats_->total_bytes_writes_));
 
-	vmdk_stats->bufsz_before_compress = cache_stats_.bufsz_before_compress;
-	vmdk_stats->bufsz_after_compress = cache_stats_.bufsz_after_compress;
-	vmdk_stats->bufsz_before_uncompress = cache_stats_.bufsz_before_uncompress;
-	vmdk_stats->bufsz_after_uncompress = cache_stats_.bufsz_after_uncompress;
+	atomic_store(&vmdk_stats->bufsz_before_compress , atomic_load(&stats_->bufsz_before_compress));
+	atomic_store(&vmdk_stats->bufsz_after_compress , atomic_load(&stats_->bufsz_after_compress));
+	atomic_store(&vmdk_stats->bufsz_before_uncompress , 
+			atomic_load(&stats_->bufsz_before_uncompress));
+	atomic_store(&vmdk_stats->bufsz_after_uncompress , 
+			atomic_load(&stats_->bufsz_after_uncompress));
 }
 
 void ActiveVmdk::FillCacheStats(IOAVmdkStats& dest) const noexcept {
-	VmdkCacheStats cur_stats;
-
-	GetCacheStats(&cur_stats);
-	cur_stats.GetCummulativeCacheStats(old_cache_stats_, dest);
+	stats_->GetDeltaCacheStats(old_stats_, dest);
 }
 
 CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
@@ -412,8 +383,8 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp, const CheckPoints& min_max) {
 		});
 		SetReadCheckPointId(*process, min_max);
 
-		++stats_.reads_in_progress_;
-		++cache_stats_.total_reads_;
+		++stats_->reads_in_progress_;
+		++stats_->total_reads_;
 		return headp_->Read(this, reqp, *process, *failed)
 		.then([this, reqp, process = std::move(process),
 				failed = std::move(failed)] (folly::Try<int>& result) mutable {
@@ -430,8 +401,8 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp, const CheckPoints& min_max) {
 				}
 			}
 
-			--stats_.reads_in_progress_;
-			IncrReadBytes(reqp->GetBufferSize());
+			--stats_->reads_in_progress_;
+			stats_->IncrReadBytes(reqp->GetBufferSize());
 			return reqp->Complete();
 		});
 	});
@@ -440,11 +411,11 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp, const CheckPoints& min_max) {
 folly::Future<int> ActiveVmdk::BulkRead(const CheckPoints& min_max,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process) {
-	return TakeLockAndBulkInvoke(requests,
+		return TakeLockAndBulkInvoke(requests,
 			[this, &requests, &process, min_max = std::move(min_max)] () {
 		SetReadCheckPointId(process, min_max);
-		stats_.reads_in_progress_ += requests.size();
-		cache_stats_.total_reads_ += requests.size();
+		stats_->reads_in_progress_ += requests.size();
+		stats_->total_reads_ += requests.size();
 
 		auto failed = std::make_unique<std::vector<RequestBlock*>>();
 		return headp_->BulkRead(this, requests, process, *failed)
@@ -473,13 +444,13 @@ folly::Future<int> ActiveVmdk::BulkRead(const CheckPoints& min_max,
 			}
 
 			int32_t res = 0;
-			stats_.reads_in_progress_ -= requests.size();
+			stats_->reads_in_progress_ -= requests.size();
 			for (auto& reqp : requests) {
 				auto rc = reqp->Complete();
 				if (pio_unlikely(rc < 0)) {
 					res = rc;
 				}
-				IncrReadBytes(reqp->GetBufferSize());
+				stats_->IncrReadBytes(reqp->GetBufferSize());
 			}
 			return res;
 		});
@@ -589,7 +560,7 @@ folly::Future<int> ActiveVmdk::Flush(Request* reqp, const CheckPoints& min_max) 
 
 	SetReadCheckPointId(*process, min_max);
 
-	++stats_.flushes_in_progress_;
+	++stats_->flushes_in_progress_;
 	return headp_->Flush(this, reqp, *process, *failed)
 	.then([this, reqp, process = std::move(process),
 			failed = std::move(failed)] (folly::Try<int>& result) mutable {
@@ -609,7 +580,7 @@ folly::Future<int> ActiveVmdk::Flush(Request* reqp, const CheckPoints& min_max) 
 			}
 		}
 
-		--stats_.flushes_in_progress_;
+		--stats_->flushes_in_progress_;
 		return rc;
 	});
 }
@@ -678,11 +649,10 @@ folly::Future<int> ActiveVmdk::Move(Request* reqp, const CheckPoints& min_max) {
 		});
 
 		SetReadCheckPointId(*process, min_max);
-		++stats_.moves_in_progress_;
+		++stats_->moves_in_progress_;
 		return headp_->Move(this, reqp, *process, *failed)
 		.then([this, reqp, process = std::move(process),
-				failed = std::move(failed)] (folly::Try<int>& result) mutable {
-
+			failed = std::move(failed)] (folly::Try<int>& result) mutable {
 			auto rc = 0;
 			if (result.hasException<std::exception>()) {
 				reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
@@ -699,7 +669,7 @@ folly::Future<int> ActiveVmdk::Move(Request* reqp, const CheckPoints& min_max) {
 				}
 			}
 
-			--stats_.moves_in_progress_;
+			--stats_->moves_in_progress_;
 			return rc;
 		});
 	});
@@ -762,8 +732,8 @@ int ActiveVmdk::WriteRequestComplete(Request* reqp, CheckPointID ckpt_id) {
 }
 
 int ActiveVmdk::WriteComplete(Request* reqp, CheckPointID ckpt_id) {
-	--stats_.writes_in_progress_;
-	IncrWriteBytes(reqp->GetBufferSize());
+	--stats_->writes_in_progress_;
+	stats_->IncrWriteBytes(reqp->GetBufferSize());
 	return WriteRequestComplete(reqp, ckpt_id);
 }
 
@@ -771,13 +741,13 @@ int ActiveVmdk::WriteComplete(
 		const std::vector<std::unique_ptr<Request>>& requests,
 		CheckPointID ckpt_id) {
 	int ret = 0;
-	--stats_.writes_in_progress_;
+	--stats_->writes_in_progress_;
 	for (auto& request : requests) {
 		auto rc = WriteRequestComplete(request.get(), ckpt_id);
 		if (pio_unlikely(rc < 0)) {
 			ret = rc;
 		}
-		IncrWriteBytes(request->GetBufferSize());
+		stats_->IncrWriteBytes(request->GetBufferSize());
 	}
 	return ret;
 }
@@ -791,8 +761,8 @@ folly::Future<int> ActiveVmdk::BulkWrite(::ondisk::CheckPointID ckpt_id,
 
 	return TakeLockAndBulkInvoke(requests,
 		[this, &requests, &process, ckpt_id = std::move(ckpt_id)] () {
-		stats_.writes_in_progress_ += requests.size();
-		cache_stats_.total_writes_ += requests.size();
+		stats_->writes_in_progress_ += requests.size();
+		stats_->total_writes_ += requests.size();
 		auto failed = std::make_unique<std::vector<RequestBlock*>>();
 
 		return headp_->BulkWrite(this, ckpt_id, requests, process, *failed)
@@ -864,8 +834,8 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 			return true;
 		});
 
-		++stats_.writes_in_progress_;
-		++cache_stats_.total_writes_;
+		++stats_->writes_in_progress_;
+		++stats_->total_writes_;
 		return headp_->Write(this, reqp, ckpt_id, *process, *failed)
 		.then([this, reqp, ckpt_id, process = std::move(process),
 				failed = std::move(failed)] (folly::Try<int>& result) mutable {
@@ -2764,23 +2734,6 @@ folly::Future<int> ActiveVmdk::MoveUnflushedToFlushed() {
 			checkpoints_.unflushed_.size());
 	return 0;
 }
-
-uint64_t ActiveVmdk::WritesInProgress() const noexcept {
-	return stats_.writes_in_progress_;
-}
-
-uint64_t ActiveVmdk::ReadsInProgress() const noexcept {
-	return stats_.reads_in_progress_;
-}
-
-uint64_t ActiveVmdk::FlushesInProgress() const noexcept {
-	return stats_.flushes_in_progress_;
-}
-
-uint64_t ActiveVmdk::MovesInProgress() const noexcept {
-	return stats_.moves_in_progress_;
-}
-
 uint64_t ActiveVmdk::FlushedCheckpoints() const noexcept {
 	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
     return checkpoints_.flushed_.size();
@@ -2818,41 +2771,6 @@ uint64_t ActiveVmdk::GetPendingBlksCnt() const noexcept {
 		return 0;
 	}
 	return aux_info_->GetPendingBlksCnt();
-}
-
-uint64_t ActiveVmdk::GetReadHits() const noexcept {
-	return 0;
-}
-
-uint64_t ActiveVmdk::GetReadMisses() const noexcept {
-	return 0;
-}
-
-uint64_t ActiveVmdk::GetDirtyBlockCount() const noexcept {
-	return 0;
-}
-
-uint64_t ActiveVmdk::GetCleanBlockCount() const noexcept {
-	return 0;
-}
-
-void ActiveVmdk::GetVmdkInfo(st_vmdk_stats& vmdk_stats) {
-    vmdk_stats.writes_in_progress = WritesInProgress();
-    vmdk_stats.reads_in_progress = ReadsInProgress();
-    vmdk_stats.flushes_in_progress = FlushesInProgress();
-    vmdk_stats.moves_in_progress = MovesInProgress();
-    vmdk_stats.block_size = BlockSize();
-    vmdk_stats.block_shift = BlockShift();
-    vmdk_stats.block_mask = BlockMask();
-    vmdk_stats.flushed_chkpnts = FlushedCheckpoints();
-    vmdk_stats.unflushed_chkpnts = UnflushedCheckpoints();
-    vmdk_stats.flushed_blocks = GetFlushedBlksCnt();
-    vmdk_stats.moved_blocks = GetMovedBlksCnt() ;
-    vmdk_stats.pending_blocks = GetPendingBlksCnt();
-    vmdk_stats.read_misses = GetReadMisses();
-    vmdk_stats.read_hits = GetReadHits();
-    vmdk_stats.dirty_blocks = GetDirtyBlockCount();
-    vmdk_stats.clean_blocks = GetCleanBlockCount();
 }
 
 CheckPoint::CheckPoint(VmdkID vmdk_id, CheckPointID id) :

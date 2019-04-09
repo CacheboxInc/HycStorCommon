@@ -48,26 +48,6 @@ namespace config {
 	class FlushConfig;
 }
 
-/* Vmdk statistics */
-typedef struct __st_vmdk_stats__ {
-    uint64_t    writes_in_progress;
-    uint64_t    reads_in_progress;
-    uint64_t    flushes_in_progress;
-    uint64_t    moves_in_progress;
-    uint64_t    block_size;
-    uint64_t    block_shift;
-    uint64_t    block_mask;
-    uint64_t    flushed_chkpnts;
-    uint64_t    unflushed_chkpnts;
-    uint64_t    flushed_blocks;
-    uint64_t    moved_blocks;
-    uint64_t    pending_blocks;
-    uint64_t    read_misses;
-    uint64_t    read_hits;
-    uint64_t    dirty_blocks;
-    uint64_t    clean_blocks;
-}st_vmdk_stats;
-
 class CheckPoint {
 public:
 	CheckPoint(::ondisk::VmdkID vmdk_id, ::ondisk::CheckPointID id);
@@ -231,12 +211,7 @@ public:
 	CheckPoint* GetCheckPoint(::ondisk::CheckPointID ckpt_id) const;
 	folly::Future<int> MoveUnflushedToFlushed();
 
-	/* Functions to gathering Vmdk statistics at this point in time */
-	void GetVmdkInfo(st_vmdk_stats& vmdk_stats);
-	uint64_t WritesInProgress() const noexcept;
-	uint64_t ReadsInProgress() const noexcept;
-	uint64_t FlushesInProgress() const noexcept;
-	uint64_t MovesInProgress() const noexcept;
+	
 	uint64_t FlushedCheckpoints() const noexcept;
 	uint64_t UnflushedCheckpoints() const noexcept;
 	uint64_t GetFlushedBlksCnt() const noexcept;
@@ -247,12 +222,6 @@ public:
 	uint64_t GetDirtyBlockCount() const noexcept;
 	uint64_t GetCleanBlockCount() const noexcept;
 
-	void IncrReadBytes(size_t read_bytes);
-	void IncrWriteBytes(size_t write_bytes);
-	void IncrNwReadBytes(size_t read_bytes);
-	void IncrNwWriteBytes(size_t write_bytes);
-	void IncrAeroReadBytes(size_t read_bytes);
-	void IncrAeroWriteBytes(size_t write_bytes);
 
 	folly::Future<int> BulkWrite(::ondisk::CheckPointID ckpt_id,
 		const std::vector<std::unique_ptr<Request>>& requests,
@@ -294,50 +263,7 @@ public:
 	VirtualMachine* GetVM() const noexcept;
 	const config::VmdkConfig* GetJsonConfig() const noexcept;
 
-	std::atomic<unsigned long long> w_total_latency{0};
-	std::atomic<uint64_t> w_io_count{0};
-	std::atomic<uint64_t> w_io_blks_count{0};
-
-	std::atomic<unsigned long long> r_total_latency{0};
-	std::atomic<uint64_t> r_io_count{0};
-	std::atomic<uint64_t> r_io_blks_count{0};
-	std::atomic<uint64_t> r_pending_count{0}, w_pending_count{0};
-	std::mutex r_stat_lock_, w_stat_lock_;
-
-	std::atomic<unsigned long long> w_aero_total_latency_{0};
-	std::atomic<unsigned long long> r_aero_total_latency_{0};
-	std::atomic<uint64_t> w_aero_io_blks_count_{0};
-	std::atomic<uint64_t> r_aero_io_blks_count_{0};
-	std::mutex r_aero_stat_lock_, w_aero_stat_lock_;
-
-	struct {
-		std::atomic<uint64_t> total_reads_{0};
-		std::atomic<uint64_t> total_writes_{0};
-		std::atomic<size_t> total_bytes_reads_{0};
-		std::atomic<size_t> total_bytes_writes_{0};
-
-		std::atomic<uint64_t> total_blk_reads_{0};
-
-		std::atomic<uint64_t> parent_blks_{0};
-		std::atomic<uint64_t> read_populates_{0};
-		std::atomic<uint64_t> cache_writes_{0};
-
-		std::atomic<uint64_t> read_hits_{0};
-		std::atomic<uint64_t> read_miss_{0};
-
-		std::atomic<uint64_t> read_failed_{0};
-		std::atomic<uint64_t> write_failed_{0};
-
-		std::atomic<size_t> nw_bytes_write_{0};
-		std::atomic<size_t> nw_bytes_read_{0};
-		std::atomic<size_t> aero_bytes_write_{0};
-		std::atomic<size_t> aero_bytes_read_{0};
-
-		std::atomic<uint64_t> bufsz_before_compress{0};
-		std::atomic<uint64_t> bufsz_after_compress{0};
-		std::atomic<uint64_t> bufsz_before_uncompress{0};
-		std::atomic<uint64_t> bufsz_after_uncompress{0};
-	} cache_stats_;
+	VmdkCacheStats* stats_;
 
 	void GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept;
 	void FillCacheStats(::ondisk::IOAVmdkStats& dest) const noexcept;
@@ -391,15 +317,8 @@ private:
 
 	std::unique_ptr<MetaDataKV> metad_kv_{nullptr};
 
-	struct {
-		std::atomic<uint64_t> writes_in_progress_{0};
-		std::atomic<uint64_t> reads_in_progress_{0};
-		std::atomic<uint64_t> flushes_in_progress_{0};
-		std::atomic<uint64_t> moves_in_progress_{0};
-	} stats_;
-
 	std::vector<PreloadBlock> preload_blocks_;
-	mutable VmdkCacheStats old_cache_stats_;
+	mutable VmdkCacheStats old_stats_;
 
 public:
 	std::unique_ptr<RequestHandler> headp_{nullptr};

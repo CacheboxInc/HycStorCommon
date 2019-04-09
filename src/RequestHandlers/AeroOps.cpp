@@ -404,29 +404,29 @@ folly::Future<int> AeroSpike::AeroWrite(ActiveVmdk *vmdkp,
 						<std::chrono::microseconds>
 						(end_time - start_time).count();
 
-			std::unique_lock<std::mutex> w_lock(vmdkp->w_aero_stat_lock_);
+			std::unique_lock<std::mutex> w_lock(vmdkp->stats_->w_aero_stat_lock_);
 			if (pio_unlikely(!batch->failed_)) {
-				vmdkp->IncrAeroWriteBytes(batch->batch_write_size_);
-				if ((vmdkp->w_aero_total_latency_ + duration)
-					< vmdkp->w_aero_total_latency_ ||
-					vmdkp->w_aero_io_blks_count_ > MAX_W_IOS_IN_HISTORY) {
-					vmdkp->w_aero_total_latency_ = 0;
-					vmdkp->w_aero_io_blks_count_ = 0;
+				vmdkp->stats_->IncrAeroWriteBytes(batch->batch_write_size_);
+				if ((vmdkp->stats_->w_aero_total_latency_ + duration)
+					< vmdkp->stats_->w_aero_total_latency_ ||
+					vmdkp->stats_->w_aero_io_blks_count_ > MAX_W_IOS_IN_HISTORY) {
+					vmdkp->stats_->w_aero_total_latency_ = 0;
+					vmdkp->stats_->w_aero_io_blks_count_ = 0;
 				} else {
-					vmdkp->w_aero_total_latency_ += duration;
-					vmdkp->w_aero_io_blks_count_ += batch->batch.nwrites_;
+					vmdkp->stats_->w_aero_total_latency_ += duration;
+					vmdkp->stats_->w_aero_io_blks_count_ += batch->batch.nwrites_;
 				}
 			}
 
-			if (vmdkp->w_aero_io_blks_count_ &&
-					(vmdkp->w_aero_io_blks_count_ % 100) == 0) {
+			if (vmdkp->stats_->w_aero_io_blks_count_ &&
+					(vmdkp->stats_->w_aero_io_blks_count_ % 100) == 0) {
 				VLOG(5) << __func__ <<
 				"[AeroWrite:VmdkID:" << vmdkp->GetID() <<
-				", Total latency :" << vmdkp->w_aero_total_latency_ <<
+				", Total latency :" << vmdkp->stats_->w_aero_total_latency_ <<
 				", Total blks IO count (in blk size):"
-					<< vmdkp->w_aero_io_blks_count_ <<
+					<< vmdkp->stats_->w_aero_io_blks_count_ <<
 				", avg blk access latency:"
-					<< vmdkp->w_aero_total_latency_ / vmdkp->w_aero_io_blks_count_;
+					<< vmdkp->stats_->w_aero_total_latency_ / vmdkp->stats_->w_aero_io_blks_count_;
 			}
 			w_lock.unlock();
 		} else {
@@ -678,26 +678,26 @@ folly::Future<int> AeroSpike::AeroRead(ActiveVmdk *vmdkp,
 			duration = std::chrono::duration_cast<std::chrono::microseconds>
 					(end_time - start_time).count();
 
-			std::unique_lock<std::mutex> r_lock(vmdkp->r_aero_stat_lock_);
-			if ((vmdkp->r_aero_total_latency_ + duration)
-					< vmdkp->r_aero_total_latency_ ||
-					vmdkp->r_aero_io_blks_count_ > MAX_W_IOS_IN_HISTORY) {
-					vmdkp->r_aero_total_latency_ = 0;
-					vmdkp->r_aero_io_blks_count_ = 0;
+			std::unique_lock<std::mutex> r_lock(vmdkp->stats_->r_aero_stat_lock_);
+			if ((vmdkp->stats_->r_aero_total_latency_ + duration)
+					< vmdkp->stats_->r_aero_total_latency_ ||
+					vmdkp->stats_->r_aero_io_blks_count_ > MAX_W_IOS_IN_HISTORY) {
+					vmdkp->stats_->r_aero_total_latency_ = 0;
+					vmdkp->stats_->r_aero_io_blks_count_ = 0;
 			} else {
-				vmdkp->r_aero_total_latency_ += duration;
-				vmdkp->r_aero_io_blks_count_ += batch->nreads_;
+				vmdkp->stats_->r_aero_total_latency_ += duration;
+				vmdkp->stats_->r_aero_io_blks_count_ += batch->nreads_;
 			}
 
-			if (vmdkp->r_aero_io_blks_count_ &&
-					(vmdkp->r_aero_io_blks_count_ % 100) == 0) {
+			if (vmdkp->stats_->r_aero_io_blks_count_ &&
+					(vmdkp->stats_->r_aero_io_blks_count_ % 100) == 0) {
 				VLOG(5) << __func__ <<
 					"[AeroRead:VmdkID:" << vmdkp->GetID() <<
-					", Total latency :" << vmdkp->r_aero_total_latency_ <<
+					", Total latency :" << vmdkp->stats_->r_aero_total_latency_ <<
 					", Total blks IO count (in blk size):"
-						<< vmdkp->r_aero_io_blks_count_ <<
+						<< vmdkp->stats_->r_aero_io_blks_count_ <<
 					", avg blk access latency:"
-						<< vmdkp->r_aero_total_latency_ / vmdkp->r_aero_io_blks_count_;
+						<< vmdkp->stats_->r_aero_total_latency_ / vmdkp->stats_->r_aero_io_blks_count_;
 			}
 			r_lock.unlock();
 
@@ -743,7 +743,7 @@ folly::Future<int> AeroSpike::AeroRead(ActiveVmdk *vmdkp,
 
 						blockp->PushRequestBuffer(std::move(destp));
 						blockp->SetResult(0, RequestStatus::kHit);
-						vmdkp->IncrAeroReadBytes(ret);
+						vmdkp->stats_->IncrAeroReadBytes(ret);
 						}
 						break;
 

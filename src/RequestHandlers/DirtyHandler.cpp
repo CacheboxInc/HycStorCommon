@@ -150,7 +150,7 @@ folly::Future<int> DirtyHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		return -ENODEV;
 	}
 
-	vmdkp->cache_stats_.cache_writes_ += process.size();
+	vmdkp->stats_->cache_writes_ += process.size();
 
 	if (pio_unlikely(aero_conn_ == nullptr)) {
 		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
@@ -411,7 +411,7 @@ folly::Future<int> DirtyHandler::BulkWrite(ActiveVmdk* vmdkp,
 		return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
 	}
 
-	vmdkp->cache_stats_.cache_writes_ += process.size();
+	vmdkp->stats_->cache_writes_ += process.size();
 	return aero_obj_->AeroWriteCmdProcess(vmdkp, ckpt, process, failed,
 		kAsNamespaceCacheDirty, aero_conn_)
 	.then([this, vmdkp, &process, &failed, ckpt, connect = this->aero_conn_] (int rc)
