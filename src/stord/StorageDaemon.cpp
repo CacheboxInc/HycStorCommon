@@ -2481,14 +2481,14 @@ static int ArmSyncInfo(const _ha_request *reqp, _ha_response *resp, void *)
 	json_t *json_stats = json_array();
 	for (auto& stats : arm_sync->GetStats()) {
 		auto vmdk = json_object();
-		json_object_set_new(vmdk, "sync_total", json_integer(vmdk->sync_total));
-		json_object_set_new(vmdk, "sync_pending", json_integer(vmdk->sync_pending));
-		json_object_set_new(vmdk, "sync_completed", json_integer(vmdk->sync_completed));
-		json_object_set_new(vmdk, "sync_avoided", json_integer(vmdk->sync_avoided));
+		json_object_set_new(vmdk, "sync_total", json_integer(stats.sync_total));
+		json_object_set_new(vmdk, "sync_pending", json_integer(stats.sync_pending));
+		json_object_set_new(vmdk, "sync_completed", json_integer(stats.sync_completed));
+		json_object_set_new(vmdk, "sync_avoided", json_integer(stats.sync_avoided));
 		json_array_append_new(json_stats, vmdk);
 	}
 
-	const char* jsonp = json_dumps(json_stats, JSON_ENCODE_ANY);
+	char* jsonp = json_dumps(json_stats, JSON_ENCODE_ANY);
 	if (not jsonp) {
 		SetErrMsg(resp, STORD_ERR_ARM_SYNC_START_FAILED,
 			"creating json response failed");
@@ -2498,7 +2498,7 @@ static int ArmSyncInfo(const _ha_request *reqp, _ha_response *resp, void *)
 	std::string_view json(jsonp);
 	ha_set_response_body(resp, HTTP_STATUS_OK, json.data(), json.length());
 	json_decref(json_stats);
-	std::free(jsonp);
+	std::free(reinterpret_cast<void*>(jsonp));
 	return HA_CALLBACK_CONTINUE;
 }
 
@@ -2516,7 +2516,7 @@ RestHandlers GetRestCallHandlers() {
 		void* datap;
 	};
 
-	static constexpr std::array<RestEndPoint, 31> kHaEndPointHandlers = {{
+	static constexpr std::array<RestEndPoint, 32> kHaEndPointHandlers = {{
 		{POST, "new_vm", NewVm, nullptr},
 		{POST, "vm_delete", RemoveVm, nullptr},
 		{POST, "new_vmdk", NewVmdk, nullptr},
