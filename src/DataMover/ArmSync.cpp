@@ -3,8 +3,11 @@
 #include "ArmSync.h"
 #include "DataSync.h"
 #include "DataCopier.h"
-// #include "NetworkTargetHandler.h"
 #include "CacheTargetHandler.h"
+
+#ifdef USE_NEP
+#include "NetworkTargetHandler.h"
+#endif
 
 namespace pio {
 ArmSync::ArmSync(VirtualMachine* vmp,
@@ -158,7 +161,7 @@ ArmSync::FindSyncSource() {
 		}
 		src.emplace_back(cachep);
 
-#if 0
+#ifdef USE_NEP
 		auto netp = vmdkp->GetRequestHandler(NetworkTargetHandler::kName);
 		if (pio_unlikely(not netp)) {
 			throw std::runtime_error("ArmSync: could not find NetworkTargetHandler");
