@@ -40,7 +40,7 @@ public:
 	void SetCheckPoints(CheckPointID latest, CheckPointID flushed);
 
 private:
-	std::unordered_map<::ondisk::VmdkID, VddkTargetHandlerPtr>
+	std::unordered_map<::ondisk::VmdkID, std::unique_ptr<RequestHandler>>
 		CreateVddkTargets(const VddkPathInfoMap& paths);
 	std::unordered_map<::ondisk::VmdkID, RequestHandlerPtrVec>
 		FindSyncSource();
@@ -49,7 +49,7 @@ private:
 	VirtualMachine* vmp_{};
 	std::unique_ptr<vddk::VCenter> vcenter_;
 
-	std::unordered_map<::ondisk::VmdkID, VddkTargetHandlerPtr> targets_;
+	std::unordered_map<::ondisk::VmdkID, std::unique_ptr<RequestHandler>> targets_;
 };
 
 }

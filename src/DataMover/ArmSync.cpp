@@ -4,8 +4,7 @@
 #include "DataSync.h"
 #include "DataCopier.h"
 // #include "NetworkTargetHandler.h"
-#include "DirtyHandler.h"
-#include "CleanHandler.h"
+#include "CacheTargetHandler.h"
 
 namespace pio {
 ArmSync::ArmSync(VirtualMachine* vmp,
@@ -118,9 +117,9 @@ int ArmSync::SyncStart(const VddkPathInfoMap& paths) {
 	return VmSync::SyncStart();
 }
 
-std::unordered_map<::ondisk::VmdkID, VddkTargetHandlerPtr>
+std::unordered_map<::ondisk::VmdkID, std::unique_ptr<RequestHandler>>
 ArmSync::CreateVddkTargets(const VddkPathInfoMap& paths) {
-	std::unordered_map<::ondisk::VmdkID, VddkTargetHandlerPtr> targets;
+	std::unordered_map<::ondisk::VmdkID, std::unique_ptr<RequestHandler>> targets;
 
 	for (ActiveVmdk* vmdkp : vmp_->GetAllVmdks()) {
 		auto it = paths.find(vmdkp->GetID());
@@ -153,18 +152,20 @@ ArmSync::FindSyncSource() {
 		RequestHandlerPtrVec src;
 		src.reserve(3);
 
-		auto dirtyp = vmdkp->GetRequestHandler(DirtyHandler::kName);
-		if (pio_unlikely(not dirtyp)) {
-			throw std::runtime_error("ArmSync: could not find DirtyHandler");
+		auto cachep = vmdkp->GetRequestHandler(CacheTargetHandler::kName);
+		if (pio_unlikely(not cachep)) {
+			throw std::runtime_error("ArmSync: could not find CacheTargetHandler");
 		}
-		auto cleanp = vmdkp->GetRequestHandler(CleanHandler::kName);
-		if (pio_unlikely(not cleanp)) {
-			throw std::runtime_error("ArmSync: could not find CleanHandler");
+		src.emplace_back(cachep);
+
+#if 0
+		auto netp = vmdkp->GetRequestHandler(NetworkTargetHandler::kName);
+		if (pio_unlikely(not netp)) {
+			throw std::runtime_error("ArmSync: could not find NetworkTargetHandler");
 		}
 
-		src.emplace_back(dirtyp);
-		src.emplace_back(cleanp);
-		// src.emplace_back(vmdkp->GetRequestHandler(NetworkTargetHandler::kName));
+		src.emplace_back(netp);
+#endif
 
 		sources.emplace(id, std::move(src));
 	}

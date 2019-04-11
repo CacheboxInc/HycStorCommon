@@ -99,16 +99,21 @@ folly::Future<int> VddkWriteBatch::Submit(VddkFile* filep) {
 }
 
 void VddkWriteBatch::WriteComplete(VixError result) {
-	std::lock_guard<std::mutex> lock(mutex_);
-	++request_blocks_.complete_;
-	if (pio_unlikely(VIX_FAILED(result))) {
-		++request_blocks_.failed_;
-		result_ = VIX_ERROR_CODE(result);
-		result_ = result_ < 0 ? result_ : -result_;
-		LOG(ERROR) << "VddkTarget: VDDK IO failed " << result_;
+	bool complete = false;
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		++request_blocks_.complete_;
+		if (pio_unlikely(VIX_FAILED(result))) {
+			++request_blocks_.failed_;
+			result_ = VIX_ERROR_CODE(result);
+			result_ = result_ < 0 ? result_ : -result_;
+			LOG(ERROR) << "VddkTarget: VDDK IO failed " << result_;
+		}
+		complete = request_blocks_.submitted_ == request_blocks_.complete_;
 	}
 
-	if (request_blocks_.submitted_ == request_blocks_.complete_) {
+
+	if (complete) {
 		promise_.setValue(result_);
 	}
 }
