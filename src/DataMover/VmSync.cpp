@@ -122,6 +122,14 @@ void VmSync::SyncStatusLocked(bool* stopped, int* result) const noexcept {
 	}
 }
 
+std::vector<DataSync::Stats> VmSync::GetStats() const noexcept {
+	std::vector<DataSync::Stats> ret;
+	for (const auto& vmdk_sync : vmdks_) {
+		ret.emplace_back(vmdk_sync->GetStats());
+	}
+	return ret;
+}
+
 void VmSync::SyncStatus(bool* stopped, int* result) const noexcept {
 	std::lock_guard<std::mutex> lock(mutex_);
 	SyncStatusLocked(stopped, result);
