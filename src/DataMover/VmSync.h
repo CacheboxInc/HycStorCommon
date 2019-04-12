@@ -53,6 +53,7 @@ public:
 	virtual void SetCheckPoints(::ondisk::CheckPointID latest,
 		::ondisk::CheckPointID flushed) = 0;
 
+	std::vector<DataSync::Stats> GetStats() const noexcept;
 	void SyncStatus(bool* stopped, int* result) const noexcept;
 	int SyncStart();
 private:
