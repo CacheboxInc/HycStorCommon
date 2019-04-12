@@ -45,6 +45,7 @@ target_link_libraries(StorageLayerTests
 	${AEROSPIKE_LIBS}
 	${IOA_LIB_LIST}
 	${HA_LIBS}
+	${VDDK_LIBS}
 	-Wl,--end-group
 )
 
