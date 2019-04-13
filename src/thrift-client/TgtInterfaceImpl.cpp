@@ -900,13 +900,13 @@ RequestBase::~RequestBase() {
 }
 
 const RequestBase::Type& RequestBase::GetType() const noexcept {
-		return type;
+	return type;
 }
 
 bool RequestBase::IsOverlapped(uint64_t req_offset,
 	uint64_t req_length) const noexcept {
-	return ((int64_t)(length - req_offset) > 0 &&
-		(int64_t)(req_length - offset) > 0);
+	return ((int64_t)((offset + length-1) - req_offset) > 0 &&
+		(int64_t)((req_offset + req_length-1) - offset) > 0);
 }
 
 Request::Request(RequestID id, Type t, const void* privatep, char *bufferp,
