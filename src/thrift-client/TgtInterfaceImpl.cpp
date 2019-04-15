@@ -747,7 +747,6 @@ bool StordVmdk::PrepareRequest(std::shared_ptr<SyncRequest> request) {
 	}
 
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
-	//SyncRequest *reqp = dynamic_cast<SyncRequest*>(nreqp);
 	for (auto& req_map : requests_.scheduled_) {
 		auto req_ptr = req_map.second.get();
 		if ((req_ptr->type == Request::Type::kWrite or
@@ -780,7 +779,6 @@ bool StordVmdk::PrepareRequest(std::shared_ptr<Request> request) {
 		nreqp->type == Request::Type::kWriteSame) {
 		for (auto& sync_req : requests_.sync_pending_) {
 			SyncRequest *syncp = sync_req.second.get();
-			//	dynamic_cast<SyncRequest *>(sync_req.second.get());
 			if (nreqp->IsOverlapped(syncp->offset, syncp->length)) {
 				syncp->write_pending.emplace_back(request);
 				overlapped_write = true;
@@ -905,8 +903,8 @@ const RequestBase::Type& RequestBase::GetType() const noexcept {
 
 bool RequestBase::IsOverlapped(uint64_t req_offset,
 	uint64_t req_length) const noexcept {
-	return ((int64_t)((offset + length-1) - req_offset) > 0 &&
-		(int64_t)((req_offset + req_length-1) - offset) > 0);
+	return not((offset + length-1) < req_offset or
+		(req_offset + req_length-1) < offset);
 }
 
 Request::Request(RequestID id, Type t, const void* privatep, char *bufferp,
