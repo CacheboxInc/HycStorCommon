@@ -31,6 +31,11 @@ typedef struct vmdk_stats
 	int64_t rpc_requests_scheduled;
 } vmdk_stats_t;
 
+typedef struct {
+	vmdk_stats_t vmdk_stats;
+	//and list goes on 
+}component_stats_t;
+
 void HycStorInitialize(int argc, char *argv[], char *stord_ip, uint16_t stord_port);
 int32_t HycStorRpcServerConnect(void);
 int32_t HycStorRpcServerDisconnect(void);
@@ -53,7 +58,7 @@ RequestID HycScheduleTruncate(VmdkHandle handle, const void* privatep,
 RequestID HycScheduleSyncCache(VmdkHandle handle, const void* privatep,
 	uint64_t offset, uint64_t length);
 int HycGetVmdkStats(const char* vmdkid, vmdk_stats_t *vmdk_stats);
-
+int HycGetComponentStats(component_stats_t* g_stats);
 #ifdef __cplusplus
 }
 #endif
