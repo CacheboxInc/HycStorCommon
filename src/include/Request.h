@@ -25,7 +25,7 @@ public:
 	Type type;
 	const void* privatep;
 	uint64_t length;
-	int64_t offset;
+	uint64_t offset;
 	int32_t result;
 	mutable std::mutex mutex_;
 
