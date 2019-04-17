@@ -272,6 +272,7 @@ void VirtualMachine::CheckPointComplete(CheckPointID ckpt_id) {
 bool VirtualMachine::AddVmSync(std::unique_ptr<VmSync> sync) {
 	std::lock_guard<std::mutex> lock(sync_.mutex_);
 	auto [it, inserted] = sync_.list_.emplace(sync->GetSyncType(), std::move(sync));
+	(void) it;
 	return inserted;
 }
 
