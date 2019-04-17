@@ -23,7 +23,7 @@ public:
 
 	void SetSyncSource(RequestHandlerPtrVec&& source);
 	void SetSyncDest(RequestHandlerPtrVec&& dest);
-  
+
 	DataSync::Stats GetStats() const noexcept;
 
 	friend class VmSync;
@@ -33,15 +33,21 @@ private:
 	void GetCheckPointSummary(::ondisk::CheckPointID* donep,
 		::ondisk::CheckPointID* progressp,
 		::ondisk::CheckPointID* scheduledp) const noexcept;
-	int SyncStart();
+	folly::Future<int> SyncStart();
 private:
 	ActiveVmdk* vmdkp_;
 	DataSync sync_;
 };
 
 class VmSync {
+public:
+	enum class Type {
+		kSyncArm,
+		kSyncTest,
+	};
+
 protected:
-	VmSync(VirtualMachine* vmp,
+	VmSync(VirtualMachine* vmp, Type type,
 		const ::ondisk::CheckPointID base,
 		uint16_t batch_size) noexcept;
 
@@ -53,18 +59,23 @@ public:
 	virtual void SetCheckPoints(::ondisk::CheckPointID latest,
 		::ondisk::CheckPointID flushed) = 0;
 
+	const Type& GetSyncType() const noexcept;
+
 	std::vector<DataSync::Stats> GetStats() const noexcept;
 	void SyncStatus(bool* stopped, int* result) const noexcept;
 	int SyncStart();
 private:
+	bool Setup();
 	void SyncStatusLocked(bool* is_stoppedp, int* resultp) const noexcept;
-	int SyncRestart();
+	folly::Future<int> SyncRestart();
 protected:
 	int SetVmdkToSync(std::vector<std::unique_ptr<VmdkSync>> vmdks) noexcept;
 	void SyncTill(::ondisk::CheckPointID id) noexcept;
+	int ValidateSyncProgress() noexcept;
 
 private:
 	VirtualMachine* vmp_{};
+	const Type type_{Type::kSyncArm};
 	::ondisk::CheckPointID ckpt_base_{};
 	CkptBatch ckpt_batch_{kCkptBatchInitial};
 	uint16_t ckpt_batch_size_{0};

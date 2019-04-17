@@ -101,7 +101,8 @@ public:
 	int SerializeCheckpoints(int64_t snap_id, const std::vector<int64_t>& vec_ckpts);
 	int64_t GetSnapID(ActiveVmdk* vmdkp, const uint64_t& ckpt_id);
 
-	void AddVmSync(std::unique_ptr<VmSync> sync);
+	bool AddVmSync(std::unique_ptr<VmSync> sync);
+	VmSync* GetVmSync(VmSync::Type type) noexcept;
 	friend std::ostream& operator << (std::ostream& os, const VirtualMachine& vm);
 public:
 	void AddVmdk(ActiveVmdk* vmdkp);
@@ -114,8 +115,7 @@ public:
 	int SetArmJsonConfig(const std::string&);
 	void UnsetArmJsonConfig();
 	const config::ArmConfig* GetArmJsonConfig() const noexcept;
-	void SetArmSync(std::unique_ptr<ArmSync>&&) noexcept;
-	ArmSync *GetArmSync(void) noexcept;
+
 	Analyzer* GetAnalyzer() noexcept;
 	folly::Future<RestResponse> RestCall(_ha_instance* instancep,
 		std::string ep, std::string body);
@@ -171,7 +171,7 @@ private:
 
 	struct {
 		mutable std::mutex mutex_;
-		std::vector<std::unique_ptr<VmSync>> list_;
+		std::unordered_map<VmSync::Type, std::unique_ptr<VmSync>> list_;
 	} sync_;
 
 	struct {

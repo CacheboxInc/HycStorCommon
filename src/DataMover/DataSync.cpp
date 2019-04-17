@@ -136,11 +136,11 @@ int DataSync::SetCheckPoints(CheckPointPtrVec check_points, bool* restartp) {
 	return 0;
 }
 
-int DataSync::ReStart() {
+folly::Future<int> DataSync::ReStart() {
 	return Start();
 }
 
-int DataSync::Start() {
+folly::Future<int> DataSync::Start() {
 	if (pio_unlikely(data_source_.empty() or
 			data_dest_.empty())) {
 		LOG(ERROR) << "DataSync: not initialized properly "
@@ -153,47 +153,70 @@ int DataSync::Start() {
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
 		if (not status_.stoppped_) {
+			LOG(INFO) << "DataSync: previous instance is already running. "
+				<< "Not starting a new.";
 			return 0;
 		}
 		status_.stoppped_ = false;
 		SetStatus(0);
 	}
-	return StartInternal();
+
+	log_assert(not complete_);
+	complete_ = std::make_unique<folly::Promise<int>>();
+	auto fut = complete_->getFuture();
+	StartInternal();
+	return fut;
 }
 
-int DataSync::StartInternal() {
+void DataSync::SyncComplete(std::unique_ptr<folly::Promise<int>> promise,
+		int result) const noexcept {
+	promise->setValue(result);
+}
+
+void DataSync::StartInternal() {
 	if (pio_likely(not status_.failed_)) {
 		UpdateDataCopierStats(std::move(copier_));
 	}
 	copier_ = nullptr;
 	log_assert(not copier_);
 
-	{
+	auto promise = [this] () mutable
+			-> std::optional<std::unique_ptr<folly::Promise<int>>> {
 		std::lock_guard<std::mutex> lock(mutex_);
 		while (not check_points_.empty() and check_points_.front()->ID() <= ckpt_.done_) {
 			check_points_.pop_front();
 		}
 		if (pio_unlikely(status_.failed_)) {
-			status_.stoppped_ = true;
 			LOG(ERROR) << "DataSync: failed " << status_.res_;
-			return status_.res_;
+			status_.stoppped_ = true;
+			return std::move(complete_);
 		}
 		if (check_points_.empty()) {
 			LOG(INFO) << "DataSync: completed successfully "
 				<< " CBT last synced " << ckpt_.done_;
 			status_.stoppped_ = true;
-			return 0;
+			SetStatus(0);
+			return std::move(complete_);
 		}
-		status_.stoppped_ = false;
-		SetStatus(0);
+		return {};
+	} ();
+
+	if (promise) {
+		SyncComplete(std::move(promise.value()), status_.res_);
+		return;
 	}
+
+	status_.stoppped_ = false;
+	SetStatus(0);
 
 	int rc;
 	copier_ = NewDataCopier(&rc);
 	if (pio_unlikely(not copier_ or rc < 0)) {
-		SetStatus(rc);
 		LOG(ERROR) << "DataSync: copier failed rc = " << rc;
-		return rc;
+		status_.stoppped_ = true;
+		SetStatus(rc);
+		SyncComplete(std::move(complete_), rc);
+		return;
 	}
 
 	copier_->Begin()
@@ -201,14 +224,14 @@ int DataSync::StartInternal() {
 		if (pio_unlikely(rc < 0)) {
 			LOG(ERROR) << "DataSync failed: with error " << rc;
 			SetStatus(rc);
-			return StartInternal();
+			StartInternal();
+			return;
 		}
 
 		SetStatus(0);
 		ckpt_.done_ = ckpt_.scheduled_;
-		return StartInternal();
+		StartInternal();
 	});
-	return 0;
 }
 
 std::unique_ptr<DataCopier> DataSync::NewDataCopier(int* errnop) {

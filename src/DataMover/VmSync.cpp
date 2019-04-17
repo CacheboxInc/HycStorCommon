@@ -54,18 +54,23 @@ void VmdkSync::GetCheckPointSummary(
 	*scheduledp = stats.cbt_sync_scheduled;
 }
 
-int VmdkSync::SyncStart() {
+folly::Future<int> VmdkSync::SyncStart() {
 	return sync_.Start();
 }
 
-VmSync::VmSync(VirtualMachine* vmp,
+VmSync::VmSync(VirtualMachine* vmp, VmSync::Type type,
 			const ::ondisk::CheckPointID base,
 			uint16_t batch_size
 		) noexcept :
 			vmp_(vmp),
+			type_(type),
 			ckpt_base_(base),
 			ckpt_batch_({base, 0, base}),
 			ckpt_batch_size_(batch_size) {
+}
+
+const VmSync::Type& VmSync::GetSyncType() const noexcept {
+	return type_;
 }
 
 #if 0
@@ -135,67 +140,87 @@ void VmSync::SyncStatus(bool* stopped, int* result) const noexcept {
 	SyncStatusLocked(stopped, result);
 }
 
-int VmSync::SyncRestart() {
-	int res = 0;
+folly::Future<int> VmSync::SyncRestart() {
+	std::vector<folly::Future<int>> futures;
+	futures.reserve(vmdks_.size());
+
 	for (auto& vmdk_sync : vmdks_) {
-		auto rc = vmdk_sync->SyncStart();
-		if (pio_unlikely(rc < 0)) {
-			LOG(ERROR) << __func__ << ": rc = " << rc;
-			res = rc;
-		}
+		futures.emplace_back(vmdk_sync->SyncStart());
 	}
-	return res;
+
+	return folly::collectAll(std::move(futures))
+	.then([] (folly::Try<std::vector<folly::Try<int>>>& tries) {
+		if (pio_unlikely(tries.hasException())) {
+			LOG(ERROR) << "VmSync: starting sync failed";
+			return -EIO;
+		}
+		for (const auto& tri : tries.value()) {
+			if (pio_unlikely(tri.hasException())) {
+				LOG(ERROR) << "VmSync: starting sync failed";
+				return -EIO;
+			}
+			if (pio_unlikely(tri.value() < 0)) {
+				LOG(ERROR) << "VmSync: starting sync failed with error "
+					<< tri.value();
+				return tri.value();
+			}
+		}
+		return 0;
+	});
 }
 
-int VmSync::SyncStart() {
+int VmSync::ValidateSyncProgress() noexcept {
+	auto expected_scheduled = std::get<2>(ckpt_batch_);
+	if (expected_scheduled == ckpt_base_) {
+		return 0;
+	}
+	for (const auto& vmdk_sync : vmdks_) {
+		::ondisk::CheckPointID done;
+		::ondisk::CheckPointID progress;
+		::ondisk::CheckPointID scheduled;
+
+		vmdk_sync->GetCheckPointSummary(&done, &progress, &scheduled);
+		if (not (done == scheduled and done == expected_scheduled)) {
+			LOG(ERROR) << "VmSync: fatal error "
+				<< " done " << done
+				<< " progress " << progress
+				<< " scheduled " << scheduled
+				<< " expected scheduled " << expected_scheduled;
+			return -EINVAL;
+		}
+	}
+	return 0;
+}
+
+bool VmSync::Setup() {
 	std::lock_guard<std::mutex> lock(mutex_);
-	/* ensure existing sync is stopped */
 	bool stopped;
 	int result;
-  
 	SyncStatusLocked(&stopped, &result);
 	if (pio_unlikely(result < 0)) {
-		LOG(ERROR) << "VmSync: previous sync failed. Restarting it";
-		return SyncRestart();
+		LOG(ERROR) << "VmSync: earlier sync has failed.";
+		return true;
 	}
 	if (not stopped) {
-		LOG(INFO) << "VmSync: previous sync is already running for VmID "
+		LOG(INFO) << "VmSync: earlier sync is running for VmID "
 			<< vmp_->GetID()
 			<< " batch " << std::get<0>(ckpt_batch_) << ','
 			<< std::get<1>(ckpt_batch_) << ','
 			<< std::get<2>(ckpt_batch_);
-		return 0;
+		return false;
 	}
 
-	/* validate the progress of existing sync */
-	auto expected_scheduled = std::get<2>(ckpt_batch_);
-	if (expected_scheduled != ckpt_base_) {
-		for (const auto& vmdk_sync : vmdks_) {
-			::ondisk::CheckPointID done;
-			::ondisk::CheckPointID progress;
-			::ondisk::CheckPointID scheduled;
-
-			vmdk_sync->GetCheckPointSummary(&done, &progress, &scheduled);
-			if (not (done == scheduled and
-						done == expected_scheduled)) {
-				LOG(ERROR) << "VmSync: fatal error "
-					<< " done " << done
-					<< " progress " << progress
-					<< " scheduled " << scheduled
-					<< " expected scheduled " << expected_scheduled;
-				return -EINVAL;
-			}
-		}
+	auto rc = ValidateSyncProgress();
+	if (pio_unlikely(rc < 0)) {
+		return false;
 	}
 
-	if (++expected_scheduled > ckpt_sync_till_) {
-		return 0;
+	auto expected_scheduled = std::get<2>(ckpt_batch_) + 1;
+	if (expected_scheduled > ckpt_sync_till_) {
+		return false;
 	}
 
 	auto sync_till = std::min(expected_scheduled + ckpt_batch_size_, ckpt_sync_till_);
-	LOG(INFO) << " expected_scheduled " << expected_scheduled
-			<< " ckpt_batch_size_ " << ckpt_batch_size_
-			<< " ckpt_sync_till_ " << ckpt_sync_till_;
 	CkptBatch ckpt_batch{expected_scheduled, 0, sync_till};
 	int res = 0;
 	for (auto& vmdk_sync : vmdks_) {
@@ -208,9 +233,26 @@ int VmSync::SyncStart() {
 		log_assert(restart == true);
 	}
 	if (pio_unlikely(res < 0)) {
-		return res;
+		return false;
 	}
 	ckpt_batch_ = ckpt_batch;
-	return SyncRestart();
+	return true;
+}
+
+int VmSync::SyncStart() {
+	bool restart = Setup();
+	if (not restart) {
+		return 0;
+	}
+
+	LOG(INFO) << "VmSync: starting sync from CBT " << std::get<0>(ckpt_batch_)
+		<< " till CBT " << std::get<2>(ckpt_batch_);
+	(void) SyncRestart()
+	.then([this] (int rc) mutable {
+		if (pio_likely(rc == 0)) {
+			SyncStart();
+		}
+	});
+	return 0;
 }
 }

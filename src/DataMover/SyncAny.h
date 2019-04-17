@@ -18,7 +18,7 @@ public:
 	SyncAny& operator = (const SyncAny&) = delete;
 	SyncAny& operator = (SyncAny&&) = delete;
 
-	SyncAny(VirtualMachine*, const ::ondisk::CheckPointID base,
+	SyncAny(VirtualMachine*, VmSync::Type, const ::ondisk::CheckPointID base,
 		uint16_t batch_size) noexcept;
 	// SyncAny(VirtualMachine*, SynceCookie::Cookie cookie) noexcept;
 	virtual ~SyncAny() noexcept;

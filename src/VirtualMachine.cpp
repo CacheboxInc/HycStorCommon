@@ -28,7 +28,10 @@
 #include "halib.h"
 
 #include "VmSync.h"
+
+#ifdef USE_NEP
 #include "ArmSync.h"
+#endif
 
 using namespace ::hyc_thrift;
 using namespace ::ondisk;
@@ -257,7 +260,7 @@ void VirtualMachine::CheckPointComplete(CheckPointID ckpt_id) {
 
 	std::lock_guard<std::mutex> lock(sync_.mutex_);
 	for (auto& sync : sync_.list_) {
-		auto thread = std::thread([ckpt_id, flushed, syncp = sync.get()] () mutable {
+		auto thread = std::thread([ckpt_id, flushed, syncp = sync.second.get()] () mutable {
 				syncp->SetCheckPoints(ckpt_id, flushed);
 				syncp->SyncStart();
 			}
@@ -266,9 +269,19 @@ void VirtualMachine::CheckPointComplete(CheckPointID ckpt_id) {
 	}
 }
 
-void VirtualMachine::AddVmSync(std::unique_ptr<VmSync> sync) {
+bool VirtualMachine::AddVmSync(std::unique_ptr<VmSync> sync) {
 	std::lock_guard<std::mutex> lock(sync_.mutex_);
-	sync_.list_.emplace_back(std::move(sync));
+	auto [it, inserted] = sync_.list_.emplace(sync->GetSyncType(), std::move(sync));
+	return inserted;
+}
+
+VmSync* VirtualMachine::GetVmSync(VmSync::Type type) noexcept {
+	std::lock_guard<std::mutex> lock(sync_.mutex_);
+	auto it = sync_.list_.find(type);
+	if (it == sync_.list_.end()) {
+		return nullptr;
+	}
+	return it->second.get();
 }
 
 void VirtualMachine::FlushComplete(CheckPointID ckpt_id) {
@@ -1141,23 +1154,6 @@ folly::Future<int> VirtualMachine::Stun(CheckPointID ckpt_id) {
 	} else {
 		return it->second->GetFuture();
 	}
-}
-
-void VirtualMachine::SetArmSync(std::unique_ptr<ArmSync>&& armsync) noexcept {
-	std::lock_guard<std::mutex> lock1(sync_.mutex_);
-	sync_.list_.emplace_back(std::move(armsync));
-}
-
-ArmSync *VirtualMachine::GetArmSync(void) noexcept {
-	std::lock_guard<std::mutex> lock(sync_.mutex_);
-	ArmSync *armsync = nullptr;
-	if (sync_.list_.size() > 0) {
-		// Until we have other consumers of the datamover we
-		// can expect only arm sync here i.e. only one.
-		log_assert(sync_.list_.size() == 1);
-		armsync = dynamic_cast<ArmSync*>(sync_.list_.front().get());
-	}
-	return armsync;
 }
 
 Stun::Stun() : promise(), futures(promise.getFuture()) {

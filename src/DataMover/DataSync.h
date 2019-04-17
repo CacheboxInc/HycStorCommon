@@ -5,6 +5,8 @@
 #include <vector>
 #include <mutex>
 
+#include <folly/futures/Future.h>
+
 #include "DataMoverCommonTypes.h"
 #include "gen-cpp2/MetaData_constants.h"
 
@@ -41,14 +43,16 @@ public:
 	void SetDataDestination(RequestHandlerPtrVec dest);
 	int SetCheckPoints(CheckPointPtrVec check_points, bool* restartp);
 
-	int ReStart();
-	int Start();
+	folly::Future<int> ReStart();
+	folly::Future<int> Start();
 	void GetStatus(bool* is_stopped, int* resp) const noexcept;
 	DataSync::Stats GetStats() const noexcept;
 
 private:
-	int StartInternal();
+	void StartInternal();
 	void SetStatus(int res) noexcept;
+	void SyncComplete(std::unique_ptr<folly::Promise<int>> promise,
+		int result) const noexcept;
 
 	std::unique_ptr<DataCopier> NewDataCopier(int *errnop);
 	CheckPointPtrVec GetNextCheckPointsToSync();
@@ -81,6 +85,8 @@ private:
 		bool failed_{false};
 		int res_{0};
 	} status_;
+
+	std::unique_ptr<folly::Promise<int>> complete_;
 
 	Stats stats_;
 };

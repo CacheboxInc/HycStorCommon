@@ -12,6 +12,9 @@
 #include <folly/init/Init.h>
 #include <thrift/lib/cpp2/server/ThriftServer.h>
 
+#include <boost/format.hpp>
+#include <boost/property_tree/ini_parser.hpp>
+
 #include "gen-cpp2/StorRpc.h"
 #include "gen-cpp2/StorRpc_constants.h"
 #include "DaemonTgtInterface.h"
@@ -26,17 +29,15 @@
 #include "VmManager.h"
 #include "VmConfig.h"
 #include "ArmConfig.h"
-#include "ArmSync.h"
-#include <boost/format.hpp>
-#include <boost/property_tree/ini_parser.hpp>
 #include "JsonHelper.h"
 
 #ifdef USE_NEP
 #include <TargetManager.hpp>
 #include <TargetManagerRest.hpp>
+#include "ArmSync.h"
+#include "VddkLib.h"
 #endif
 
-#include "VddkLib.h"
 
 /*
  * Max number of pending REST call requests allowed at stord
@@ -62,7 +63,7 @@ using namespace pio;
 static constexpr int32_t kServerPort = 9876;
 static constexpr char kServerIp[] = "0.0.0.0";
 
-static constexpr uint16_t kBatchSize = 4;
+[[maybe_unused]] static constexpr uint16_t kBatchSize = 4;
 
 class StorRpcSvImpl : public virtual StorRpcSvIf {
 public:
@@ -525,7 +526,8 @@ enum StordSvcErr {
 	STORD_ERR_ARM_SYNC_START_FAILED,
 	STORD_ERR_ARM_VCENTER_CONN,
 	STORD_ERR_CREATE_CKPT,
-	STORD_ERR_ALLOC_FAILED
+	STORD_ERR_ALLOC_FAILED,
+	STORD_ERR_NOT_SUPPORTED
 };
 
 void HaHeartbeat(void *userp) {
@@ -2302,10 +2304,13 @@ static int AddVcenterDetails(const _ha_request *reqp, _ha_response *resp, void *
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int ArmSyncStart(const _ha_request *reqp, _ha_response *resp, void *)
-{
+static int ArmSyncStart(const _ha_request *reqp, _ha_response *resp, void *) {
+#ifndef USE_NEP
+	(void) reqp;
+	SetErrMsg(resp, STORD_ERR_NOT_SUPPORTED, "ArmSync not supported.");
+	return HA_CALLBACK_CONTINUE;
+#else
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
-
 	if (param_valuep  == NULL) {
 		SetErrMsg(resp, STORD_ERR_INVALID_PARAM, "vmid param not given");
 		return HA_CALLBACK_CONTINUE;
@@ -2429,11 +2434,12 @@ static int ArmSyncStart(const _ha_request *reqp, _ha_response *resp, void *)
 		err_msg(true, STORD_ERR_ARM_SYNC_START_FAILED);
 		return HA_CALLBACK_CONTINUE;
 	}
-	vmp->SetArmSync(std::move(armsync));
+	vmp->AddVmSync(std::move(armsync));
 
 	const auto res = std::to_string(0);
 	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
 	return HA_CALLBACK_CONTINUE;
+#endif
 }
 
 
@@ -2471,15 +2477,15 @@ static int ArmSyncInfo(const _ha_request *reqp, _ha_response *resp, void *)
 	log_assert(vmp);
 
 	// get the arm sync object
-	auto arm_sync = vmp->GetArmSync();
-	if (arm_sync  == nullptr) {
+	auto syncp = vmp->GetVmSync(VmSync::Type::kSyncArm);
+	if (syncp  == nullptr) {
 		SetErrMsg(resp, STORD_ERR_INVALID_PARAM, "no arm_sync in progress");
 		return HA_CALLBACK_CONTINUE;
 	}
 
 	// now that we have a valid arm_sync object we can extract the stats
 	json_t *json_stats = json_array();
-	for (auto& stats : arm_sync->GetStats()) {
+	for (auto& stats : syncp->GetStats()) {
 		auto vmdk = json_object();
 		json_object_set_new(vmdk, "sync_total", json_integer(stats.sync_total));
 		json_object_set_new(vmdk, "sync_pending", json_integer(stats.sync_pending));

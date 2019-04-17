@@ -111,8 +111,8 @@ public:
 		}
 
 		ASSERT_EQ(vmdks_.size(), 2);
-		vmdks_[0].size_mb_ = 64;
-		vmdks_[1].size_mb_ = 128;
+		vmdks_[0].size_mb_ = 32;
+		vmdks_[1].size_mb_ = 64;
 
 		/* Initial CheckPoint taken during migrate to cloud */
 		PrepareCkpt(vm_handle_);
@@ -180,7 +180,8 @@ public:
 };
 
 TEST_F(VmSyncTest, Basic) {
-	auto sync = std::make_unique<SyncAny>(vmp_, vmp_->GetCurCkptID()-1, kBatchSize);
+	auto sync = std::make_unique<SyncAny>(vmp_, VmSync::Type::kSyncTest,
+		vmp_->GetCurCkptID()-1, kBatchSize);
 	ASSERT_NE(sync, nullptr);
 
 	syncp_ = sync.get();
@@ -281,11 +282,9 @@ TEST_F(VmSyncTest, Basic) {
 	{
 		/* ensure existing sync is finished */
 		bool stopped = true;
-		int result;
 		int count = 0;
 		do {
 			std::this_thread::sleep_for(2s);
-			syncp_->SyncStatus(&stopped, &result);
 			ASSERT_LE(++count, 10);
 		} while (not stopped);
 	}
@@ -297,7 +296,7 @@ TEST_F(VmSyncTest, Basic) {
 			char ch;
 			std::fstream fin(vmdk.path_, std::fstream::in);
 			while (fin >> std::noskipws >> ch) {
-				EXPECT_EQ(ch, fill_char);
+				ASSERT_EQ(ch, fill_char);
 			}
 		}
 	}
@@ -308,7 +307,6 @@ TEST_F(VmSyncTest, Basic) {
 		f.wait(1s);
 		EXPECT_TRUE(f.isReady());
 		auto [ckpt_id, rc] = f.value();
-		(void) ckpt_id;
 		EXPECT_EQ(rc, 0);
 		++fill_char;
 	}
@@ -338,7 +336,6 @@ TEST_F(VmSyncTest, Basic) {
 	}
 }
 
-#if 0
 TEST_F(VmSyncTest, FewInitialCheckPoints) {
 	ASSERT_EQ(vmdks_.size(), 2);
 
@@ -380,10 +377,10 @@ TEST_F(VmSyncTest, FewInitialCheckPoints) {
 			f.wait(1s);
 			EXPECT_TRUE(f.isReady());
 			auto [ckpt_id, rc] = f.value();
-			(void) ckpt_id;
 			EXPECT_EQ(rc, 0);
 		}
 	}
+	--fill_char;
 
 	/* create a sync */
 	RequestHandlerNames src;
@@ -391,7 +388,7 @@ TEST_F(VmSyncTest, FewInitialCheckPoints) {
 	src.emplace_back(RamCacheHandler::kName);
 	dst.emplace_back(FileCacheHandler::kName);
 
-	auto sync = std::make_unique<SyncAny>(vmp_, 1, kBatchSize);
+	auto sync = std::make_unique<SyncAny>(vmp_, VmSync::Type::kSyncTest, 1, kBatchSize);
 	ASSERT_NE(sync, nullptr);
 	syncp_ = sync.get();
 	syncp_->SetCheckPoints(vmp_->GetCurCkptID()-1,
@@ -427,4 +424,3 @@ TEST_F(VmSyncTest, FewInitialCheckPoints) {
 		}
 	}
 }
-#endif
