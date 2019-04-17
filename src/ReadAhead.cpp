@@ -14,16 +14,14 @@ using namespace pio;
 ReadAhead::ReadAhead(ActiveVmdk* vmdkp) 
 		: vmdkp_(vmdkp) {
 	if(vmdkp_ == NULL) {
-		LOG(ERROR) <<  __func__  << "vmdkp is passed as nullptr, cannot construct ReadAhead object";
-		throw std::runtime_error("At __func__ vmdkp is passed as nullptr, cannot construct ReadAhead object");
+		LOG(ERROR) <<  "vmdkp is passed as nullptr, cannot construct ReadAhead object";
+		throw std::runtime_error("vmdkp is passed as nullptr, cannot construct ReadAhead object");
 	}
 	InitializeEssentials();
 }
 
 ReadAhead::~ReadAhead() {
-	if(initialized_) {
-		ghb_finalize(&ghb_);	
-	}
+	ghb_finalize(&ghb_);	
 }
 
 void ReadAhead::InitializeGHB() {
@@ -31,60 +29,45 @@ void ReadAhead::InitializeGHB() {
 	ghb_params_.n_history = n_history_;
 	ghb_params_.n_lookback = loopback_;
 	ghb_init(&ghb_, &ghb_params_);
-	initialized_ = true;
 }
 
 folly::Future<std::unique_ptr<ReadResultVec>>
 ReadAhead::Run(ReqBlockVec& req_blocks, Request* request) {
-	auto results = std::make_unique<ReadResultVec>();
-	uint32_t num_blocks = request->NumberOfRequestBlocks();
+	std::unique_ptr<ReadResultVec> results;
+	auto num_blocks = request->NumberOfRequestBlocks();
 	assert(!req_blocks.empty());
-	
-	// Filter out read ahead missed blocks if any
-	if(!request->IsReadAheadRequired()) {
-		return folly::makeFuture(std::move(results));
-	}
+	assert(request != NULL);
 	
 	// Update stats
-	UpdateTotalReadMissBlocks(req_blocks.size());
+	UpdateReadMissStats(req_blocks.size());
 	
 	// Large IO, no ReadAhead
 	if((num_blocks * vmdkp_->BlockSize()) >= MAX_IO_SIZE) {
 		return folly::makeFuture(std::move(results));
 	}
+	
 	return RunPredictions(req_blocks, num_blocks);
 }
 
 folly::Future<std::unique_ptr<ReadResultVec>>
 ReadAhead::Run(ReqBlockVec& req_blocks, const std::vector<std::unique_ptr<Request>>& requests) {
-	auto results = std::make_unique<ReadResultVec>();
-	uint32_t num_blocks = 0;
+	std::unique_ptr<ReadResultVec> results;
+	auto num_blocks = 0;
 	assert(!req_blocks.empty());
+	assert(!requests.empty());
 	
-	// Filter out read ahead missed blocks if any
-	bool contains_rh_blocks = false, contains_app_blocks = false;
 	for(const auto& req : requests) {
-		if(!req->IsReadAheadRequired()) {
-			contains_rh_blocks = true;
-			continue;
-		}
-		contains_app_blocks = true;
 		num_blocks += req->NumberOfRequestBlocks();
-	}
-	assert(contains_rh_blocks != contains_app_blocks);
-	(void)contains_app_blocks;
-	
-	if(contains_rh_blocks) {
-		return folly::makeFuture(std::move(results));	
 	}
 	
 	// Update stats
-	UpdateTotalReadMissBlocks(req_blocks.size());
+	UpdateReadMissStats(req_blocks.size());
 	
 	// Large IO, no ReadAhead
 	if((num_blocks * vmdkp_->BlockSize()) >= MAX_IO_SIZE) {
 		return folly::makeFuture(std::move(results));
 	}
+	
 	return RunPredictions(req_blocks, num_blocks);
 }
 
@@ -92,27 +75,20 @@ folly::Future<std::unique_ptr<ReadResultVec>>
 ReadAhead::RunPredictions(ReqBlockVec& req_blocks, uint32_t io_block_count) {
 	assert((io_block_count > 0) && !req_blocks.empty());
 	auto block_size = vmdkp_->BlockSize();
+	auto block_shift = vmdkp_->BlockShift();
 	uint64_t* prefetch_lbas = NULL;
-	int n_prefetch = 0, idx = 0;
-	std::map<int64_t, bool> predictions;
-	auto results = std::make_unique<ReadResultVec>();
+	int n_prefetch = 0;
+	std::set<int64_t> predictions;
+	std::unique_ptr<ReadResultVec> results;
 
-	// Update history
+	// Update history & prefetch if determined so
 	std::unique_lock<std::mutex> prediction_lock(prediction_mutex_);
-	for(const auto& block : req_blocks) {
-	 	auto an_offset = block->GetOffset(); 
-		idx = get_index(&ghb_, 1, an_offset);
-		update_index_and_history(&ghb_, idx, 1, an_offset);
-	}
-	// Should prefetch ?	
 	if(ShouldPrefetch(req_blocks.size(), io_block_count)) {
-		prefetch_lbas = new uint64_t[max_prefetch_depth_];
 		bool is_strided = false;
-		// Prefetch 
+		prefetch_lbas = new uint64_t[max_prefetch_depth_];
 		for(const auto& block : req_blocks) {
-	 		auto an_offset = block->GetOffset();
-			idx = get_index(&ghb_, 1, an_offset);
-			n_prefetch = query_history(&ghb_, idx, prefetch_lbas, max_prefetch_depth_, &is_strided);
+			n_prefetch = ghb_update_and_query(&ghb_, 1, block->GetOffset(), prefetch_lbas, 
+							max_prefetch_depth_, &is_strided);
 		}
 		// Determine actual prefetch quantum based on pattern stability
 		n_prefetch = UpdatePrefetchDepth(n_prefetch, is_strided);
@@ -125,33 +101,20 @@ ReadAhead::RunPredictions(ReqBlockVec& req_blocks, uint32_t io_block_count) {
 		if(!IsBlockSizeAlgined(offset, block_size)) {
 			offset = AlignDownToBlockSize(offset, block_size);
 		}
-		if(((int64_t)offset <= max_offset_) 
-			&& (offset >= block_size)) {
-			predictions.insert(std::pair<int64_t, bool>(offset, true));
+		if(((int64_t)offset <= max_offset_) && (offset >= block_size)) {
+			predictions.insert(offset);
 		}
 	}
 	delete[] prefetch_lbas;
 	prefetch_lbas = NULL;
 	
 	if(predictions.size() > 0) {
-		for(const auto& block : req_blocks) {
-			auto it_predictions = predictions.find(block->GetOffset());
-			if(it_predictions != predictions.end()) {
-				// Should rarely occur, probably this will be removed after thorough testing
-				predictions.erase(it_predictions);
-			}
-		}
 		auto pred_size = predictions.size();
-		auto pred_size_bytes = pred_size * block_size;
+		auto pred_size_bytes = pred_size << block_shift;
 		assert(pred_size_bytes <= MAX_PREDICTION_SIZE); 
-		if(pred_size_bytes < MIN_PREDICTION_SIZE) {
-			// No read submission if we have found many missed offsets in predicted
-			// list of offsets. This should be rare though
-			return folly::makeFuture(std::move(results));
-		}
 		
 		// Update stats
-		UpdateTotalReadAheadBlocks(pred_size);	
+		UpdateReadAheadStats(pred_size);	
 		
 		return Read(predictions);
 	}
@@ -160,25 +123,28 @@ ReadAhead::RunPredictions(ReqBlockVec& req_blocks, uint32_t io_block_count) {
 }
 
 folly::Future<std::unique_ptr<ReadResultVec>>
-ReadAhead::Read(std::map<int64_t, bool>& predictions) {
+ReadAhead::Read(std::set<int64_t>& predictions) {
 	assert(!predictions.empty());
 	ReadRequestVec requests;
 	requests.reserve(predictions.size());
 	
 	// Coalesce sequential LBAs to yield large single requests
-	CoalesceRequests(predictions, requests);
+	// Currently the mergeability is just 1 block size to benefit
+	// selctive locking at Vmdk level
+	CoalesceRequests(predictions, requests, vmdkp_->BlockSize());
 
 	auto vmp = vmdkp_->GetVM();
 	assert(vmp != NULL);
 	
-	return vmp->BulkRead(vmdkp_, requests.begin(), requests.end(), false);
+	return vmp->BulkRead(vmdkp_, requests.begin(), requests.end(), true);
 }
 
-void ReadAhead::CoalesceRequests(/*[In]*/std::map<int64_t, bool>& predictions, 
-				/*[Out]*/ReadRequestVec& requests) {
-    int32_t req_id = 0;
-    float block_size = (float)vmdkp_->BlockSize();
-    int32_t num_blocks = 1;
+void ReadAhead::CoalesceRequests(/*[In]*/std::set<int64_t>& predictions, 
+	/*[Out]*/ReadRequestVec& requests, size_t mergeability = MAX_PACKET_SIZE) {
+    auto req_id = 0;
+    auto block_size = vmdkp_->BlockSize();
+    auto block_shift = vmdkp_->BlockShift();
+    auto num_blocks = 1;
 	auto predictions_len = predictions.size();
 	ReadRequest a_request = {};
 	
@@ -188,35 +154,30 @@ void ReadAhead::CoalesceRequests(/*[In]*/std::map<int64_t, bool>& predictions,
 	if(predictions_len == 1) {
 		a_request.reqid = ++req_id;
 		a_request.size = block_size;
-		a_request.offset = predictions.begin()->first;
+		a_request.offset = *predictions.begin();
 		requests.emplace_back(a_request);
 		return;
 	}
-	predictions.insert(std::pair<int64_t, bool>(LONG_MAX, true));
-    auto start_offset = predictions.begin();
-    int64_t total_size = 0;
+	predictions.insert(LONG_MAX);
+    auto start_offset = *predictions.begin();
+    size_t total_size = 0;
     for(auto it = ++predictions.begin(); it != predictions.end(); ++it) {
-        float size = (float)(it->first - start_offset->first) / (float)num_blocks;
-        if(it->first == LONG_MAX) {
-            total_size += block_size;
-        }
-        else {
-            total_size += size;
-        }
-        if((size == block_size) && (total_size < MAX_PACKET_SIZE)) {
+		auto size = (size_t)((*it - start_offset) / num_blocks);
+        total_size += (*it == LONG_MAX) ? block_size : size;
+        if((size == block_size) && (total_size < mergeability)) {
             ++num_blocks;
         }
         else {
             if(num_blocks > 1) {
-                a_request.size = num_blocks * block_size;
+                a_request.size = num_blocks << block_shift;
             }
             else {
                 a_request.size = block_size;
             }
             a_request.reqid = ++req_id;
-            a_request.offset = start_offset->first;
-            requests.emplace_back(a_request);
-            start_offset = it;
+            a_request.offset = start_offset;
+			requests.emplace_back(a_request);
+            start_offset = *it;
             num_blocks = 1;
             total_size = 0;
             a_request = {};
@@ -226,11 +187,11 @@ void ReadAhead::CoalesceRequests(/*[In]*/std::map<int64_t, bool>& predictions,
 }
 
 bool ReadAhead::ShouldPrefetch(uint32_t miss_count, uint32_t io_block_count) {
-	//ToDo--Phase-2: Check if we are throttling or backing off
+	//ToDo: Check if we are throttling or backing off
 	
 	// Check if Read miss threshold is hit
 	if(io_miss_window_.size() >= IO_MISS_WINDOW_SIZE) {
-		IOMissWindow a_window = io_miss_window_.front();
+		IOMissWindow& a_window = io_miss_window_.front();
 		total_io_count_ -= a_window.io_count_;
 		total_miss_count_ -= a_window.miss_count_;
 		io_miss_window_.pop();
@@ -251,6 +212,7 @@ int ReadAhead::UpdatePrefetchDepth(int n_prefetch, bool is_strided) {
 		if(random_pattern_occurrences_++ >= AGGREGATE_RANDOM_PATTERN_OCCURRENCES) {
             ++pattern_frequency[PatternType::INVALID];
             random_pattern_occurrences_ = 0;
+			UpdatePatternStats(PatternType::INVALID, 1);
         }
 		return 0;
 	}
@@ -267,27 +229,29 @@ int ReadAhead::UpdatePrefetchDepth(int n_prefetch, bool is_strided) {
 	auto pattern_count = pattern_frequency[pattern_type];
 	if((int)((100 * pattern_count) / total_pattern_count_) > PATTERN_STABILITY_PERCENT) {
 		if(last_seen_pattern_ == pattern_type) {
-			prefetch_depth_ *= ((prefetch_depth_ * 2) <= max_prefetch_depth_) ? 2 : 1;
+			prefetch_depth_ <<= (prefetch_depth_ << 1) <= max_prefetch_depth_ ? 1 : 0;
 		}
 	}
 	else {
-		prefetch_depth_ /= ((prefetch_depth_ / 2) >= min_prefetch_depth_) ? 2 : 1;
+		prefetch_depth_ >>= (prefetch_depth_ >> 1) >= min_prefetch_depth_ ? 1 : 0;
 	}
 	last_seen_pattern_ = pattern_type;
 	assert((prefetch_depth_ >= min_prefetch_depth_) 
 	&& (prefetch_depth_ <= max_prefetch_depth_));
-
+	UpdatePatternStats(pattern_type, 1);
+	
 	return prefetch_depth_;
 }
 
 void ReadAhead::InitializeEssentials() {
     auto block_size = vmdkp_->BlockSize();
+	auto block_shift = vmdkp_->BlockShift();
 	auto disk_size = vmdkp_->GetDiskSize();
 	// Disk Size check
 	if(disk_size < MIN_DISK_SIZE_SUPPORTED) {
     	// We should have not come this far
-    	LOG(WARNING) << "For VmdkID = " << vmdkp_->GetID() << ", Disk Size = " << disk_size <<
-    			" is too small to participate in ReadAhead. ReadAhead disabled for this vmdk";
+    	LOG(WARNING) << "For VmdkID = " << vmdkp_->GetID() << ", Disk Size = " << disk_size << 
+				" is too small to participate in ReadAhead. ReadAhead disabled for this vmdk";
 		force_disable_read_ahead_ = true;
 		return;
 	}
@@ -301,8 +265,8 @@ void ReadAhead::InitializeEssentials() {
 	}
 	// Initialize max & min prefetch depth for prediction
     assert(MAX_PREDICTION_SIZE >= MIN_PREDICTION_SIZE);
-	max_prefetch_depth_ = MAX_PREDICTION_SIZE / block_size;
-    min_prefetch_depth_ = MIN_PREDICTION_SIZE / block_size;
+	max_prefetch_depth_ = MAX_PREDICTION_SIZE >> block_shift;
+    min_prefetch_depth_ = MIN_PREDICTION_SIZE >> block_shift;
     if((max_prefetch_depth_ < 1 && min_prefetch_depth_ < 1)
 	||  (max_prefetch_depth_ >= 1 && min_prefetch_depth_ < 1)) {
         LOG(ERROR) << "For VmdkID = " << vmdkp_->GetID()  <<
@@ -313,11 +277,19 @@ void ReadAhead::InitializeEssentials() {
 	if((max_prefetch_depth_ < 1) && (min_prefetch_depth_ >= 1)) {
 		max_prefetch_depth_ = min_prefetch_depth_;
 	}
+	// Sanitize MAX_PACKET_SIZE since it is derived from external source
+	if(MAX_PACKET_SIZE < (min_prefetch_depth_ * block_size)) {
+        LOG(ERROR) << "For VmdkID = " << vmdkp_->GetID()  <<
+                 ", MAX_PACKET_SIZE= " << MAX_PACKET_SIZE << 
+				 " is too small. ReadAhead disabled for this vmdk.";
+		force_disable_read_ahead_ = true;
+        return;
+	}
 	// Initialize prefetch depth default value
 	prefetch_depth_ = min_prefetch_depth_;
 	
 	// Initialize max offset that can qualify as prefetch candidate
-	max_offset_ = AlignDownToBlockSize(disk_size - (block_size * 4), block_size);
+	max_offset_ = AlignDownToBlockSize(disk_size - (4 << block_shift), block_size);
 	
 	// Initialize CZONE setting for GHB, Each CZONE is 1GB
 	start_index_ = (disk_size % (1<<30)) ? (disk_size >> 30) + 1 : disk_size >> 30;
@@ -336,7 +308,7 @@ void ReadAhead::InitializeEssentials() {
 #endif
 }
 
-void ReadAhead::UpdateTotalReadMissBlocks(int64_t size) {
+void ReadAhead::UpdateReadMissStats(int64_t size) {
 	if(st_read_ahead_stats_.stats_rh_read_misses_ + size >= ULONG_MAX - 10) {
 		LOG(INFO) << "Resetting stats_rh_read_misses_ counter, current value = [" 
 				<< st_read_ahead_stats_.stats_rh_read_misses_ << "].";
@@ -345,13 +317,53 @@ void ReadAhead::UpdateTotalReadMissBlocks(int64_t size) {
 	st_read_ahead_stats_.stats_rh_read_misses_ += size;
 }
 
-void ReadAhead::UpdateTotalReadAheadBlocks(int64_t size) {
+void ReadAhead::UpdateReadAheadStats(int64_t size) {
 	if(st_read_ahead_stats_.stats_rh_blocks_size_ + size >= ULONG_MAX - 10) {
 		LOG(INFO) << "Resetting stats_rh_blocks_size_ counter, current value = [" 
 					<< st_read_ahead_stats_.stats_rh_blocks_size_ << "].";
 		st_read_ahead_stats_.stats_rh_blocks_size_ = 0;
 	}
 	st_read_ahead_stats_.stats_rh_blocks_size_ += size;
+}
+
+void ReadAhead::UpdateTotalUnlockedReads(int reads) {
+	if(st_read_ahead_stats_.stats_rh_unlocked_reads_ + reads >= ULONG_MAX - 10) {
+		LOG(INFO) << "Resetting stats_rh_unlocked_reads_ counter, current value = [" 
+					<< st_read_ahead_stats_.stats_rh_unlocked_reads_ << "].";
+		st_read_ahead_stats_.stats_rh_unlocked_reads_ = 0;
+	}
+	st_read_ahead_stats_.stats_rh_unlocked_reads_ += reads;
+}
+
+void ReadAhead::UpdatePatternStats(PatternType pattern, int count) {
+	if(pattern == PatternType::INVALID) {
+		if(st_read_ahead_stats_.stats_rh_random_pattern_ + count >= ULONG_MAX - 10) {
+			LOG(INFO) << "Resetting  stats_rh_random_pattern_ counter, current value = [" 
+						<< st_read_ahead_stats_.stats_rh_random_pattern_ << "].";
+			st_read_ahead_stats_.stats_rh_random_pattern_ = 0;
+		}
+		st_read_ahead_stats_.stats_rh_random_pattern_ += count;
+		return;
+	}
+	if(pattern == PatternType::STRIDED) {
+		if(st_read_ahead_stats_.stats_rh_strided_pattern_ + count >= ULONG_MAX - 10) {
+			LOG(INFO) << "Resetting  stats_rh_strided_pattern_ counter, current value = [" 
+						<< st_read_ahead_stats_.stats_rh_strided_pattern_ << "].";
+			st_read_ahead_stats_.stats_rh_strided_pattern_ = 0;
+		}
+		st_read_ahead_stats_.stats_rh_strided_pattern_ += count;
+		return;
+	}
+	if(pattern == PatternType::CORRELATED) {
+		if(st_read_ahead_stats_.stats_rh_correlated_pattern_ + count >= ULONG_MAX - 10) {
+			LOG(INFO) << "Resetting stats_rh_correlated_pattern_ counter, current value = [" 
+						<< st_read_ahead_stats_.stats_rh_correlated_pattern_ << "].";
+			st_read_ahead_stats_.stats_rh_correlated_pattern_ = 0;
+		}
+		st_read_ahead_stats_.stats_rh_correlated_pattern_ += count;
+		return;
+	}
+	assert(0);
 }
 
 void ReadAhead::LogEssentials() {

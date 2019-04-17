@@ -124,6 +124,9 @@ folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		if (failed.size() == 0) {
 			vmdkp->stats_->total_blk_reads_ += process.size();
 			vmdkp->stats_->read_hits_ += process.size();
+			if(!reqp->IsReadAheadRequest()) { 
+                  vmdkp->stats_->read_hits_ += process.size();
+            }  
 			return 0;
 		}
 
@@ -140,6 +143,12 @@ folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		failed.clear();
 
 		/* Initiate ReadAhead and populate cache if ghb sees a pattern based on history */
+		if(pio_likely(vmdkp->read_aheadp_ != NULL
+                  && vmdkp->read_aheadp_->IsReadAheadEnabled()
+                  && !reqp->IsReadAheadRequest())) {
+              vmdkp->read_aheadp_->Run(*read_missed, reqp);
+        }     
+
 		if(pio_likely(vmdkp->read_aheadp_ != NULL && vmdkp->read_aheadp_->IsReadAheadEnabled())) {
 			vmdkp->read_aheadp_->Run(*read_missed, reqp);
 		}
@@ -348,7 +357,9 @@ folly::Future<int> MultiTargetHandler::BulkReadComplete(ActiveVmdk* vmdkp,
 		const std::vector<RequestBlock*>& process, std::vector<RequestBlock*>& failed) {
 	if (failed.empty()) {
 		vmdkp->stats_->total_blk_reads_ += process.size();
-		vmdkp->stats_->read_hits_ += process.size();
+		if(!requests[0]->IsReadAheadRequest()) {
+			vmdkp->stats_->read_hits_ += process.size();
+		}
 		return 0;
 	}
 
@@ -364,9 +375,11 @@ folly::Future<int> MultiTargetHandler::BulkReadComplete(ActiveVmdk* vmdkp,
 	missed->swap(failed);
 	
 	/* Initiate ReadAhead and populate cache if ghb sees a pattern based on history */
-	if(pio_likely(vmdkp->read_aheadp_ != NULL && vmdkp->read_aheadp_->IsReadAheadEnabled())) {
-		vmdkp->read_aheadp_->Run(*missed, requests);
-	}
+	if(pio_likely(vmdkp->read_aheadp_ != NULL 
+                  && vmdkp->read_aheadp_->IsReadAheadEnabled()
+                  && !requests[0]->IsReadAheadRequest())) {
+          vmdkp->read_aheadp_->Run(*missed, requests);
+    }     
 
 	return targets_[1]->BulkRead(vmdkp, requests, *missed, failed)
 	.then([this, vmdkp, &requests, &failed, missed = std::move(missed)]

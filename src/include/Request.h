@@ -76,12 +76,13 @@ public:
 		return MergeContext_;
 	}
 
-	bool IsReadAheadRequired() {
-		return read_ahead_required_;
-	}
-	void SetReadAheadRequired(bool rh_reqd) {
-		read_ahead_required_ = rh_reqd;
-	}
+	bool IsReadAheadRequest() {
+		return is_read_ahead_req_;
+	}	
+	
+	void SetReadAheadRequest() {
+		is_read_ahead_req_ = true;
+	}	
 	
 	::ondisk::CheckPointID GetFlushCkptID() {
 		return FlushCkptID_;
@@ -171,7 +172,7 @@ private:
 
 	std::vector<std::unique_ptr<RequestBlock>> request_blocks_;
 	bool FlushReq_{false};
-	bool read_ahead_required_{true};
+	bool is_read_ahead_req_{false};
 	::ondisk::CheckPointID FlushCkptID_{1}; //Should it be 0
 	::ondisk::CheckPointID MoveWriteCkptID_{MetaData_constants::kInvalidCheckPointID()};
 	::ondisk::CheckPointID MoveReadCkptID_{MetaData_constants::kInvalidCheckPointID()};

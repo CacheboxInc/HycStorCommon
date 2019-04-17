@@ -197,11 +197,11 @@ FileTargetHandler::FileTargetHandler(const config::VmdkConfig* configp) :
 		LOG(ERROR) << __func__ << "Final Path is:" << file_path_.c_str();
 		fd_ = ::open(file_path_.c_str(), O_RDWR | O_SYNC | O_DIRECT| O_CREAT, 0777);
 		if (pio_unlikely(fd_ == -1)) {
-			throw std::runtime_error("File open failed");
+			throw std::runtime_error("File open failed, please check if the filepath: " + file_path_ + " is valid");
 		} else {
 			if (create_file_) {
 				if(ftruncate(fd_, file_size_)) {
-					throw std::runtime_error("File truncate failed");
+					throw std::runtime_error("File truncate failed, please check if the filepath: " + file_path_ + " is valid");
 				}
 			}
 			LOG(ERROR) << __func__ << "file fd_ is:" << fd_;

@@ -686,7 +686,7 @@ VmdkHandle NewActiveVmdk(VmHandle vm_handle, VmdkID vmdkid,
 		vmp->NewVmdk(vmdkp);
 	} catch (const std::exception& e) {
 		managerp->FreeVmdkInstance(handle);
-		LOG(ERROR) << "Failed to add VMDK";
+		LOG(ERROR) << "Failed to add VMDK with exception:\n" << e.what();
 		handle = StorRpc_constants::kInvalidVmdkHandle();
 	}
 	return handle;

@@ -357,6 +357,69 @@ private:
 		});
 	}
 
+	template <typename Func>
+	auto TryLockAndBulkInvoke(const std::vector<std::unique_ptr<Request>>& requests,
+        /*[IN]*/const std::vector<RequestBlock*>& process,
+		/*[OUT]*/std::vector<RequestBlock*>& locked_process, 
+		Func&& func) {
+		assert(locked_process.empty());
+		assert(!process.empty());
+		(void)locked_process;
+		(void)process;
+		auto g = std::make_unique<RangeLock::LockGuard>(range_lock_.get(), Ranges(requests));
+		std::vector<pio::RangeLock::range_t> ranges;
+		bool full_lock = g->SelectiveLock(ranges);
+		
+		// Temporary code to prove that two reads on same offset works
+		// After several successful CHO runs on master this code and related
+		// stats in ReadAhead class may be safely removed.
+		// Moreover, once dropping off unlocked message works we will no longer require
+		// this code and related stats
+		if(!full_lock && requests[0]->IsReadAheadRequest()) {
+			int unlocked_reads = process.size() - ranges.size();
+			assert(unlocked_reads > 0);
+			assert(this->read_aheadp_ != NULL);
+			this->read_aheadp_->UpdateTotalUnlockedReads(unlocked_reads);	
+		}
+		if(pio_unlikely(not g->IsLocked() || ranges.empty())) {
+			LOG(WARNING) << "Couldn't acquire lock on even a single block";
+			return folly::makeFuture(-EINVAL);
+		}
+		
+		// Dropping of messages does not work right now and hence is postponed till next iteration
+		// Dropping of messages encounters a crash and the traces depict that in AeroOps.cpp
+		// while actually submitting the batch request we hit count mismatch which is not yet fully
+		// analyzed.
+#if 0
+		try {
+			locked_process.reserve(ranges.size());
+		} 
+		catch(const std::bad_alloc& e) {
+			return folly::makeFuture(-ENOMEM);
+		}
+		for(const auto& block : process) {
+			assert(block != nullptr);
+			auto block_id = block->GetBlockID();
+			if(full_lock || std::find(ranges.begin(), ranges.end(), 
+				pio::RangeLock::range_t(block_id, block_id)) != ranges.end()) {
+				LOG(ERROR) << "Pushing into locked_process, block ID = " << block_id;
+				locked_process.emplace_back(block);
+			}
+		}
+		auto l_size = locked_process.size();
+		auto p_size = process.size();
+		assert(!locked_process.empty() 
+			&& (full_lock ? (l_size == p_size) : (l_size < p_size)));
+		(void)l_size;
+		(void)p_size;
+#endif
+		return func()
+		.then([g = std::move(g) 
+		/*,locked_process = std::move(locked_process)*/] (int rc) {
+			return rc;
+		});
+	}
+
 	std::vector<pio::RangeLock::range_t> Ranges(
 			const std::vector<std::unique_ptr<Request>>& requests) {
 		std::vector<pio::RangeLock::range_t> ranges;
