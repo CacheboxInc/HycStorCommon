@@ -88,6 +88,10 @@ struct IOAVmdkStats {
 	62: i64 total_blk_reads;
 	63: i64 app_reads;
 	64: i64 app_writes;
+	65: i64 rh_random_patterns;
+	66: i64 rh_strided_patterns;
+	67: i64 rh_correlated_patterns;
+	68: i64 rh_unlocked_reads;
 }
 
 struct IOAVmStats {

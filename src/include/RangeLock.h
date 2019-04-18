@@ -50,6 +50,8 @@ public:
 	folly::Future<int> Lock(const range_t& range);
 	void Unlock(const range_t& range);
 	bool TryLock(const range_t& range);
+	bool SelectiveLock(/*[IN]*/const std::vector<range_t>& ranges_in,                                                                                                     
+                /*[OUT]*/std::vector<range_t>& ranges_out);	
 private:
 	bool IsRangeLocked(const range_t& range) const;
 	void LockRange(const range_t& range);
@@ -75,6 +77,7 @@ noexcept
 
 	~LockGuard();
 	folly::Future<int> Lock();
+	bool SelectiveLock(std::vector<range_t>& ranges);
 	bool IsLocked() const noexcept;
 
 private:

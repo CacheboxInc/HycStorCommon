@@ -22,6 +22,11 @@ void VmdkCacheStats::GetDeltaCacheStats(VmdkCacheStats& old_stats,
 	stats.write_failed = write_failed_ - old_stats.write_failed_;
 
 	stats.read_ahead_blks = read_ahead_blks_;
+	stats.rh_random_patterns = rh_random_patterns_;
+	stats.rh_strided_patterns = rh_strided_patterns_;
+	stats.rh_correlated_patterns = rh_correlated_patterns_;
+	stats.rh_unlocked_reads = rh_unlocked_reads_;
+
 	stats.reads_in_progress = reads_in_progress_;
 	stats.writes_in_progress = writes_in_progress_;
 	stats.flushes_in_progress = flushes_in_progress_;

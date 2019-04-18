@@ -84,7 +84,7 @@ public:
 	folly::Future<std::unique_ptr<ReadResultVec>> BulkRead(ActiveVmdk* vmdkp,
 		std::vector<ReadRequest>::const_iterator it,
 		std::vector<ReadRequest>::const_iterator eit,
-		bool trigger_read_ahead);
+		bool is_read_ahead_req);
 
 	folly::Future<int> TruncateBlocks(ActiveVmdk* vmdkp,
                 RequestID reqid, const std::vector<TruncateReq>& requests);

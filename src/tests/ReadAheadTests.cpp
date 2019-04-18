@@ -1,6 +1,3 @@
-
-
-
 #include <memory>
 #include <vector>
 #include <gtest/gtest.h>
@@ -42,7 +39,7 @@ static const VmdkID kVmdkid = "kVmdkid";
 static const VmID kVmid = "kVmid";
 static const VmUUID kVmUUID = "kVmUUID";
 static const VmdkUUID kVmdkUUID = "kVmdkUUID";
-//static const int64_t kDiskSize = 21474836480; // 20GB
+static const int64_t kDiskSize = 21474836480; // 20GB
 #define N_ACCESSES	(32)
 #define N_STREAMS	(4)
 
@@ -81,6 +78,8 @@ protected:
 		c.SetVmdkUUID(kVmdkUUID);
 		c.SetVmUUID(kVmUUID);
 		c.SetBlockSize(kVmdkBlockSize);
+		c.EnableReadAhead();
+		c.SetDiskSize(kDiskSize);
 		c.DisableCompression();
 		c.DisableEncryption();
 		c.DisableFileCache();
@@ -112,6 +111,7 @@ protected:
 		
 		vmdkp_ = std::make_unique<ActiveVmdk>(1, "1", vmp, config.Serialize());
 		EXPECT_NE(vmdkp_, nullptr);
+		EXPECT_NE(vmdkp_->read_aheadp_, nullptr);
 
 		auto multi_target = std::make_unique<MultiTargetHandler>(
 							vmdkp_.get(), &config);
@@ -190,7 +190,7 @@ protected:
 			});
 			requests.emplace_back(std::move(req));
 		}
-		if(vmdkp_->read_aheadp_ != NULL && vmdkp_->read_aheadp_->IsReadAheadEnabled()) {
+		if(vmdkp_->read_aheadp_ != nullptr && vmdkp_->read_aheadp_->IsReadAheadEnabled()) {
 			auto future = vmdkp_->read_aheadp_->Run(*process, requests);
 			future.wait();
 			EXPECT_TRUE(future.isReady());
@@ -199,8 +199,8 @@ protected:
 				EXPECT_NE((*value).size(), 0);
 				return;
 			}
+			EXPECT_EQ((*value).size(), 0);
 		}
-		EXPECT_TRUE(true);
 	}
 
 	void RunConfigTest(bool config_switch) {
@@ -216,9 +216,6 @@ protected:
 	}
 };
 
-TEST_F(ReadAheadTests, ConfigTestEnable) {
-	RunConfigTest(true);
-}
 
 TEST_F(ReadAheadTests, SequentialPattern) {
 	RunTest(SEQUENTIAL);
@@ -238,4 +235,20 @@ TEST_F(ReadAheadTests, CorrelatedPattern) {
 
 TEST_F(ReadAheadTests, ConfigTestDisable) {
 	RunConfigTest(false);
+}
+
+TEST_F(ReadAheadTests, ConfigTestEnable) {
+	RunConfigTest(true);
+}
+
+TEST_F(ReadAheadTests, NullVmdkPassCtor) {
+	try {
+		auto rh_object = new ReadAhead(NULL);
+		delete rh_object;
+	}
+	catch(const runtime_error& error) {
+		EXPECT_TRUE(strlen(error.what()) > 0);
+		return;
+	}
+	EXPECT_TRUE(false);
 }
