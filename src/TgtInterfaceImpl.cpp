@@ -29,8 +29,10 @@
 #include "FlushManager.h"
 #include "SetCkptBmapConfig.cpp"
 #include "ScanManager.h"
+#include "CkptMergeManager.h"
 #include "FlushInstance.h"
 #include "ScanInstance.h"
+#include "CkptMergeInstance.h"
 #include "FlushConfig.h"
 #include "AeroOps.h"
 #include "TgtInterfaceImpl.h"
@@ -62,9 +64,9 @@ int StorD::InitStordLib(void) {
 		std::call_once(g_init_.initialized_, [=] () mutable {
 			SingletonHolder<VmdkManager>::CreateInstance();
 			SingletonHolder<pio::VmManager>::CreateInstance();
-			SingletonHolder<AeroFiberThreads>::CreateInstance();
 			SingletonHolder<FlushManager>::CreateInstance();
 			SingletonHolder<ScanManager>::CreateInstance();
+			SingletonHolder<CkptMergeManager>::CreateInstance();
 #ifdef USE_NEP
 			SingletonHolder<TargetManager>::CreateInstance(false);
 #endif
@@ -81,8 +83,8 @@ int StorD::DeinitStordLib(void) {
 		std::call_once(g_init_.deinitialized_, [=] () mutable {
 			SingletonHolder<VmdkManager>::DestroyInstance();
 			SingletonHolder<pio::VmManager>::DestroyInstance();
-			SingletonHolder<AeroFiberThreads>::DestroyInstance();
 			SingletonHolder<FlushManager>::DestroyInstance();
+			SingletonHolder<CkptMergeManager>::DestroyInstance();
 #ifdef USE_NEP
 			SingletonHolder<TargetManager>::DestroyInstance();
 #endif
@@ -228,7 +230,40 @@ int NewFlushReq(VmID vmid, const std::string& config) {
 	return 0;
 }
 
-int NewScanReq(VmID vmid, const std::string&) {
+int NewMergeReq(VmID vmid, CheckPointID ckpt_id) {
+
+	auto managerp = SingletonHolder<CkptMergeManager>::GetInstance();
+	std::lock_guard<std::mutex> merge_lock(managerp->lock_);
+	auto ptr = managerp->GetInstance(vmid);
+	if (ptr != nullptr) {
+		LOG(ERROR) << "Merge is already running for given VMID:" << vmid;
+		return -EAGAIN;
+	}
+
+	log_assert(ckpt_id > MetaData_constants::kInvalidCheckPointID());
+	try {
+		auto rc = managerp->NewInstance(vmid);
+		if (pio_unlikely(rc)) {
+			return -ENOMEM;
+		}
+
+		auto mi = managerp->GetInstance(vmid);
+		managerp->threadpool_.pool_->AddTask([managerp, vmid, ckpt_id, mi]()
+					mutable {
+			auto rc = mi->StartCkptMerge(vmid, ckpt_id);
+			/* Remove fi Instance */
+			std::lock_guard<std::mutex> lock(managerp->lock_);
+			managerp->FreeInstance(vmid);
+			return rc;
+		});
+	} catch (...) {
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
+int NewScanReq(VmID vmid, CheckPointID ckptid) {
 
 	auto managerp = SingletonHolder<ScanManager>::GetInstance();
 	auto vmp = SingletonHolder<pio::VmManager>::GetInstance()->GetInstance(vmid);
@@ -262,7 +297,16 @@ int NewScanReq(VmID vmid, const std::string&) {
 	/* Add VMDKIDs for given VM into the pending list */
 	for (const auto& id : vmp->GetVmdkIDs()){
 		LOG(INFO) << __func__ << "Adding ID in pending list::" << id.c_str();
-		si->pending_list_.emplace_back(stol(id));
+		if (pio_unlikely(ckptid == MetaData_constants::kInvalidCheckPointID())) {
+			/* Remove any previously added ckpt elements from pending list */
+			si->pending_list_.erase(std::remove_if
+				(si->pending_list_.begin(), si->pending_list_.end(),
+					[& id] (const scan_param& value) {
+					 return (value.first.compare(id) == 0
+							&& value.second != 0);
+				}), si->pending_list_.end());
+		}
+		si->pending_list_.emplace_back(std::make_pair(id, ckptid));
 	}
 
 	scan_lock.unlock();
@@ -319,6 +363,22 @@ int FlushHistoryReq(VmID vmid, json_t *history_param) {
 		return 1;
 	}
 	return t;
+}
+
+int NewMergeStatusReq(VmID id, CkptMergeStats &merge_stat) {
+
+	auto managerp = SingletonHolder<CkptMergeManager>::GetInstance();
+	/* Check if already a merge running for the given cluster ID */
+	std::unique_lock<std::mutex> merge_lock(managerp->lock_);
+
+	auto si = managerp->GetInstance(id);
+	if (si == nullptr) {
+		merge_stat.running = false;
+		return 0;
+	}
+
+	auto rc = si->CkptMergeStatus(merge_stat);
+	return rc;
 }
 
 int NewScanStatusReq(AeroClusterID id, ScanStats &scan_stat) {
@@ -724,7 +784,8 @@ int NewVmDeltaContextSet(VmHandle vm_handle, std::string snap_id) {
 	return 0;
 }
 
-int MoveUnflushedToFlushed(VmHandle vm_handle) {
+int MoveUnflushedToFlushed(VmHandle vm_handle,
+		std::vector<::ondisk::CheckPointID>& vec_ckpts) {
 	auto managerp = SingletonHolder<VmdkManager>::GetInstance();
 
 	auto vmp = SingletonHolder<pio::VmManager>::GetInstance()->GetInstance(vm_handle);
@@ -733,7 +794,7 @@ int MoveUnflushedToFlushed(VmHandle vm_handle) {
 		return StorRpc_constants::kInvalidVmdkHandle();
 	}
 
-	auto f = vmp->MoveUnflushedToFlushed();
+	auto f = vmp->MoveUnflushedToFlushed(vec_ckpts);
 	f.wait();
 	auto rc = f.value();
 	if (pio_unlikely(rc)) {

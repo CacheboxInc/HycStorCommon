@@ -21,6 +21,18 @@ void StringDelimAppend(std::string& result, const char delim,
 	const std::initializer_list<std::string>& input);
 
 template <typename T>
+void MoveFirstElements(std::vector<T>& dst, std::vector<T>& src, size_t tomove) {
+	if (src.size() < tomove) {
+		tomove = src.size();
+	}
+
+	auto eit = src.begin();
+	auto sit = std::next(eit, tomove);
+	std::move(eit, sit, std::back_inserter(dst));
+	src.erase(eit, sit);
+}
+
+template <typename T>
 void MoveLastElements(std::vector<T>& dst, std::vector<T>& src, size_t tomove) {
 	if (src.size() < tomove) {
 		tomove = src.size();

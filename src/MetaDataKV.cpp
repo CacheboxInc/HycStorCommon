@@ -22,6 +22,12 @@ folly::Future<int> RamMetaDataKV::Write(const MetaDataKey& key,
 	return 0;
 }
 
+folly::Future<int> RamMetaDataKV::Delete(const MetaDataKey& key) {
+	std::lock_guard<std::mutex> lock(mutex_);
+	data_.erase(key);
+	return 0;
+}
+
 folly::Future<MetaDataKV::ReadResult>
 		RamMetaDataKV::Read(const MetaDataKey& key) {
 	std::lock_guard<std::mutex> lock(mutex_);
@@ -66,15 +72,37 @@ folly::Future<int> AeroMetaDataKV::Write(const MetaDataKey& key,
 	folly::Future<int> f = aero_obj_->AeroMetaWriteCmd(vmdkp_, key, value1, aero_conn_);
 	f.wait();
 
-	LOG(ERROR) << __func__ << "Trying to Read Back";
+	LOG(ERROR) << __func__ << "Trying to Read Back, should not see error";
 	std::string value2;
-	aero_obj_->AeroMetaReadCmd(vmdkp_, key, value2, aero_conn_);
-	if((value1.compare(value2)) == 0) {
-		LOG(ERROR) <<  "Equal.... ";
+	auto rc = aero_obj_->AeroMetaReadCmd(vmdkp_, key, value2, aero_conn_);
+	if (!rc) {
+		if((value1.compare(value2)) == 0) {
+			LOG(ERROR) <<  "Equal.... ";
+		} else {
+			LOG(ERROR) <<  "Not equal.... ";
+		}
 	} else {
-		LOG(ERROR) <<  "Not equal.... ";
+		LOG(ERROR) << __func__ << "Read failed";
+		return rc;
 	}
 
+	/* Delete the block */
+	LOG(ERROR) << __func__ << "Trying to Del record";
+	aero_obj_->AeroMetaDelCmd(vmdkp_, key, aero_conn_);
+
+	/* Try to read back, should be seeing error this time */
+	LOG(ERROR) << __func__ << "Trying to Read Back, this time we should see error";
+	rc = aero_obj_->AeroMetaReadCmd(vmdkp_, key, value2, aero_conn_);
+	if (!rc) {
+		if((value1.compare(value2)) == 0) {
+			LOG(ERROR) <<  "Equal.... ";
+		} else {
+			LOG(ERROR) <<  "Not equal.... ";
+		}
+	} else {
+		LOG(ERROR) << __func__ << "Read failed";
+		return rc;
+	}
 	return 0;
 #else
 	return aero_obj_->AeroMetaWriteCmd(vmdkp_, key, value, aero_conn_);
@@ -86,8 +114,14 @@ folly::Future<MetaDataKV::ReadResult>
 
 	/* Call the AeroSpike metadata read function */
 	std::string value;
-	aero_obj_->AeroMetaReadCmd(vmdkp_, key, value, aero_conn_);
-	return std::make_pair(std::string(), -ENOENT);
+	auto rc = aero_obj_->AeroMetaReadCmd(vmdkp_, key, value, aero_conn_);
+	return std::make_pair(std::string(), rc);
+}
+
+folly::Future<int> AeroMetaDataKV::Delete(const MetaDataKey& key) {
+	/* Call the AeroSpike metadata delete function */
+	auto rc = aero_obj_->AeroMetaDelCmd(vmdkp_, key, aero_conn_);
+	return rc;
 }
 
 }

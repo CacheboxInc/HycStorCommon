@@ -8,7 +8,7 @@ local function split(str, sep)
 	return result
 end
 
-function hyc_delete_rec(rec, input_ids)
+function hyc_merge_rec(rec, input_ids)
 	trace("HYC_UDF args:: (%s)--------------------", input_ids);
 	trace("HYC_UDF key:: (%s)--------------------", record.key(rec));
 
@@ -46,11 +46,11 @@ function hyc_delete_rec(rec, input_ids)
 				count = count + 1
 			end
 
-			trace("HYC_UDF input_vmdkid: %d rec_vmdkid: %d", tonumber(input_vmdkid), tonumber(rec_vmdkid));
-			trace("HYC_UDF input_ckptid: %d rec_ckptid: %d", tonumber(input_ckptid), tonumber(rec_ckptid));
+			trace("HYC_UDF input_vmdkid: %d", tonumber(input_vmdkid));
+			trace("HYC_UDF input_ckptid: %d", tonumber(input_ckptid));
 
-			if rec_vmdkid == input_vmdkid and (input_ckptid == 0 or rec_ckptid == input_ckptid) then
-				trace("HYC_UDF found match ckpt ID :: %d, offset : %d", tonumber(rec_ckptid), rec_offset);
+			if rec_vmdkid == input_vmdkid and rec_ckptid == input_ckptid then
+				trace("HYC_UDF found match ckpt ID :: %d", tonumber(rec_ckptid));
 				aerospike:remove(rec)
 			end
 		end

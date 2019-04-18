@@ -19,6 +19,7 @@ public:
 			const std::string& value) = 0;
 	virtual folly::Future<ReadResult> Read(
 		const MetaDataKey& key) = 0;
+	virtual folly::Future<int> Delete(const MetaDataKey&) = 0;
 };
 
 class RamMetaDataKV : public MetaDataKV {
@@ -29,6 +30,7 @@ public:
 		const std::string& value) override;
 	virtual folly::Future<MetaDataKV::ReadResult>
 		Read(const MetaDataKey& key) override;
+	virtual folly::Future<int> Delete(const MetaDataKey&) override;
 private:
 	std::mutex mutex_;
 	std::map<MetaDataKey, std::string> data_;
@@ -42,6 +44,7 @@ public:
 		const std::string& value) override;
 	virtual folly::Future<MetaDataKV::ReadResult>
 		Read(const MetaDataKey& key) override;
+	virtual folly::Future<int> Delete(const MetaDataKey&) override;
 private:
 	ActiveVmdk*	vmdkp_;
 	std::unique_ptr<AeroSpike> aero_obj_{nullptr};

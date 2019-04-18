@@ -18,9 +18,7 @@ using namespace ::ondisk;
 
 namespace pio {
 
-const std::string CheckPoint::kCheckPoint = "M";
 const uint32_t kMaxPendingFlushReqs = 32;
-const uint32_t kMaxFlushIoSize = 256 * 1024;
 
 FlushInstance::FlushInstance(VmID vmid, const std::string& config):
 	vmid_(std::move(vmid)),
@@ -75,16 +73,25 @@ int FlushInstance::StartFlush(const VmID& vmid) {
 			", max_pending_reqs:" << max_pending_reqs;
 
 	for(auto const& ckpt_id : vec_ckpts) {
-		LOG(INFO) << __func__ << " Starting flush for Checkpoint ID is:" << ckpt_id;
+		if (perform_move) {
+			LOG(INFO) << __func__ << " Starting move for Checkpoint ID:" << ckpt_id;
+		} else {
+			LOG(INFO) << __func__ << " Starting flush for Checkpoint ID:" << ckpt_id;
+		}
+
 		auto rc = vmp->FlushStart(ckpt_id, perform_flush, perform_move,
 						max_req_size, max_pending_reqs);
 		if (pio_unlikely(rc)) {
-			LOG(INFO) << __func__ << " flush failed for Checkpoint ID is:"
+			LOG(INFO) << __func__ << " workflow failed for Checkpoint ID:"
 						<< ckpt_id << ", rc is:" << rc;
 			return rc;
 		}
 
-		LOG(INFO) << __func__ << " flush successful for Checkpoint ID is:" << ckpt_id;
+		if (perform_move) {
+			LOG(INFO) << __func__ << " move started successfully for Checkpoint ID:" << ckpt_id;
+		} else {
+			LOG(INFO) << __func__ << " flush started successfully for Checkpoint ID:" << ckpt_id;
+		}
 	}
 
 	auto vm_handle = pio::GetVmHandle(vmid);
@@ -109,7 +116,7 @@ int FlushInstance::StartFlush(const VmID& vmid) {
 	 * any other ckpts those has been created afterwards.
 	 */
 
-	auto ret = pio::MoveUnflushedToFlushed(vm_handle);
+	auto ret = pio::MoveUnflushedToFlushed(vm_handle, vec_ckpts);
 	if (pio_unlikely(ret)) {
 		LOG(ERROR) << " Moving checkpoint from unflushed to flushed list failed."
 			<< " VmID: " << vmid;

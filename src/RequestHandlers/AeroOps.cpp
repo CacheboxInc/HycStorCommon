@@ -23,6 +23,7 @@
 #define INJECT_AERO_WRITE_ERROR 0
 #define INJECT_AERO_DEL_ERROR 0
 #define INJECT_AERO_READ_ERROR 0
+#define INJECT_AERO_READ_DELAY 1
 #endif
 
 #define MAX_W_IOS_IN_HISTORY 100000
@@ -30,10 +31,13 @@
 
 using namespace ::ondisk;
 using namespace std::chrono_literals;
+using namespace std::chrono;
 
 namespace pio {
 const static std::string kMetaSetName = "metaset";
 const static uint32_t kAeroWriteBlockSize = 1024 * 1024;
+const uint64_t StartOffset = 100 * 1024 * 1024;
+const uint64_t EndOffset = 200 * 1024 * 1024;
 
 AeroSpike::AeroSpike() {
 	instance_ = SingletonHolder<AeroFiberThreads>::GetInstance();
@@ -374,7 +378,7 @@ folly::Future<int> AeroSpike::WriteBatchSubmit(WriteBatch *batchp) {
 folly::Future<int> AeroSpike::AeroWrite(ActiveVmdk *vmdkp,
 		CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>&, const std::string& ns,
-		std::shared_ptr<AeroSpikeConn> aero_conn) {
+		std::shared_ptr<AeroSpikeConn> aero_conn, bool merge_context) {
 
 	auto batch = std::make_unique<WriteBatch>(vmdkp->GetID(), ns,
 		vmdkp->GetVM()->GetSetName());
@@ -385,6 +389,7 @@ folly::Future<int> AeroSpike::AeroWrite(ActiveVmdk *vmdkp,
 
 	batch->batch.nwrites_ = process.size();
 	batch->ckpt_ = ckpt;
+	batch->merge_context_ = merge_context;
 	batch->aero_conn_ = aero_conn.get();
 	log_assert(batch->aero_conn_ != nullptr);
 
@@ -446,14 +451,18 @@ folly::Future<int> AeroSpike::AeroWriteCmdProcess(ActiveVmdk *vmdkp,
 		CheckPointID ckpt,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
-		std::shared_ptr<AeroSpikeConn> aero_conn) {
+		std::shared_ptr<AeroSpikeConn> aero_conn, bool merge_context) {
 
 	if (pio_unlikely(process.empty())) {
 		return 0;
 	}
 
 	failed.clear();
-	return AeroWrite(vmdkp, ckpt, process, failed, ns, aero_conn);
+	if (merge_context) {
+		VLOG(5) << __func__ << "merge_context is true";
+	}
+
+	return AeroWrite(vmdkp, ckpt, process, failed, ns, aero_conn, merge_context);
 }
 
 int AeroSpike::CacheIoReadKeySet(ActiveVmdk *, ReadRecord* rrecp,
@@ -552,6 +561,22 @@ static void ReadListener(as_error *errp, as_batch_read_records *,
 		}
 	}
 
+/* Adding delay */
+#ifdef INJECT_AERO_READ_DELAY
+		for (auto& v_rec : batchp->recordsp_) {
+			auto rec =  v_rec.get();
+			auto blockp = rec->rq_block_;
+                        if (blockp->GetAlignedOffset() >= StartOffset &&
+                                blockp->GetAlignedOffset() <= EndOffset) {
+                                LOG(ERROR) << __func__ << "::Delaying at offset::"
+                                        << blockp->GetAlignedOffset();
+                                sleep(10);
+                                LOG(ERROR) << __func__ << "Delay done for offset::"
+                                        << blockp->GetAlignedOffset();
+                        }
+                }
+#endif
+
 #ifdef INJECT_AERO_READ_ERROR
 	/* if not already failed */
 	if (!batchp->as_result_) {
@@ -565,7 +590,6 @@ static void ReadListener(as_error *errp, as_batch_read_records *,
 		rc = 1;
 	}
 #endif
-
 	batchp->promise_->setValue(rc);
 }
 
@@ -1105,9 +1129,14 @@ WriteRecord::WriteRecord(RequestBlock* blockp, WriteBatch* batchp,
 		log_assert(!bset.empty());
 		std::string pset = vmdkp->GetParentDiskSet();
 		if (pio_likely(bset != pset)) {
-			os << (batchp->pre_keyp_) << ":"
-			<< std::to_string(blockp->GetReadCheckPointId()) << ":" <<
-			std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
+			os << (batchp->pre_keyp_) << ":";
+			if (pio_unlikely(batchp->merge_context_)) {
+				VLOG(5) << __func__ << "Merge context is set";
+				os << std::to_string(batchp->ckpt_);
+			} else {
+				os << std::to_string(blockp->GetReadCheckPointId());
+			}
+			os << ":" << std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
 		} else {
 			auto pvmdkid = vmdkp->GetParentDiskVmdkId();
 			os << pvmdkid << ":" << std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
@@ -1121,6 +1150,7 @@ WriteRecord::WriteRecord(RequestBlock* blockp, WriteBatch* batchp,
 	}
 
 	key_val_ = os.str();
+	VLOG(5) << __func__ << "Key is:" << key_val_.c_str();
 }
 
 WriteRecord::~WriteRecord() {
@@ -1164,6 +1194,7 @@ ReadRecord::ReadRecord(RequestBlock* blockp, ReadBatch* batchp, const std::strin
 	}
 
 	key_val_ = os.str();
+	VLOG(5) << __func__ << "key_val_ is:" << key_val_;
 }
 
 ReadBatch::ReadBatch(const VmdkID& vmdkid, const std::string& ns, const std::string set) :
@@ -1210,6 +1241,7 @@ DelRecord::DelRecord(DelBatch* batchp, const std::string& ns,
 		key_val_(std::forward<std::string>(key)) {
 	[[maybe_unused]] auto kp = as_key_init(&key_, ns_.c_str(), set_.c_str(),
 		key_val_.c_str());
+	VLOG(5) << __func__ << "Key is:" << key_val_.c_str();
 	log_assert(kp == &key_);
 }
 
@@ -1292,7 +1324,7 @@ int AeroSpike::MetaWriteKeySet(WriteRecord* wrecp,
 	return 0;
 }
 
-uint64_t GetSize(char *res) {
+uint64_t GetSize(const char *res) {
 
 	if (res == NULL || strlen(res) == 0 ) {
 		return 0;
@@ -1310,6 +1342,49 @@ uint64_t GetSize(char *res) {
 	std::string strNew = temp.substr(first + 1, last - (first + 1));
 	LOG(ERROR) << __func__ << "strNew:::-" << strNew.c_str();
 	return stol(strNew);
+}
+
+std::vector<std::string> GetElems(const char *res) {
+
+	std::vector <std::string> elems;
+	elems.clear();
+	if (res == NULL || strlen(res) == 0 )
+		return elems;
+
+	std::string orig_str = res;
+	std::size_t initial = orig_str.find_first_of(";");
+	if (initial == std::string::npos)
+		return elems;
+
+	std::string temp = orig_str.substr(initial + 1, orig_str.size() - (initial + 1));
+	std::size_t first = temp.find_first_of("=");
+	if (first == std::string::npos)
+		return elems;
+
+	std::size_t last = temp.size();
+	std::string strelems = temp.substr(first + 1, last - (first + 1));
+	LOG(ERROR) << __func__ << "strNew:::" << strelems.c_str() << "\n";
+
+	temp = strelems;
+	auto start = 0;
+	last = temp.size();
+	while(true) {
+		first = temp.find_first_of(",");
+		if (first == std::string::npos)
+			break;
+		elems.emplace_back(temp.substr(0, first));
+		start = start + (first + 1);
+		temp = strelems.substr(start, last - start);
+	}
+
+	elems.emplace_back(strelems.substr(start, last - start));
+	return elems;
+}
+
+std::string getTimeFromEpoch() {
+	system_clock::time_point time = system_clock::now();
+	system_clock::duration val = time.time_since_epoch();
+	return std::to_string(val.count());
 }
 
 folly::Future<int> AeroSpike::AeroMetaWrite(ActiveVmdk *vmdkp,
@@ -1348,6 +1423,7 @@ folly::Future<int> AeroSpike::AeroMetaWrite(ActiveVmdk *vmdkp,
 		/* format is "size=<value_sz>;map=<comma separate entries>" */
 		m_value = "size=" + std::to_string(value_sz) + ";map=";
 		std::ostringstream new_key;
+		std::string variant = getTimeFromEpoch();
 		for (uint16_t i = 0; i < count; i++) {
 			auto rec = std::make_unique<WriteRecord>();
 			if (pio_unlikely(not rec)) {
@@ -1363,6 +1439,7 @@ folly::Future<int> AeroSpike::AeroMetaWrite(ActiveVmdk *vmdkp,
 			new_key.str("");
 			new_key.clear();
 			new_key << key << ":" << std::to_string(i);
+			new_key << ":"  << variant;
 			rec->key_val_ = new_key.str();
 
 			LOG(INFO) << __func__ << "Start offset:"
@@ -1502,7 +1579,7 @@ int AeroSpike::MetaReadKeySet(ReadRecord* rrecp,
 folly::Future<int> AeroSpike::AeroMetaRead(ActiveVmdk *vmdkp,
 	const std::string& ns, const MetaDataKey& key,
 	std::string& value,
-	std::shared_ptr<AeroSpikeConn> aero_conn) {
+	std::shared_ptr<AeroSpikeConn> aero_conn, bool delete_context) {
 
 	/* First read the Metadata portion to figure out how big is the
 	 * record to read */
@@ -1594,7 +1671,6 @@ folly::Future<int> AeroSpike::AeroMetaRead(ActiveVmdk *vmdkp,
 				return -EIO;
 			}
 
-			LOG(INFO) << __func__ << "size is:" << GetSize(destp);
 			if(pio_unlikely(read_more)) {
 				LOG(INFO) << __func__ << "Read_more is set";
 			}
@@ -1611,6 +1687,17 @@ folly::Future<int> AeroSpike::AeroMetaRead(ActiveVmdk *vmdkp,
 		return rc;
 	}
 
+	if (pio_unlikely(delete_context)) {
+		if (pio_unlikely(read_more)) {
+			value = destp;
+		} else {
+			value.clear();
+		}
+
+		delete destp;
+		return 0;
+	}
+
 	if (pio_likely(!read_more)) {
 		/* Return the value from here */
 		value = destp;
@@ -1618,18 +1705,18 @@ folly::Future<int> AeroSpike::AeroMetaRead(ActiveVmdk *vmdkp,
 	}
 
 	/* Format is size=<val>;map=<entries> */
-	auto total_size = GetSize(destp);
-	uint16_t count = total_size / kAeroWriteBlockSize;
-	if (total_size % kAeroWriteBlockSize) {
-		count++;
-	}
-
-	LOG(INFO) << __func__ << "Count value:" << count;
+	auto elems = GetElems((const char *) destp);
+	uint16_t count = elems.size();
+	LOG(INFO) << __func__ << "Data record count is:" << count;
 	if (pio_unlikely(!count)) {
 		LOG(ERROR) << __func__ << "Count value should be non zero";
 		log_assert(0);
+		delete destp;
 		return -EIO;
 	}
+
+	auto total_size = GetSize((const char *) destp);
+	delete destp;
 
 	/* Destp has the values which needs to be read */
 	r_batch_rec = std::make_unique<ReadBatch>(vmdkp->GetID(),
@@ -1648,22 +1735,18 @@ folly::Future<int> AeroSpike::AeroMetaRead(ActiveVmdk *vmdkp,
 	}
 
 	r_batch_rec->recordsp_.reserve(count);
-	std::ostringstream new_key;
-	for (uint16_t i = 0; i < count ; i++) {
+	for (auto it = elems.begin(); it != elems.end(); it++) {
 		auto rec = std::make_unique<ReadRecord>();
 		if (pio_unlikely(not rec)) {
 			LOG(ERROR) << "ReadRecord allocation failed";
 			return -ENOMEM;
 		}
 
-		/* Create Keys to Read */
-		new_key.str("");
-		new_key.clear();
-		new_key << key << ":" << std::to_string(i);
-		rec->key_val_ = new_key.str();
-		LOG(INFO) << __func__ << "Addition key:" << new_key.str();
+		/* Keys to Read */
+		LOG(INFO) << __func__ << "Addition key:" << *it;
+		rec->key_val_ = *it;
 		rec->batchp_ = r_batch_rec.get();
-		MetaReadKeySet(rec.get(), ns, kAsMetaSet, key, r_batch_rec.get());
+		MetaReadKeySet(rec.get(), ns, kAsMetaSet, *it, r_batch_rec.get());
 		r_batch_rec->recordsp_.emplace_back(std::move(rec));
 	}
 
@@ -1675,10 +1758,6 @@ folly::Future<int> AeroSpike::AeroMetaRead(ActiveVmdk *vmdkp,
 		rc = -EIO;
 		LOG(ERROR) <<__func__ << "read_batch_submit failed";
 		return rc;
-	}
-
-	if (pio_likely(destp)) {
-		delete destp;
 	}
 
 	/* Create result buffer */
@@ -1746,9 +1825,93 @@ int AeroSpike::AeroMetaReadCmd(ActiveVmdk *vmdkp,
 	auto f = AeroMetaRead(vmdkp, kAsNamespaceCacheDirty, key,
 				value, aero_conn);
 	f.wait();
-	return 0;
+	return f.value();
 }
 
+folly::Future<int> AeroSpike::AeroMetaDel(ActiveVmdk *vmdkp,
+	const MetaDataKey& key, std::shared_ptr<AeroSpikeConn> aero_conn) {
+
+	/* Read first to check Data records are present or not */
+	std::string value;
+	return AeroMetaRead(vmdkp, kAsNamespaceCacheDirty,
+		key, value, aero_conn, true)
+	.then([this, value = std::move(value), vmdkp, key, aero_conn] (int rc) mutable {
+		if (pio_unlikely(rc)) {
+			LOG(ERROR) << __func__ << "Read failed, rc::" << rc;
+			return folly::makeFuture(rc);
+		}
+
+		/* TBD : If record not found then return from here */
+
+		/* Delete meta record first and then try to delete the data records */
+		auto batch = std::make_unique<DelBatch>(vmdkp->GetID(),
+				kAsNamespaceCacheDirty, kMetaSetName);
+		if (pio_unlikely(batch == nullptr)) {
+			LOG(ERROR) << "DelBatch allocation failed";
+			return folly::makeFuture(-ENOMEM);
+		}
+
+		batch->batch.recordsp_.reserve(1);
+		batch->batch.recordsp_.emplace_back(batch.get(), batch->ns_,
+				batch->setp_, key.c_str());
+		batch->batch.ndeletes_ = 1;
+		batch->aero_conn_ = aero_conn.get();
+		batch->promise_ = std::make_unique<folly::Promise<int>>();
+		log_assert(batch->aero_conn_ != nullptr);
+		return DelBatchSubmit(batch.get())
+		.then([this, value = std::move(value), vmdkp,
+			batch = std::move(batch), aero_conn] (int rc) mutable {
+			if (pio_unlikely(rc)) {
+				return folly::makeFuture(rc);
+			}
+
+			/* value non zero imply that we have to delete multiple records */
+			if (pio_likely(!value.size())) {
+				LOG(ERROR) << __func__ << "No more work to do";
+				return folly::makeFuture(0);
+			}
+
+			auto elems = GetElems(value.c_str());
+			auto elems_size = elems.size();
+			if (pio_unlikely(!elems_size)) {
+				LOG(ERROR) << __func__ << "Invalid configuration";
+				return folly::makeFuture(-EINVAL);
+			}
+
+			/* delete data records */
+			auto d_batch = std::make_unique<DelBatch>(vmdkp->GetID(),
+					kAsNamespaceCacheDirty, kMetaSetName);
+			if (pio_unlikely(d_batch == nullptr)) {
+				LOG(ERROR) << "DelBatch allocation failed";
+				return folly::makeFuture(-ENOMEM);
+			}
+
+			d_batch->batch.recordsp_.reserve(elems_size);
+			for (auto it = elems.begin(); it != elems.end(); it++) {
+				LOG(ERROR) << __func__ << "Data rec to delete is :" << *it;
+				d_batch->batch.recordsp_.emplace_back(d_batch.get(),
+					d_batch->ns_, d_batch->setp_, it->c_str());
+			}
+
+			d_batch->batch.ndeletes_ = elems.size();
+			d_batch->aero_conn_ = aero_conn.get();
+			d_batch->promise_ = std::make_unique<folly::Promise<int>>();
+			log_assert(d_batch->aero_conn_ != nullptr);
+			return DelBatchSubmit(d_batch.get())
+			.then([d_batch = std::move(d_batch)] (int rc) mutable {
+				return folly::makeFuture(rc);
+			});
+		});
+	});
+}
+
+int AeroSpike::AeroMetaDelCmd(ActiveVmdk *vmdkp,
+		const MetaDataKey& key,
+		std::shared_ptr<AeroSpikeConn> aero_conn) {
+	auto f = AeroMetaDel(vmdkp, key, aero_conn);
+	f.wait();
+	return 0;
+}
 
 /*
  * This function is called from aerospike event loop threads -
@@ -1927,7 +2090,7 @@ folly::Future<int> AeroSpike::AeroSingleRead(ActiveVmdk *vmdkp,
 	}
 
 	auto key_val_ = os.str();
-	//LOG(ERROR) << __func__ << "NS::" << ns.c_str() << "::Key val :: " << key_val_.c_str();
+	VLOG(5) << __func__ << "NS::" << ns.c_str() << "::Key val :: " << key_val_.c_str();
 	auto kp = as_key_init(&batch->key_, ns.c_str(),
 		batch->setp_.c_str(), key_val_.c_str());
 

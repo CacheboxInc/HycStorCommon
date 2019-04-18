@@ -11,6 +11,7 @@
 #include "gen-cpp2/MetaData_types.h"
 #include "gen-cpp2/StorRpc_constants.h"
 #include "gen-cpp2/StorRpc_types.h"
+#include "gen-cpp2/MetaData_constants.h"
 #include "TimePoint.h"
 
 namespace pio {
@@ -67,6 +68,14 @@ public:
 		FlushReq_ = true;
 	}
 
+	void SetMergeContext(bool merge_context) {
+		MergeContext_ = merge_context;
+	}
+
+	bool GetMergeContext() {
+		return MergeContext_;
+	}
+
 	bool IsReadAheadRequired() {
 		return read_ahead_required_;
 	}
@@ -76,6 +85,14 @@ public:
 	
 	::ondisk::CheckPointID GetFlushCkptID() {
 		return FlushCkptID_;
+	}
+
+	::ondisk::CheckPointID GetMoveWriteCkptID() {
+		return MoveWriteCkptID_;
+	}
+
+	::ondisk::CheckPointID GetMoveReadCkptID() {
+		return MoveReadCkptID_;
 	}
 
 	::ondisk::CheckPointID GetFlushStartCkptID() {
@@ -88,6 +105,14 @@ public:
 
 	void SetFlushCkptID(::ondisk::CheckPointID ckpt_id) {
 		FlushCkptID_ = ckpt_id;
+	}
+
+	void SetMoveWriteCkptID(::ondisk::CheckPointID ckpt_id) {
+		MoveWriteCkptID_ = ckpt_id;
+	}
+
+	void SetMoveReadCkptID(::ondisk::CheckPointID ckpt_id) {
+		MoveReadCkptID_ = ckpt_id;
 	}
 
 	void SetResult(int return_value, RequestStatus status) noexcept;
@@ -148,6 +173,9 @@ private:
 	bool FlushReq_{false};
 	bool read_ahead_required_{true};
 	::ondisk::CheckPointID FlushCkptID_{1}; //Should it be 0
+	::ondisk::CheckPointID MoveWriteCkptID_{MetaData_constants::kInvalidCheckPointID()};
+	::ondisk::CheckPointID MoveReadCkptID_{MetaData_constants::kInvalidCheckPointID()};
+	bool MergeContext_{false};
 };
 
 class RequestBlock {

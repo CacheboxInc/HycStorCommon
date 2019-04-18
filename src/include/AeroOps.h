@@ -72,6 +72,7 @@ struct WriteBatch {
 
 	bool failed_{false};
 	bool submitted_{false};
+	bool merge_context_{false};
 	as_status as_result_{AEROSPIKE_OK};
 	std::atomic<size_t> batch_write_size_{0};
 };
@@ -243,12 +244,12 @@ public:
 	folly::Future<int> AeroWriteCmdProcess(ActiveVmdk *vmdkp,
 		::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed, const std::string& ns,
-		std::shared_ptr<AeroSpikeConn> aero_conn);
+		std::shared_ptr<AeroSpikeConn> aero_conn, bool);
 
 	folly::Future<int> AeroWrite(ActiveVmdk *vmdkp,
                 ::ondisk::CheckPointID ckpt, const std::vector<RequestBlock*>& process,
                 std::vector<RequestBlock *>& failed, const std::string& ns,
-		std::shared_ptr<AeroSpikeConn> aero_conn);
+		std::shared_ptr<AeroSpikeConn> aero_conn, bool);
 
 	int WriteBatchInit(ActiveVmdk *vmdkp,
 			const std::vector<RequestBlock*>& process,
@@ -319,9 +320,18 @@ public:
 		const MetaDataKey& key, std::string& value,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
+	int AeroMetaDelCmd(ActiveVmdk *vmdkp,
+		const MetaDataKey& key,
+		std::shared_ptr<AeroSpikeConn> aero_conn);
+
 	folly::Future<int> AeroMetaRead(ActiveVmdk *vmdkp,
 		const std::string& ns, const MetaDataKey& key,
 		std::string& value,
+		std::shared_ptr<AeroSpikeConn> aero_conn,
+		bool delete_context = false);
+
+	folly::Future<int> AeroMetaDel(ActiveVmdk *vmdkp,
+		const MetaDataKey& key,
 		std::shared_ptr<AeroSpikeConn> aero_conn);
 
 	int MetaReadKeySet(ReadRecord* rrecp,

@@ -45,5 +45,6 @@ private:
 	std::unique_ptr<RequestHandler> headp_;
 	std::unique_ptr<AeroSpike> aero_obj_{nullptr};
 	std::shared_ptr<AeroSpikeConn> aero_conn_;
+	const std::string set_;
 };
 }

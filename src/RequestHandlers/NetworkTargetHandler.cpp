@@ -75,7 +75,13 @@ folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, MAYBE_UNUSED(Re
 
 	auto req_blocks = std::make_shared<std::vector<req_buf_type>>();
 	for (auto blockp : process) {
-		auto snap_id = GetSnapID(vmdkp, blockp->GetReadCheckPointId());
+		auto ckpt_id = blockp->GetReadCheckPointId();
+		auto snap_id = GetSnapID(vmdkp, ckpt_id);
+		if (pio_unlikely(snap_id < 0)) {
+			LOG(ERROR) << __func__ << "Found invalid snap id:"
+				<< snap_id << " for ckpt id:" << ckpt_id;
+			return -EEXIST;
+		}
 		io->AddIoVec(snap_id, blockp->GetAlignedOffset(), vmdkp->BlockSize(),
 			[req_blocks](int buflen) -> void* {
 				auto destp = NewRequestBuffer(buflen);

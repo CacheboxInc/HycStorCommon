@@ -35,8 +35,8 @@ private:
 	void SetEventLoopDepth(const uint32_t depth) const noexcept;
 private:
 	AeroClusterID cluster_id_;
-	RecurringTimer reconfig_timer_;
 	std::unique_ptr<WorkScheduler> work_scheduler_;
+	RecurringTimer reconfig_timer_;
 
 	struct {
 		mutable std::mutex mutex_;

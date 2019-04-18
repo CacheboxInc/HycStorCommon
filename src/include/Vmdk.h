@@ -26,6 +26,7 @@
 #include "Rendez.h"
 #include "ReadAhead.h"
 #include "RangeLock.h"
+#include "CkptMergeInstance.h"
 
 namespace pio {
 
@@ -60,12 +61,13 @@ public:
 
 	std::pair<::ondisk::BlockID, ::ondisk::BlockID> Blocks() const noexcept;
 	const Roaring& GetRoaringBitMap() const noexcept;
-	std::unique_ptr<Roaring*> UnionRoaringBitmaps(const std::vector<Roaring*>& roaring_bitmaps);
+	int UnionRoaringBitmaps(const std::vector<const Roaring*> roaring_bitmaps);
 	void SetSerialized() noexcept;
 	void UnsetSerialized() noexcept;
 	bool IsSerialized() const noexcept;
 	void SetFlushed() noexcept;
 	bool IsFlushed() const noexcept;
+	int CkptBitmapMerge(ActiveVmdk *vmdkp, std::vector<CheckPointID> &ckpt_vec);
 private:
 	::ondisk::VmdkID vmdk_id_;
 	::ondisk::CheckPointID self_;
@@ -180,11 +182,11 @@ public:
 		const std::vector<RequestBlock*>& process);
 	folly::Future<int> Move(Request* reqp, const CheckPoints& min_max);
 	folly::Future<int> BulkMoveStart(std::vector<FlushBlock>& blocks,
-				ondisk::CheckPointID ckpt_id);
+				ondisk::CheckPointID ckpt_id, bool merge_context);
 	folly::Future<int> BulkMove(ActiveVmdk* vmdkp,
 		std::vector<ReadRequest>::const_iterator it,
 		std::vector<ReadRequest>::const_iterator eit,
-		ondisk::CheckPointID ckpt_id);
+		ondisk::CheckPointID ckpt_id, bool merge_context);
 	folly::Future<int> BulkMove(const CheckPoints& min_max,
 		std::unique_ptr<ReqVec> requests,
 		std::unique_ptr<ReqBlockVec> process,
@@ -199,17 +201,20 @@ public:
 	folly::Future<int> CommitCheckPoint(::ondisk::CheckPointID check_point);
 	int FlushStages(::ondisk::CheckPointID check_point, bool perform_flush,
 			bool perform_move, uint32_t, uint32_t);
+	int MergeStages(::ondisk::CheckPointID check_point, MergeStageType type);
 	int FlushStage(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
+	folly::Future<int> CkptBitmapMerge(::ondisk::CheckPointID check_point);
+	int ValidateCkpt(CheckPointID ckpt_id);
 	int FlushStage_v2(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
 	int FlushStage_v3(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
 	int MoveStage(::ondisk::CheckPointID check_point, uint32_t);
 	int MoveStage_v2(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
-	int MoveStage_v3(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
+	int MoveStage_v3(::ondisk::CheckPointID check_point, uint32_t, uint32_t, bool, const Roaring& );
 	int FlushStages(::ondisk::CheckPointID check_point, bool perform_flush, bool perform_move);
 	int FlushStage(::ondisk::CheckPointID check_point);
 	int MoveStage(::ondisk::CheckPointID check_point);
 	CheckPoint* GetCheckPoint(::ondisk::CheckPointID ckpt_id) const;
-	folly::Future<int> MoveUnflushedToFlushed();
+	folly::Future<int> MoveUnflushedToFlushed(std::vector<::ondisk::CheckPointID>&);
 
 	
 	uint64_t FlushedCheckpoints() const noexcept;
@@ -236,7 +241,11 @@ public:
 		std::unordered_set<::ondisk::BlockID>& blocks);
 
 	const std::vector<PreloadBlock>& GetPreloadBlocks() const noexcept;
-	void UnflushedCheckpoints(std::vector<::ondisk::CheckPointID>& unflushed_ckpts) const noexcept;
+	void GetUnflushedCheckpoints(std::vector<::ondisk::CheckPointID>& unflushed_ckpts) const noexcept;
+	void GetFlushedCheckpoints(std::vector<::ondisk::CheckPointID>& flushed_ckpts) const noexcept;
+	bool IsCkptFlushed(::ondisk::CheckPointID ckpt_id);
+	void IncCheckPointRef(const std::vector<RequestBlock*>& blockps);
+	void DecCheckPointRef(const std::vector<RequestBlock*>& blockps);
 public:
 	int32_t delta_fd_{-1};
 	int CreateNewVmdkDeltaContext(int64_t snap_id);
@@ -313,6 +322,7 @@ private:
 		mutable std::mutex mutex_;
 		std::vector<std::unique_ptr<CheckPoint>> unflushed_;
 		std::vector<std::unique_ptr<CheckPoint>> flushed_;
+		std::vector<std::unique_ptr<CheckPoint>> tracked_;
 	} checkpoints_;
 
 	std::unique_ptr<MetaDataKV> metad_kv_{nullptr};

@@ -21,6 +21,7 @@
 #include "Singleton.h"
 #include "AeroFiberThreads.h"
 #include "FlushManager.h"
+#include "CkptMergeManager.h"
 #include "TgtInterfaceImpl.h"
 #include "ScanManager.h"
 #include "VmManager.h"
@@ -913,9 +914,9 @@ static int VmdkStartPreload(const _ha_request *reqp, _ha_response *resp, void *)
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *) {
+static int NewMergeReq(const _ha_request *reqp, _ha_response *resp, void *) {
 
-	LOG(ERROR) << "NewScanReq start";
+	LOG(INFO) << __func__ << " NewMergeReq start..";
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 	if (param_valuep == NULL) {
 		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -924,14 +925,13 @@ static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *) {
 	}
 	std::string vmid(param_valuep);
 
-	auto data = ha_get_data(reqp);
-	std::string req_data;
-	if (data != nullptr) {
-		req_data.assign(data);
-		::free(data);
-	} else {
-		req_data.clear();
+	param_valuep = ha_parameter_get(reqp, "ckpt-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"ckpt-id param not given");
+		return HA_CALLBACK_CONTINUE;
 	}
+	std::string ckptid(param_valuep);
 
 	if (GuardHandler()) {
 		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
@@ -950,7 +950,101 @@ static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *) {
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	auto ret = pio::NewScanReq(vmid, req_data);
+	LOG(INFO) << __func__ << " vmid::" << vmid << " ckptid:" <<  stol(ckptid);
+	auto ret = pio::NewMergeReq(vmid, stol(ckptid));
+	if (ret) {
+		std::ostringstream es;
+		LOG(ERROR) << "Starting Merge request for VMID::"  << vmid << "Failed";
+		es << "Starting Merge request for VMID::"  << vmid << " Failed";
+		SetErrMsg(resp, STORD_ERR_INVALID_SCAN, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	LOG(INFO) << "Merge for VM:" << vmid << " started successfully.";
+	const auto res = std::to_string(ret);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+	return HA_CALLBACK_CONTINUE;
+}
+
+static int NewMergeStatusReq(const _ha_request *reqp, _ha_response *resp, void *) {
+
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"aero-cluter-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string id(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+
+	CkptMergeStats merge_stat;
+	auto ret = pio::NewMergeStatusReq(id, merge_stat);
+	if (ret) {
+		std::ostringstream es;
+		LOG(ERROR) << "Merge status request for aero-cluster-id::"  << id << " Failed, errno:" << ret;
+		if (ret == -EINVAL) {
+			es << "Merge is not running currently for aero-cluster-id::"  << id;
+			SetErrMsg(resp, STORD_ERR_SCAN_NOT_STARTED, es.str());
+		} else {
+			es << "Failed to get merge status for aero-cluster-id::"  << id;
+			SetErrMsg(resp, STORD_ERR_INVALID_SCAN, es.str());
+		}
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	json_t *merge_params = json_object();
+	if (pio_likely(merge_stat.running)) {
+		json_object_set_new(merge_params, "merge_running", json_boolean(true));
+	} else {
+		json_object_set_new(merge_params, "merge_running", json_boolean(false));
+	}
+
+	auto *merge_params_str = json_dumps(merge_params, JSON_ENCODE_ANY);
+	json_object_clear(merge_params);
+	json_decref(merge_params);
+	ha_set_response_body(resp, HTTP_STATUS_OK, merge_params_str,
+			strlen(merge_params_str));
+	::free(merge_params_str);
+
+	return HA_CALLBACK_CONTINUE;
+}
+
+static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *) {
+
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
+		std::ostringstream es;
+		LOG(ERROR) << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		es << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto ret = pio::NewScanReq(vmid, MetaData_constants::kInvalidCheckPointID());
 	if (ret) {
 		std::ostringstream es;
 		LOG(ERROR) << "Starting Scan request for VMID::"  << vmid << "Failed";
@@ -959,13 +1053,10 @@ static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *) {
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	LOG(INFO) << "Scan for VM:" << vmid << "started successfully.";
-
 	const auto res = std::to_string(ret);
 	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
 	return HA_CALLBACK_CONTINUE;
 }
-
 
 static int NewScanStatusReq(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "aero-cluster-id");
@@ -1278,7 +1369,9 @@ NewCommitCkpt(const _ha_request *reqp, _ha_response *resp, void *) {
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	ret = pio::MoveUnflushedToFlushed(vm_handle);
+	std::vector<::ondisk::CheckPointID> vec_ckpts;
+	vec_ckpts.emplace_back(stol(ckptid));
+	ret = pio::MoveUnflushedToFlushed(vm_handle, vec_ckpts);
 	if (ret) {
 		std::ostringstream es;
 		es << "Moving checkpoints from unflushed to flushed failed."
@@ -1866,12 +1959,13 @@ static int GetUnflushedCheckpoints(const _ha_request *reqp, _ha_response *resp, 
 	}
 
 	json_object_set_new(json_params, "unflushed_checkpoints", array);
-	std::string json_params_str = json_dumps(json_params, JSON_ENCODE_ANY);
+	auto *json_params_str = json_dumps(json_params, JSON_ENCODE_ANY);
 	json_object_clear(json_params);
 	json_decref(json_params);
 	json_decref(array);
 
-	ha_set_response_body(resp, HTTP_STATUS_OK, json_params_str.c_str(), strlen(json_params_str.c_str()));
+	ha_set_response_body(resp, HTTP_STATUS_OK, json_params_str, strlen(json_params_str));
+	::free(json_params_str);
 
 	return HA_CALLBACK_CONTINUE;
 }
@@ -2187,7 +2281,7 @@ RestHandlers GetRestCallHandlers() {
 		void* datap;
 	};
 
-	static constexpr std::array<RestEndPoint, 28> kHaEndPointHandlers = {{
+	static constexpr std::array<RestEndPoint, 30> kHaEndPointHandlers = {{
 		{POST, "new_vm", NewVm, nullptr},
 		{POST, "vm_delete", RemoveVm, nullptr},
 		{POST, "new_vmdk", NewVmdk, nullptr},
@@ -2201,6 +2295,8 @@ RestHandlers GetRestCallHandlers() {
 		{GET, "aero_stat", NewAeroCacheStatReq, nullptr},
 		{POST, "scan_del_req", NewScanReq, nullptr},
 		{POST, "scan_status", NewScanStatusReq, nullptr},
+		{POST, "merge_req", NewMergeReq, nullptr},
+		{GET, "merge_status", NewMergeStatusReq, nullptr},
 		{POST, "aero_set_cleanup", AeroSetCleanup, nullptr},
 
 		{POST, "flush_req", NewFlushReq, nullptr},
@@ -2314,15 +2410,14 @@ int main(int argc, char* argv[])
 		SingletonHolder<pio::hyc::TargetManager>::GetInstance().get(),
 		g_thread_.ha_instance_);
 #endif
-
-	/* Initialize threadpool for AeroSpike accesses */
-	auto rc = SingletonHolder<AeroFiberThreads>::GetInstance()
-				->CreateInstance();
+	/* Initialize threadpool for Flush processing */
+	auto rc = SingletonHolder<FlushManager>::GetInstance()
+			->CreateInstance(g_thread_.ha_instance_);
 	log_assert(rc == 0);
 
-	/* Initialize threadpool for Flush processing */
-	rc = SingletonHolder<FlushManager>::GetInstance()
-				->CreateInstance(g_thread_.ha_instance_);
+	/* Initialize threadpool for Merge processing */
+	rc = SingletonHolder<CkptMergeManager>::GetInstance()
+			->CreateInstance(g_thread_.ha_instance_);
 	log_assert(rc == 0);
 
 	LOG(INFO) << "Starting Thrift Server";
@@ -2336,8 +2431,8 @@ int main(int argc, char* argv[])
 	thrift_server->setNumIOWorkerThreads(3);
 	thrift_server->serve();
 
+	SingletonHolder<CkptMergeManager>::GetInstance()->DestroyInstance();
 	SingletonHolder<FlushManager>::GetInstance()->DestroyInstance();
-	SingletonHolder<AeroFiberThreads>::GetInstance()->FreeInstance();
 
 	stord_instance->DeinitStordLib();
 

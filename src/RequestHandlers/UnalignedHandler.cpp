@@ -97,11 +97,13 @@ folly::Future<int> UnalignedHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 	auto ckpts = std::make_pair(MetaData_constants::kInvalidCheckPointID() + 1,
 		ckpt);
 	vmdkp->SetReadCheckPointId(*read_blocks, ckpts);
+	vmdkp->IncCheckPointRef(*read_blocks);
 
 	return this->Read(vmdkp, reqp, *read_blocks, failed)
 	.then([this, vmdkp, reqp, &process, &failed, ckpt,
 			read_blocks = std::move(read_blocks)] (int rc) mutable {
 
+		vmdkp->DecCheckPointRef(*read_blocks);
 		/* Read from CacheLayer complete */
 		if (pio_unlikely(rc != 0)) {
 			/* Failed Return error, miss is not a failed case*/
