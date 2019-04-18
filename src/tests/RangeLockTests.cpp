@@ -295,3 +295,84 @@ TEST(RangeLockTest, Basic_TryLock_Fail) {
 		EXPECT_FALSE(locked);
 	}
 }
+
+/*
+*************************************************************** 
+				Selective Lock Tests 
+***************************************************************
+*/
+TEST(RangeLockTest, SelectiveLockTest_FullLock) {
+	pio::RangeLock::RangeLock range_lock;
+	std::vector<pio::RangeLock::range_t> in_ranges;
+	for(int i = 1; i < 65; ++i) {
+		in_ranges.emplace_back(i*2, i*2+1);
+	}
+	pio::RangeLock::LockGuard lock(&range_lock, in_ranges);
+	std::vector<pio::RangeLock::range_t> out_ranges;
+	bool full_lock = lock.SelectiveLock(out_ranges);
+	EXPECT_TRUE(full_lock);
+	EXPECT_TRUE(out_ranges.size() == in_ranges.size());
+}
+
+TEST(RangeLockTest, SelectiveLockTest_PartialLock) { 
+	pio::RangeLock::RangeLock range_lock;
+	std::vector<pio::RangeLock::range_t> in_ranges;
+	for(int i = 1; i < 65; ++i) {
+		in_ranges.emplace_back(i*2, i*2+1);
+	}
+	pio::RangeLock::LockGuard lock(&range_lock, in_ranges);
+	std::vector<pio::RangeLock::range_t> out_ranges;
+	lock.SelectiveLock(out_ranges);
+	
+	// Should not get any lock
+	out_ranges.clear();
+	bool full_lock = lock.SelectiveLock(out_ranges);
+	EXPECT_FALSE(full_lock);
+	EXPECT_EQ(out_ranges.size(), 0);
+
+	// Should get partial lock
+	out_ranges.clear();
+	in_ranges.clear();
+	for(int i = 35; i < 100; ++i) {
+		in_ranges.emplace_back(i*2, i*2+1);
+	}
+	pio::RangeLock::LockGuard lock1(&range_lock, in_ranges);
+	full_lock = lock1.SelectiveLock(out_ranges);
+	EXPECT_FALSE(full_lock);
+	EXPECT_EQ(in_ranges.size() - out_ranges.size(), 30);
+}
+
+TEST(RangeLockTest, SelectiveLockTest_MultiThreaded) { 
+	pio::RangeLock::RangeLock range_lock;
+	std::vector<pio::RangeLock::range_t> in_ranges;
+	std::atomic<int> full_lock_count = 0, partial_lock_count = 0;
+	const auto kLoop = 128;
+	for(int i = 1; i < 65; ++i) {
+		in_ranges.emplace_back(i*2, i*2+1);
+	}
+	auto cores = std::thread::hardware_concurrency();
+	std::vector<std::thread> threads;
+	for (auto c = cores; c > 0; --c) {
+		threads.emplace_back(std::thread([&range_lock, &kLoop, 
+		&full_lock_count, &partial_lock_count, &in_ranges] () {
+			for (auto i = 0; i < kLoop; ++i) {
+				auto r = in_ranges;
+				r.erase(r.begin(), r.begin() + kLoop % (abs(65 - i) + 1));
+				auto g = Guard(&range_lock, std::move(r));
+				std::vector<pio::RangeLock::range_t> out_ranges;
+				bool full_lock = g.SelectiveLock(out_ranges);
+				if(full_lock) {
+					++full_lock_count;
+				}
+				else {
+					++partial_lock_count;
+				}
+			}
+		}));
+	}
+	for (auto& thread : threads) {
+		thread.join();
+	}
+	EXPECT_TRUE(partial_lock_count > full_lock_count);
+	EXPECT_EQ((partial_lock_count + full_lock_count), cores * kLoop);
+}
