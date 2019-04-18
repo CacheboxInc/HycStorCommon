@@ -112,6 +112,7 @@ ReadAhead::RunPredictions(ReqBlockVec& req_blocks, uint32_t io_block_count) {
 		auto pred_size = predictions.size();
 		auto pred_size_bytes = pred_size << block_shift;
 		assert(pred_size_bytes <= MAX_PREDICTION_SIZE); 
+		(void) pred_size_bytes;
 		
 		// Update stats
 		UpdateReadAheadStats(pred_size);	
