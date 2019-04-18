@@ -308,6 +308,7 @@ TEST_F(VmSyncTest, Basic) {
 		EXPECT_TRUE(f.isReady());
 		auto [ckpt_id, rc] = f.value();
 		EXPECT_EQ(rc, 0);
+		(void) ckpt_id;
 		++fill_char;
 	}
 
@@ -378,6 +379,7 @@ TEST_F(VmSyncTest, FewInitialCheckPoints) {
 			EXPECT_TRUE(f.isReady());
 			auto [ckpt_id, rc] = f.value();
 			EXPECT_EQ(rc, 0);
+			(void) ckpt_id;
 		}
 	}
 	--fill_char;
