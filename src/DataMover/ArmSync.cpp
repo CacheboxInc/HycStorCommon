@@ -10,11 +10,11 @@
 #endif
 
 namespace pio {
-ArmSync::ArmSync(VirtualMachine* vmp,
+ArmSync::ArmSync(VirtualMachine* vmp, VmSync::Type type,
 			const ::ondisk::CheckPointID base,
 			uint16_t batch_size
 		) noexcept :
-			VmSync(vmp, base, batch_size),
+			VmSync(vmp, type, base, batch_size),
 			vmp_(vmp) {
 	SyncTill(vmp_->GetCurCkptID() - 1);
 }

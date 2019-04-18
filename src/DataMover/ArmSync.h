@@ -30,7 +30,7 @@ public:
 	ArmSync& operator = (const ArmSync&) = delete;
 	ArmSync& operator = (ArmSync&&) = delete;
 
-	ArmSync(VirtualMachine*, const ::ondisk::CheckPointID base,
+	ArmSync(VirtualMachine*, VmSync::Type, const ::ondisk::CheckPointID base,
 		uint16_t batch_size) noexcept;
 	// ArmSync(VirtualMachine*, SynceCookie::Cookie cookie) noexcept;
 	virtual ~ArmSync() noexcept;
