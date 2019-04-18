@@ -1450,17 +1450,17 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 		if (pio_unlikely(flush_not_running)) {
 			break;
 		}
-		if (itr->first == "-1") {
+		if (itr->first == "time_data") {
 			VLOG(10) << boost::format("%1% %2% %3% %4%")
 				% "Start time:-" % (itr->second).first
 				% "Elapsed time:-" % (itr->second).second;
-		} else if (itr->first == "-2") {
+		} else if (itr->first == "flush_data") {
 			flush_duration = (itr->second).first;
-			move_duration  = (itr->second).second;
-		} else if (itr->first == "-3") {
-			flush_bytes = (itr->second).first;
+			flush_bytes = (itr->second).second;
+		} else if (itr->first == "move_data") {
+			move_duration  = (itr->second).first;
 			move_bytes  = (itr->second).second;
-		} else {
+		} else if (itr->first == vmid) {
 			VLOG(10) << boost::format("[LUN:%1%] %2% %3% %|20t|%4% %5%")
 				% itr->first % "Flushed Blks:-" % (itr->second).first
 				% "Moved Blks:-" % (itr->second).second;

@@ -490,8 +490,8 @@ int VirtualMachine::FlushStatus(FlushStats &flush_stat) {
 		flush_bytes += (vmdkp->aux_info_->GetFlushedBlksCnt() * vmdkp->BlockSize());
 		move_bytes  += (vmdkp->aux_info_->GetMovedBlksCnt() * vmdkp->BlockSize());
 	}
-	flush_stat.emplace("-2", std::make_pair(flush_time, move_time));
-	flush_stat.emplace("-3", std::make_pair(flush_bytes, move_bytes));
+	flush_stat.emplace("flush_data", std::make_pair(flush_time, flush_bytes));
+	flush_stat.emplace("move_data", std::make_pair(move_time, move_bytes));
 	return 0;
 }
 

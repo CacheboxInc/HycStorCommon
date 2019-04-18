@@ -77,7 +77,6 @@ void FlushManager::PopulateHistory(const VmID& vmid, FlushInstance *fi, int stat
 
 	pio::FlushStats flush_stat;
 	FlushStats::iterator itr;
-	bool first = true;
 
 	auto rc = fi->FlushStatus(vmid, flush_stat);
 	if(pio_unlikely(rc)) {
@@ -85,25 +84,34 @@ void FlushManager::PopulateHistory(const VmID& vmid, FlushInstance *fi, int stat
 		return;
 	}
 
+	bool perform_move, perform_flush;
+	if (not fi->GetJsonConfig()->GetFlushAllowedStatus(perform_flush)) {
+		perform_flush = true;
+	}
+	if (not fi->GetJsonConfig()->GetMoveAllowedStatus(perform_move)) {
+		perform_move = true;
+	}
+
 	for (itr = flush_stat.begin(); itr != flush_stat.end(); ++itr) {
-		if (pio_unlikely(first)) {
+		if (itr->first == "time_data") {
 			h.StartedAt   = fi->GetStartTime();
 			h.RunDuration = (itr->second).second;
-			first = false;
-		} else if (itr->first == "-2") {
+		} else if (itr->first == "flush_data" && perform_flush) {
 			h.FlushDuration = (itr->second).first;
-			h.MoveDuration  = (itr->second).second;
-		} else if (itr->first == "-3") {
-			h.FlushBytes = (itr->second).first;
-			h.MoveBytes  = (itr->second).second;
-		} else {
-			h.FlushedBlks += (itr->second).first;
-			h.MovedBlks   += (itr->second).second;
+			h.FlushBytes    = (itr->second).second;
+		} else if (itr->first == "move_data" && perform_move) {
+			h.MoveDuration  = (itr->second).first;
+			h.MoveBytes     = (itr->second).second;
+		} else if (itr->first == vmid) {
+			if (perform_flush) {
+				h.FlushedBlks += (itr->second).first;
+			} else if (perform_move) {
+				h.MovedBlks   += (itr->second).second;
+			}
 		}
 	}
 
-	LOG(INFO) << "Populating history for vmid: " << vmid
-		<< "\nh.FlushedBlks: " << h.FlushedBlks << "h.MovedBlks" << h.MovedBlks;
+	LOG(INFO) << "Populating history for vmid: " << vmid;
 
 	int cnt = flush_history_.count(vmid);
 	if (pio_likely(cnt > 4)) {
@@ -149,22 +157,26 @@ int FlushManager::GetHistory(const VmID& vmid, void *history_p) {
 			json_object_set_new(all_params, "Flush Started at",
 				json_string(strtok(std::ctime(&st), "\n")));
 		} else {
-			json_object_set_new(all_params, "flushed_blks_cnt",
-				json_integer(h.FlushedBlks));
-			json_object_set_new(all_params, "moved_blks_cnt",
-				json_integer(h.MovedBlks));
-			json_object_set_new(all_params, "flush_duration(ms)",
-				json_integer(h.FlushDuration));
-			json_object_set_new(all_params, "move_duration(ms)",
-				json_integer(h.MoveDuration));
-			json_object_set_new(all_params, "Flush Started at",
+			if (h.FlushedBlks) {
+				json_object_set_new(all_params, "flushed_blks_cnt",
+					json_integer(h.FlushedBlks));
+				json_object_set_new(all_params, "flush_duration(ms)",
+					json_integer(h.FlushDuration));
+			}
+			if (h.MovedBlks) {
+				json_object_set_new(all_params, "moved_blks_cnt",
+					json_integer(h.MovedBlks));
+				json_object_set_new(all_params, "move_duration(ms)",
+					json_integer(h.MoveDuration));
+			}
+			json_object_set_new(all_params, "Started at",
 				json_string(strtok(std::ctime(&st), "\n")));
-			json_object_set_new(all_params, "Flush Ended at",
+			json_object_set_new(all_params, "Ended at",
 				json_string(strtok(std::ctime(&et), "\n")));
-			json_object_set_new(all_params, "Total flush time(ms)",
+			json_object_set_new(all_params, "Operation time(ms)",
 				json_integer(h.RunDuration));
 			json_object_set_new(all_params, "Status",
-				json_string("Flush Completed"));
+				json_string("Completed"));
 		}
 
 		auto *all_param_str = json_dumps(all_params, JSON_ENCODE_ANY);

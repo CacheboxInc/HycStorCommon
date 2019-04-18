@@ -132,7 +132,7 @@ int FlushInstance::FlushStatus(const VmID& vmid, FlushStats &flush_stat) {
 
 	/* Append start and elapsed time in stat */
 	auto ms = std::chrono::time_point_cast<std::chrono::milliseconds>(start_time_);
-	flush_stat.emplace("-1", std::make_pair(ms.time_since_epoch().count(), ElapsedTime()));
+	flush_stat.emplace("time_data", std::make_pair(ms.time_since_epoch().count(), ElapsedTime()));
 
 	auto rc = vmp->FlushStatus(flush_stat);
 	if (pio_unlikely(rc)) {

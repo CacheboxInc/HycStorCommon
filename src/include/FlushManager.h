@@ -32,13 +32,13 @@ public:
 	void FreeHistory(const ::ondisk::VmID& vmid);
 	struct instance_history {
 		int status;
-		uint64_t FlushedBlks;
-		uint64_t MovedBlks;
-		uint64_t RunDuration;
-		uint64_t FlushDuration;
-		uint64_t MoveDuration;
-		uint64_t FlushBytes;
-		uint64_t MoveBytes;
+		uint64_t FlushedBlks{0};
+		uint64_t MovedBlks{0};
+		uint64_t RunDuration{0};
+		uint64_t FlushDuration{0};
+		uint64_t MoveDuration{0};
+		uint64_t FlushBytes{0};
+		uint64_t MoveBytes{0};
 		std::chrono::system_clock::time_point StartedAt;
 	};
 	int GetHistory(const ::ondisk::VmID& vmid, void *history_param);
