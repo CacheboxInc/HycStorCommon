@@ -150,14 +150,14 @@ folly::Future<int> DirtyHandler::Write(ActiveVmdk *vmdkp, Request *reqp,
 		return -ENODEV;
 	}
 
-	vmdkp->cache_stats_.cache_writes_ += process.size();
+	vmdkp->stats_->cache_writes_ += process.size();
 
 	if (pio_unlikely(aero_conn_ == nullptr)) {
 		return nextp_->Write(vmdkp, reqp, ckpt, process, failed);
 	}
 
 	return aero_obj_->AeroWriteCmdProcess(vmdkp, ckpt, process, failed,
-		kAsNamespaceCacheDirty, aero_conn_)
+		kAsNamespaceCacheDirty, aero_conn_, false)
 	.then([this, vmdkp, &process, &failed, ckpt, connect = this->aero_conn_] (int rc)
 			mutable -> folly::Future<int> {
 		if (pio_unlikely(rc != 0)) {
@@ -200,14 +200,14 @@ folly::Future<int> DirtyHandler::ReadPopulate(ActiveVmdk *vmdkp, Request *reqp,
 		return -ENODEV;
 	}
 
-	//LOG(ERROR) << __func__ << "Calling ReadPopulate";
+	VLOG(5) << __func__ << "Calling ReadPopulate";
 	return nextp_->ReadPopulate(vmdkp, reqp, process, failed);
 }
 
 /* TBD : Pass the checkpoint ID from top */
 folly::Future<int> DirtyHandler::BulkMove(ActiveVmdk *vmdkp,
 		::ondisk::CheckPointID ckpt_id,
-		const std::vector<std::unique_ptr<Request>>&,
+		const std::vector<std::unique_ptr<Request>>& reqs,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
 
@@ -230,6 +230,14 @@ folly::Future<int> DirtyHandler::BulkMove(ActiveVmdk *vmdkp,
 #ifdef INJECT_MOVE_FAILURE
 	static std::atomic<uint32_t> count=0;
 #endif
+
+	/* Check for MergeContext flag, it will be set for all request
+	 * so just checking the first one is sufficiet */
+	auto reqp = (reqs.begin())->get();
+	if (pio_unlikely(reqp->GetMergeContext())) {
+		VLOG(5) << __func__ << "MergeContext flag is set";
+		return nextp_->BulkMove(vmdkp, ckpt_id, reqs, process, failed);
+	}
 
 	/* Read record from DIRTY Namespace */
 	return aero_obj_->AeroReadCmdProcess(vmdkp, process, failed,
@@ -273,7 +281,7 @@ folly::Future<int> DirtyHandler::BulkMove(ActiveVmdk *vmdkp,
 
 		/* Write record into CLEAN namespace */
 		return aero_obj_->AeroWriteCmdProcess(vmdkp, ckpt_id,
-			process, failed, kAsNamespaceCacheClean, connect)
+			process, failed, kAsNamespaceCacheClean, connect, false)
 		.then([this, vmdkp, &process, &failed, connect, ckpt_id] (int rc) mutable
 			-> folly::Future<int> {
 			if (pio_unlikely(rc)) {
@@ -365,7 +373,7 @@ folly::Future<int> DirtyHandler::Move(ActiveVmdk *vmdkp, Request *reqp,
 
 		/* Write record into CLEAN namespace */
 		return aero_obj_->AeroWriteCmdProcess(vmdkp, reqp->GetFlushCkptID(),
-			process, failed, kAsNamespaceCacheClean, connect)
+			process, failed, kAsNamespaceCacheClean, connect, false)
 		.then([this, vmdkp, reqp, &process, &failed, connect] (int rc) mutable
 			-> folly::Future<int> {
 			if (pio_unlikely(rc)) {
@@ -411,9 +419,9 @@ folly::Future<int> DirtyHandler::BulkWrite(ActiveVmdk* vmdkp,
 		return nextp_->BulkWrite(vmdkp, ckpt, requests, process, failed);
 	}
 
-	vmdkp->cache_stats_.cache_writes_ += process.size();
+	vmdkp->stats_->cache_writes_ += process.size();
 	return aero_obj_->AeroWriteCmdProcess(vmdkp, ckpt, process, failed,
-		kAsNamespaceCacheDirty, aero_conn_)
+		kAsNamespaceCacheDirty, aero_conn_, false)
 	.then([this, vmdkp, &process, &failed, ckpt, connect = this->aero_conn_] (int rc)
 			mutable -> folly::Future<int> {
 		if (pio_unlikely(rc != 0)) {

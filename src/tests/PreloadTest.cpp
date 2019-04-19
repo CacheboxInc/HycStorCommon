@@ -110,14 +110,14 @@ TEST_P(PreloadTest, EnsurePreload) {
 	EXPECT_EQ(vmp, vmdkp->GetVM());
 
 	if (preload_.end_ == 0 or preload_.step_ == 0) {
-		EXPECT_EQ(vmdkp->cache_stats_.read_populates_, 0);
+		EXPECT_EQ(vmdkp->stats_->read_populates_, 0);
 		return;
 	}
 
-	auto rm = vmdkp->cache_stats_.read_miss_.load();
-	EXPECT_EQ(vmdkp->cache_stats_.read_hits_, 0);
+	auto rm = vmdkp->stats_->read_miss_.load();
+	EXPECT_EQ(vmdkp->stats_->read_hits_, 0);
 
-	auto rp = vmdkp->cache_stats_.read_populates_.load();
+	auto rp = vmdkp->stats_->read_populates_.load();
 	uint32_t c = 0;
 	const auto& blocks = vmdkp->GetPreloadBlocks();
 	for (const auto& p : blocks) {
@@ -131,9 +131,9 @@ TEST_P(PreloadTest, EnsurePreload) {
 	f.wait(1s);
 	EXPECT_TRUE(f.isReady());
 	EXPECT_EQ(f.value(), 0);
-	EXPECT_EQ(vmdkp->cache_stats_.read_populates_, rp);
-	EXPECT_EQ(vmdkp->cache_stats_.read_miss_, rm);
-	EXPECT_EQ(vmdkp->cache_stats_.read_hits_, c);
+	EXPECT_EQ(vmdkp->stats_->read_populates_, rp);
+	EXPECT_EQ(vmdkp->stats_->read_miss_, rm);
+	EXPECT_EQ(vmdkp->stats_->read_hits_, c);
 }
 
 INSTANTIATE_TEST_CASE_P(PreloadTestParams, PreloadTest,

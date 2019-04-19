@@ -50,7 +50,7 @@ public:
 		if (is_compression_enabled)
 			config.ConfigureCompression("snappy", 1);
 		if (is_encryption_enabled)
-			config.ConfigureEncryption("aes256-gcm", "abc");
+			config.ConfigureEncryption("aes256-gcm", "abc", {0});
 		if (not is_compression_enabled)
 			config.DisableCompression();
 		if (not is_compression_enabled)
@@ -88,7 +88,7 @@ public:
 		}
 
 		if (is_encryption_enabled) {
-			auto encrypt = std::make_unique<EncryptHandler>(configp);
+			auto encrypt = std::make_unique<EncryptHandler>(vmdkp.get(), configp);
 			EXPECT_NE(encrypt, nullptr);
 			vmdkp->RegisterRequestHandler(std::move(encrypt));
 		}

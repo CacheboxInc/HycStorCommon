@@ -2,6 +2,7 @@
 #include <memory>
 #include <vector>
 #include <numeric>
+#include <atomic>
 
 #include <cstdint>
 #include <sys/eventfd.h>
@@ -101,7 +102,7 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	// Let this always be the last code block, pulling it up does not harm anything
 	// but just for the sake of rule, let this be the last code block
 	read_aheadp_ = NULL;
-	if(config_->IsReadAheadEnabled() 
+	if(config_->IsReadAheadEnabled()
 	&& disk_size_bytes_ >= ReadAhead::MinDiskSizeSupported()) {
 		read_aheadp_ = std::make_unique<ReadAhead>(this);
 		if (not read_aheadp_) {
@@ -112,6 +113,7 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	else {
 		LOG(INFO) << "ReadAhead is disabled";
 	}
+	stats_ = new VmdkCacheStats();
 
 	delta_file_path_ = config_->GetDeltaFileTargetPath();
 	if (delta_file_path_.length()) {
@@ -124,6 +126,7 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 ActiveVmdk::~ActiveVmdk() {
 	/* destroy layers before rest of the ActiveVmdk object is destroyed */
 	headp_ = nullptr;
+	delete stats_;
 }
 
 size_t ActiveVmdk::BlockShift() const {
@@ -138,35 +141,6 @@ size_t ActiveVmdk::BlockMask() const {
 	return BlockSize() - 1;
 }
 
-void ActiveVmdk::IncrReadBytes(size_t read_bytes) {
-	cache_stats_.total_bytes_reads_ += read_bytes;
-	return;
-}
-
-void ActiveVmdk::IncrWriteBytes(size_t write_bytes) {
-	cache_stats_.total_bytes_writes_ += write_bytes;
-	return;
-}
-
-void ActiveVmdk::IncrNwReadBytes(size_t read_bytes) {
-	cache_stats_.nw_bytes_read_ += read_bytes;
-	return;
-}
-
-void ActiveVmdk::IncrNwWriteBytes(size_t write_bytes) {
-	cache_stats_.nw_bytes_write_ += write_bytes;
-	return;
-}
-
-void ActiveVmdk::IncrAeroReadBytes(size_t read_bytes) {
-	cache_stats_.aero_bytes_read_ += read_bytes;
-	return;
-}
-
-void ActiveVmdk::IncrAeroWriteBytes(size_t write_bytes) {
-	cache_stats_.aero_bytes_write_ += write_bytes;
-	return;
-}
 void ActiveVmdk::SetEventFd(int eventfd) noexcept {
 	eventfd_ = eventfd;
 }
@@ -215,7 +189,7 @@ int ActiveVmdk::UpdatefdMap(const int64_t& snap_id, const int32_t& fd) {
 
 int ActiveVmdk::CreateNewVmdkDeltaContext(int64_t snap_id) {
 
-	/* TBD: FileTargetHandler with encryption and compression not supported, 
+	/* TBD: FileTargetHandler with encryption and compression not supported,
 	 * add a check here */
 
 	std::string file_path = delta_file_path_;
@@ -241,7 +215,7 @@ int ActiveVmdk::CreateNewVmdkDeltaContext(int64_t snap_id) {
 		LOG(ERROR) << "Update fd map for delta_fd:" << delta_fd_ << ", snap_id:" << snap_id;
 		UpdatefdMap(snap_id - 1, delta_fd_);
 	}
-	
+
 	/* Update the fd which is being used for write */
 	delta_fd_ = fd;
 	return 0;
@@ -280,34 +254,37 @@ void ActiveVmdk::ComputePreloadBlocks() {
 
 void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
 
-	if (pio_likely(read_aheadp_)) {
+	if (pio_likely(read_aheadp_ && read_aheadp_->IsReadAheadEnabled())) {
 		vmdk_stats->read_ahead_blks_ = read_aheadp_->StatsTotalReadAheadBlocks();
+		vmdk_stats->rh_random_patterns_ = read_aheadp_->StatsTotalRandomPatterns();
+		vmdk_stats->rh_strided_patterns_ = read_aheadp_->StatsTotalStridedPatterns();
+		vmdk_stats->rh_correlated_patterns_ = read_aheadp_->StatsTotalCorrelatedPatterns();
+		vmdk_stats->rh_unlocked_reads_ = read_aheadp_->StatsTotalUnlockedReads();
 
-		auto app_reads               = cache_stats_.total_blk_reads_ -
-						vmdk_stats->read_ahead_blks_;
+		auto app_reads = stats_->total_blk_reads_ - vmdk_stats->read_ahead_blks_;
 		vmdk_stats->total_blk_reads_ = app_reads;
 
-		vmdk_stats->total_reads_     = cache_stats_.total_reads_;
+		atomic_store(&vmdk_stats->total_reads_, atomic_load(&(stats_->total_reads_)));
 		vmdk_stats->read_miss_       = read_aheadp_->StatsTotalReadMissBlocks();
 		vmdk_stats->read_hits_       = app_reads - vmdk_stats->read_miss_;
 	} else {
-		vmdk_stats->total_blk_reads_ = cache_stats_.total_blk_reads_;
-		vmdk_stats->total_reads_     = cache_stats_.total_reads_;
-		vmdk_stats->read_miss_       = cache_stats_.read_miss_;
-		vmdk_stats->read_hits_       = cache_stats_.read_hits_;
+		atomic_store(&vmdk_stats->total_blk_reads_, atomic_load(&stats_->total_blk_reads_));
+		atomic_store(&vmdk_stats->total_reads_, atomic_load(&stats_->total_reads_));
+		atomic_store(&vmdk_stats->read_miss_, atomic_load(&stats_->read_miss_));
+		atomic_store(&vmdk_stats->read_hits_, atomic_load(&stats_->read_hits_));
 	}
 
-	vmdk_stats->total_writes_   = cache_stats_.total_writes_;
-	vmdk_stats->read_populates_ =  cache_stats_.read_populates_;
-	vmdk_stats->cache_writes_   =  cache_stats_.cache_writes_;
-	vmdk_stats->read_failed_    = cache_stats_.read_failed_;
-	vmdk_stats->write_failed_   = cache_stats_.write_failed_;
+	atomic_store(&vmdk_stats->total_writes_, atomic_load(&stats_->total_writes_));
+	atomic_store(&vmdk_stats->read_populates_, atomic_load(&stats_->read_populates_));
+	atomic_store(&vmdk_stats->cache_writes_   , atomic_load(&stats_->cache_writes_));
+	atomic_store(&vmdk_stats->read_failed_    , atomic_load(&stats_->read_failed_));
+	atomic_store(&vmdk_stats->write_failed_   , atomic_load(&stats_->write_failed_));
 
-	vmdk_stats->reads_in_progress_  = stats_.reads_in_progress_;
-	vmdk_stats->writes_in_progress_ = stats_.writes_in_progress_;
+	atomic_store(&vmdk_stats->reads_in_progress_, atomic_load(&stats_->reads_in_progress_));
+	atomic_store(&vmdk_stats->writes_in_progress_, atomic_load(&stats_->writes_in_progress_));
 
-	vmdk_stats->flushes_in_progress_ = FlushesInProgress();
-	vmdk_stats->moves_in_progress_   = MovesInProgress();
+	vmdk_stats->flushes_in_progress_ = stats_->FlushesInProgress();
+	vmdk_stats->moves_in_progress_   = stats_->MovesInProgress();
 
 	vmdk_stats->block_size_  = BlockSize();
 
@@ -317,28 +294,25 @@ void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
 	vmdk_stats->flushed_blocks_ = GetFlushedBlksCnt();
 	vmdk_stats->moved_blocks_   = GetMovedBlksCnt() ;
 	vmdk_stats->pending_blocks_ = GetPendingBlksCnt();
-	vmdk_stats->dirty_blocks_   = GetDirtyBlockCount();
-	vmdk_stats->clean_blocks_   = GetCleanBlockCount();
 
-	vmdk_stats->nw_bytes_write_   = cache_stats_.nw_bytes_write_;
-	vmdk_stats->nw_bytes_read_    = cache_stats_.nw_bytes_read_;
-	vmdk_stats->aero_bytes_write_ = cache_stats_.aero_bytes_write_;
-	vmdk_stats->aero_bytes_read_  = cache_stats_.aero_bytes_read_;
+	atomic_store(&vmdk_stats->nw_bytes_write_   , atomic_load(&stats_->nw_bytes_write_));
+	atomic_store(&vmdk_stats->nw_bytes_read_    , atomic_load(&stats_->nw_bytes_read_));
+	atomic_store(&vmdk_stats->aero_bytes_write_ , atomic_load(&stats_->aero_bytes_write_));
+	atomic_store(&vmdk_stats->aero_bytes_read_  , atomic_load(&stats_->aero_bytes_read_));
 
-	vmdk_stats->total_bytes_reads_  = cache_stats_.total_bytes_reads_;
-	vmdk_stats->total_bytes_writes_ = cache_stats_.total_bytes_writes_;
+	atomic_store(&vmdk_stats->total_bytes_reads_  , atomic_load(&stats_->total_bytes_reads_));
+	atomic_store(&vmdk_stats->total_bytes_writes_ , atomic_load(&stats_->total_bytes_writes_));
 
-	vmdk_stats->bufsz_before_compress = cache_stats_.bufsz_before_compress;
-	vmdk_stats->bufsz_after_compress = cache_stats_.bufsz_after_compress;
-	vmdk_stats->bufsz_before_uncompress = cache_stats_.bufsz_before_uncompress;
-	vmdk_stats->bufsz_after_uncompress = cache_stats_.bufsz_after_uncompress;
+	atomic_store(&vmdk_stats->bufsz_before_compress , atomic_load(&stats_->bufsz_before_compress));
+	atomic_store(&vmdk_stats->bufsz_after_compress , atomic_load(&stats_->bufsz_after_compress));
+	atomic_store(&vmdk_stats->bufsz_before_uncompress ,
+			atomic_load(&stats_->bufsz_before_uncompress));
+	atomic_store(&vmdk_stats->bufsz_after_uncompress ,
+			atomic_load(&stats_->bufsz_after_uncompress));
 }
 
 void ActiveVmdk::FillCacheStats(IOAVmdkStats& dest) const noexcept {
-	VmdkCacheStats cur_stats;
-
-	GetCacheStats(&cur_stats);
-	cur_stats.GetCummulativeCacheStats(old_cache_stats_, dest);
+	stats_->GetDeltaCacheStats(old_stats_, dest);
 }
 
 CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
@@ -395,6 +369,36 @@ void ActiveVmdk::SetReadCheckPointId(const std::vector<RequestBlock*>& blockps,
 		log_assert(ckpt_id != MetaData_constants::kInvalidCheckPointID());
 		blockp->SetReadCheckPointId(ckpt_id);
 		blockp->AssignSet(found);
+		/* Track number of reads per checkpoint */
+		//GetVM()->IncCheckPointRef(ckpt_id);
+	}
+}
+
+void ActiveVmdk::IncCheckPointRef(const std::vector<RequestBlock*>& blockps) {
+	for (auto blockp : blockps) {
+		auto ckpt_id = blockp->GetReadCheckPointId();
+		log_assert(ckpt_id != MetaData_constants::kInvalidCheckPointID());
+		/* Track number of reads per checkpoint */
+		auto vmp = GetVM();
+		if (pio_likely(vmp)) {
+			vmp->IncCheckPointRef(ckpt_id);
+			VLOG(5) << __func__ << "Inc::"
+				<< blockp->GetAlignedOffset() << "::" << ckpt_id;
+		}
+	}
+}
+
+void ActiveVmdk::DecCheckPointRef(const std::vector<RequestBlock*>& blockps) {
+	for (auto blockp : blockps) {
+		auto ckpt_id = blockp->GetReadCheckPointId();
+		log_assert(ckpt_id != MetaData_constants::kInvalidCheckPointID());
+		/* Track number of reads per checkpoint */
+		auto vmp = GetVM();
+		if (pio_likely(vmp)) {
+			vmp->DecCheckPointRef(ckpt_id);
+			VLOG(5) << __func__ << "Dec::"
+				<< blockp->GetAlignedOffset() << "::" << ckpt_id;
+		}
 	}
 }
 
@@ -415,9 +419,10 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp, const CheckPoints& min_max) {
 			return true;
 		});
 		SetReadCheckPointId(*process, min_max);
+		IncCheckPointRef(*process);
 
-		++stats_.reads_in_progress_;
-		++cache_stats_.total_reads_;
+		++stats_->reads_in_progress_;
+		++stats_->total_reads_;
 		return headp_->Read(this, reqp, *process, *failed)
 		.then([this, reqp, process = std::move(process),
 				failed = std::move(failed)] (folly::Try<int>& result) mutable {
@@ -434,8 +439,9 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp, const CheckPoints& min_max) {
 				}
 			}
 
-			--stats_.reads_in_progress_;
-			IncrReadBytes(reqp->GetBufferSize());
+			--stats_->reads_in_progress_;
+			stats_->IncrReadBytes(reqp->GetBufferSize());
+			DecCheckPointRef(*process);
 			return reqp->Complete();
 		});
 	});
@@ -444,16 +450,17 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp, const CheckPoints& min_max) {
 folly::Future<int> ActiveVmdk::BulkRead(const CheckPoints& min_max,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process) {
-	return TakeLockAndBulkInvoke(requests,
-			[this, &requests, &process, min_max = std::move(min_max)] () {
+	auto locked_process = std::make_unique<std::vector<RequestBlock*>>();
+	auto cb = [this, &requests, &process, /*&locked_process,*/ min_max = std::move(min_max)]() {
 		SetReadCheckPointId(process, min_max);
-		stats_.reads_in_progress_ += requests.size();
-		cache_stats_.total_reads_ += requests.size();
+		stats_->reads_in_progress_ += requests.size();
+		stats_->total_reads_ += requests.size();
 
 		auto failed = std::make_unique<std::vector<RequestBlock*>>();
 		return headp_->BulkRead(this, requests, process, *failed)
-		.then([this, failed = std::move(failed), &requests]
-				(folly::Try<int>& result) mutable {
+		.then([this, failed = std::move(failed), &requests
+			/*,locked_process = std::move(locked_process)*/]
+			(folly::Try<int>& result) mutable {
 			auto failedp = failed.get();
 			auto Fail = [&requests, &failedp] (int rc = -ENXIO, bool all = true) {
 				if (all) {
@@ -475,19 +482,29 @@ folly::Future<int> ActiveVmdk::BulkRead(const CheckPoints& min_max,
 					Fail(rc, not failedp->empty());
 				}
 			}
-
+			
 			int32_t res = 0;
-			stats_.reads_in_progress_ -= requests.size();
+			stats_->reads_in_progress_ -= requests.size();
 			for (auto& reqp : requests) {
-				auto rc = reqp->Complete();
-				if (pio_unlikely(rc < 0)) {
-					res = rc;
-				}
-				IncrReadBytes(reqp->GetBufferSize());
+				//if(!reqp->IsReadAheadRequest()) {
+					auto rc = reqp->Complete();
+					if (pio_unlikely(rc < -1)) {
+						res = rc;
+					}
+					stats_->IncrReadBytes(reqp->GetBufferSize());
+				//}
 			}
 			return res;
 		});
-	});
+	};
+	if(requests[0]->IsReadAheadRequest()) {
+		// TryLock implementation for ReadAhead
+		// Selective-non-block-locking on all ranges in the Request vector
+		// Emits locked_process which contains only those blocks for which a lock
+		// was successfully acquired without blocking
+		return TryLockAndBulkInvoke(requests, process, *locked_process, cb);
+	}
+	return TakeLockAndBulkInvoke(requests, cb);	
 }
 
 folly::Future<int> ActiveVmdk::TruncateBlocks([[maybe_unused]] RequestID reqid,
@@ -592,8 +609,9 @@ folly::Future<int> ActiveVmdk::Flush(Request* reqp, const CheckPoints& min_max) 
 	});
 
 	SetReadCheckPointId(*process, min_max);
+	IncCheckPointRef(*process);
 
-	++stats_.flushes_in_progress_;
+	++stats_->flushes_in_progress_;
 	return headp_->Flush(this, reqp, *process, *failed)
 	.then([this, reqp, process = std::move(process),
 			failed = std::move(failed)] (folly::Try<int>& result) mutable {
@@ -613,7 +631,8 @@ folly::Future<int> ActiveVmdk::Flush(Request* reqp, const CheckPoints& min_max) 
 			}
 		}
 
-		--stats_.flushes_in_progress_;
+		this->DecCheckPointRef(*process);
+		--stats_->flushes_in_progress_;
 		return rc;
 	});
 }
@@ -622,10 +641,11 @@ folly::Future<int> ActiveVmdk::BulkFlush(const CheckPoints& min_max,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process) {
 	SetReadCheckPointId(process, min_max);
+	IncCheckPointRef(process);
 
 	auto failed = std::make_unique<std::vector<RequestBlock*>>();
 	return headp_->BulkFlush(this, requests, process, *failed)
-	.then([failed = std::move(failed), &requests]
+	.then([this, failed = std::move(failed), &requests, process]
 			(folly::Try<int>& result) mutable {
 		auto ret = 0;
 		auto failedp = failed.get();
@@ -658,6 +678,7 @@ folly::Future<int> ActiveVmdk::BulkFlush(const CheckPoints& min_max,
 				ret = reqp->GetResult();
 			}
 		}
+		DecCheckPointRef(process);
 		return ret;
 	});
 }
@@ -682,11 +703,11 @@ folly::Future<int> ActiveVmdk::Move(Request* reqp, const CheckPoints& min_max) {
 		});
 
 		SetReadCheckPointId(*process, min_max);
-		++stats_.moves_in_progress_;
+		IncCheckPointRef(*process);
+		++stats_->moves_in_progress_;
 		return headp_->Move(this, reqp, *process, *failed)
 		.then([this, reqp, process = std::move(process),
-				failed = std::move(failed)] (folly::Try<int>& result) mutable {
-
+			failed = std::move(failed)] (folly::Try<int>& result) mutable {
 			auto rc = 0;
 			if (result.hasException<std::exception>()) {
 				reqp->SetResult(-ENOMEM, RequestStatus::kFailed);
@@ -703,7 +724,8 @@ folly::Future<int> ActiveVmdk::Move(Request* reqp, const CheckPoints& min_max) {
 				}
 			}
 
-			--stats_.moves_in_progress_;
+			--stats_->moves_in_progress_;
+			this->DecCheckPointRef(*process);
 			return rc;
 		});
 	});
@@ -766,8 +788,8 @@ int ActiveVmdk::WriteRequestComplete(Request* reqp, CheckPointID ckpt_id) {
 }
 
 int ActiveVmdk::WriteComplete(Request* reqp, CheckPointID ckpt_id) {
-	--stats_.writes_in_progress_;
-	IncrWriteBytes(reqp->GetBufferSize());
+	--stats_->writes_in_progress_;
+	stats_->IncrWriteBytes(reqp->GetBufferSize());
 	return WriteRequestComplete(reqp, ckpt_id);
 }
 
@@ -775,13 +797,13 @@ int ActiveVmdk::WriteComplete(
 		const std::vector<std::unique_ptr<Request>>& requests,
 		CheckPointID ckpt_id) {
 	int ret = 0;
-	--stats_.writes_in_progress_;
+	--stats_->writes_in_progress_;
 	for (auto& request : requests) {
 		auto rc = WriteRequestComplete(request.get(), ckpt_id);
 		if (pio_unlikely(rc < 0)) {
 			ret = rc;
 		}
-		IncrWriteBytes(request->GetBufferSize());
+		stats_->IncrWriteBytes(request->GetBufferSize());
 	}
 	return ret;
 }
@@ -795,8 +817,8 @@ folly::Future<int> ActiveVmdk::BulkWrite(::ondisk::CheckPointID ckpt_id,
 
 	return TakeLockAndBulkInvoke(requests,
 		[this, &requests, &process, ckpt_id = std::move(ckpt_id)] () {
-		stats_.writes_in_progress_ += requests.size();
-		cache_stats_.total_writes_ += requests.size();
+		stats_->writes_in_progress_ += requests.size();
+		stats_->total_writes_ += requests.size();
 		auto failed = std::make_unique<std::vector<RequestBlock*>>();
 
 		return headp_->BulkWrite(this, ckpt_id, requests, process, *failed)
@@ -868,8 +890,8 @@ folly::Future<int> ActiveVmdk::WriteCommon(Request* reqp, CheckPointID ckpt_id) 
 			return true;
 		});
 
-		++stats_.writes_in_progress_;
-		++cache_stats_.total_writes_;
+		++stats_->writes_in_progress_;
+		++stats_->total_writes_;
 		return headp_->Write(this, reqp, ckpt_id, *process, *failed)
 		.then([this, reqp, ckpt_id, process = std::move(process),
 				failed = std::move(failed)] (folly::Try<int>& result) mutable {
@@ -1318,7 +1340,7 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 	uint32_t block_cnt = 0, saved_block_cnt = 0;
 	auto vmdkid  = GetID();
 
-	VLOG (5) << __func__ << vmdkid << "::"
+	LOG (INFO) << __func__ << vmdkid << "::"
 			<< " Flush stage start"
 			<< ", max_pending_reqs::"
 			<< max_pending_reqs;
@@ -1559,7 +1581,7 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 
 	aux_info_->lock_.unlock();
 
-	VLOG (5) << __func__ << vmdkid << "::"
+	LOG (INFO) << __func__ << vmdkid << "::"
 		<< "Flush stage End, total attempted flushed blocks count::"
 		<< aux_info_->flushed_blks_
 		<< ", status::" << aux_info_->failed_
@@ -1813,6 +1835,171 @@ int ActiveVmdk::FlushStage_v2(CheckPointID ckpt_id,
 	return aux_info_->failed_;
 }
 
+bool ActiveVmdk::IsCkptFlushed(CheckPointID ckpt_id) {
+	std::lock_guard<std::mutex> guard(checkpoints_.mutex_);
+	auto it = pio::BinarySearch(checkpoints_.flushed_.begin(),
+			checkpoints_.flushed_.end(), ckpt_id, []
+			(const std::unique_ptr<CheckPoint>& ckpt, CheckPointID ckpt_id) {
+				return ckpt->ID() < ckpt_id;
+			});
+	if (it != checkpoints_.flushed_.end()) {
+		return true;
+	}
+
+	return false;
+}
+
+folly::Future<int> ActiveVmdk::CkptBitmapMerge(CheckPointID ckpt_id) {
+
+	if (pio_unlikely(!IsCkptFlushed(ckpt_id))) {
+		LOG(ERROR) << __func__ << "Given checkpoint "
+			<< ckpt_id << " is not into flushed checkpoint list";
+		return -EINVAL;
+	}
+
+	if (pio_unlikely(!IsCkptFlushed(ckpt_id + 1))) {
+		LOG(ERROR) << __func__ << "Given checkpoint appears as last flushed checkpoint,"
+			<< " there is no subsquent checkpoint avaliable to merge";
+		return -EINVAL;
+	}
+
+	/* Create vector of checkpoints to process */
+	std::vector<CheckPointID> ckpt_vec;
+	ckpt_vec.emplace_back(ckpt_id);
+	ckpt_vec.emplace_back(ckpt_id + 1);
+
+	/* Create a new checkpoint str */
+	auto checkpoint = std::make_unique<CheckPoint>(GetID(), ckpt_id + 1);
+	auto rc = checkpoint->CkptBitmapMerge(this, ckpt_vec);
+	if (pio_unlikely(rc)) {
+		LOG(ERROR) << __func__ << "Unions of bitmaps failed";
+		return rc;
+	}
+
+	auto json = checkpoint->Serialize();
+	auto key = checkpoint->SerializationKey();
+
+	/* Serialize the new bitmap, we are currently overwritting the existing one. */
+	/* TBD: Record versioning is required */
+	return metad_kv_->Write(std::move(key), std::move(json))
+	.then([this, ckpt_id, checkpoint = std::move(checkpoint)] (int rc) mutable {
+		if (pio_unlikely(rc < 0)) {
+			return folly::makeFuture(rc);
+		} else {
+			checkpoint->SetSerialized();
+		}
+
+		/* Replace older checkpoint str with new merged one so
+		 * that all the new IOs can start using the Merged bitmap.
+		 * TBD : We may need to quiesce the IOs on ckpt + 1 also
+		 * so that older refrences drained out properly */
+
+		std::lock_guard<std::mutex> guard(checkpoints_.mutex_);
+		auto it = pio::BinarySearch(checkpoints_.flushed_.begin(),
+				checkpoints_.flushed_.end(), ckpt_id + 1, []
+				(const std::unique_ptr<CheckPoint>& ckpt, CheckPointID ckpt_id) {
+					return ckpt->ID() < ckpt_id;
+				});
+		if (it == checkpoints_.flushed_.end()) {
+			return folly::makeFuture(-EINVAL);
+		}
+
+		/* Keep track of checkpoint so that we can use it as reference at time of
+		 * Data merging */
+
+		checkpoints_.tracked_.emplace_back(std::move(*it));
+		*it = std::move(checkpoint);
+		return folly::makeFuture(0);
+	});
+}
+
+int ActiveVmdk::ValidateCkpt(CheckPointID) {
+
+#if 0
+	auto ckptp = GetCheckPoint(ckpt_id);
+	log_assert(ckptp != nullptr);
+	log_assert(ckptp->IsFlushed() == true);
+	const auto& bitmap = ckptp->GetRoaringBitMap();
+	auto it = bitmap.begin();
+	auto eit = bitmap.end();
+	LOG(ERROR) << __func__ << "START...";
+	while (true) {
+		auto block = *it;
+		LOG(ERROR) << __func__ << "Block::" << block;
+		++it;
+		if (pio_likely(it == eit)) {
+			break;
+		}
+	}
+	LOG(ERROR) << __func__ << "END...";
+#endif
+	return 0;
+}
+
+int ActiveVmdk::MergeStages(CheckPointID ckpt_id, MergeStageType type) {
+
+	auto rc = 0;
+	if (type == MergeStageType::kBitmapMergeStage) {
+		auto f = CkptBitmapMerge(ckpt_id);
+		f.wait();
+		rc  = f.value();
+		if(pio_likely(rc)) {
+			LOG(ERROR) << __func__ << "Checkpoint bitmap merge failed for vmdkID:"
+				<< GetID() << ", ckpt id:" << ckpt_id << ", rc:" << rc;
+		} else {
+			LOG(INFO) << __func__ << "Checkpoint bitmap merge successfully for vmdkID:"
+				<< GetID() << ", ckpt id:" << ckpt_id << ", rc:" << rc;
+			ValidateCkpt(ckpt_id + 1);
+		}
+	} else if (type == MergeStageType::kDataMergeStage) {
+
+		/* Start promotion of data from old checkpoint ID to new one */
+		auto val = ((checkpoints_.tracked_).begin())->get();
+
+		/* 4th argument is to pass merge_context to Move function to distinguish between
+		 * normal move post flush vs move in context of ckpt merge */
+		rc = MoveStage_v3(ckpt_id, kMaxFlushIoSize, 4, true, val->GetRoaringBitMap());
+		if (rc) {
+			LOG(ERROR) << __func__ << "Checkpoint data merge failed for vmdkID:"
+				<< GetID() << ", ckpt id:" << ckpt_id << ", rc:" << rc;
+			return rc;
+		}
+
+		/* Cleanup, remove ckptid+1 from tracked str */
+		for (auto it = (checkpoints_.tracked_).begin();
+				it != (checkpoints_.tracked_).end();) {
+			it = checkpoints_.tracked_.erase(it);
+			if (it != (checkpoints_.tracked_).end())
+				++it;
+		}
+		checkpoints_.tracked_.clear();
+
+		/* Cleanup, remove ckptid from flushed ckpt list */
+		std::lock_guard<std::mutex> guard(checkpoints_.mutex_);
+		auto it = pio::BinarySearch(checkpoints_.flushed_.begin(),
+				checkpoints_.flushed_.end(), ckpt_id, []
+				(const std::unique_ptr<CheckPoint>& ckpt, CheckPointID ckpt_id) {
+				return ckpt->ID() < ckpt_id;
+				});
+		if (it == checkpoints_.flushed_.end()) {
+			rc = -EINVAL;
+			LOG(ERROR) << __func__ << "Invalid configuration, "
+				"failed to find checkpoint in flushed list for vmdkID:"
+				<< GetID() << ", ckpt id:" << ckpt_id << ", rc:" << rc;
+		} else {
+			/* Remove pesistent str */
+			auto checkpoint = it->get();
+			auto key = checkpoint->SerializationKey();
+			auto f = metad_kv_->Delete(std::move(key));
+			f.wait();
+			rc = f.value();
+			checkpoints_.flushed_.erase(it);
+		}
+	}
+
+	return rc;
+}
+
 int ActiveVmdk::FlushStages(CheckPointID ckpt_id, bool perform_flush,
 		bool perform_move,
 		uint32_t max_req_size, uint32_t max_pending_reqs) {
@@ -1845,7 +2032,8 @@ int ActiveVmdk::FlushStages(CheckPointID ckpt_id, bool perform_flush,
 
 	if (pio_likely(perform_move)) {
 #ifdef USE_MOVE_VERSION2
-		rc = MoveStage_v3(ckpt_id, max_req_size, 4);
+		Roaring tmp;
+		rc = MoveStage_v3(ckpt_id, max_req_size, 4, false, tmp);
 #else
 		rc = MoveStage(ckpt_id, max_pending_reqs);
 #endif
@@ -2222,10 +2410,10 @@ folly::Future<int> ActiveVmdk::BulkMove(const CheckPoints& min_max,
 	return TakeLockAndBulkInvoke(requests,
 			[this, &requests, &process, min_max = std::move(min_max)] () {
 		SetReadCheckPointId(process, min_max);
-
+		IncCheckPointRef(process);
 		auto failed = std::make_unique<std::vector<RequestBlock*>>();
 		return headp_->BulkMove(this, min_max.second, requests, process, *failed)
-		.then([failed = std::move(failed), &requests]
+		.then([this, failed = std::move(failed), &requests, process]
 				(folly::Try<int>& result) mutable {
 			auto ret = 0;
 			auto failedp = failed.get();
@@ -2258,6 +2446,7 @@ folly::Future<int> ActiveVmdk::BulkMove(const CheckPoints& min_max,
 					ret = reqp->GetResult();
 				}
 			}
+			this->DecCheckPointRef(process);
 			return ret;
 		});
 	});
@@ -2281,7 +2470,7 @@ folly::Future<int>
 ActiveVmdk::BulkMove(ActiveVmdk* vmdkp,
 		std::vector<ReadRequest>::const_iterator it,
 		std::vector<ReadRequest>::const_iterator eit,
-		CheckPointID ckpt_id) {
+		CheckPointID ckpt_id, bool merge_context) {
 
 	static_assert(kBulkReadMaxSize >= 32*1024, "kBulkReadMaxSize too small");
 	auto min_max = std::make_pair(ckpt_id, ckpt_id);
@@ -2299,12 +2488,20 @@ ActiveVmdk::BulkMove(ActiveVmdk* vmdkp,
 	};
 
 	auto NewRequest = [] (RequestID reqid, ActiveVmdk* vmdkp, folly::IOBuf* bufp,
-			size_t size, int64_t offset, CheckPointID ckpt_id) {
+			size_t size, int64_t offset, CheckPointID ckpt_id, bool merge_context) {
 		auto req = std::make_unique<Request>(reqid, vmdkp, Request::Type::kMove,
 			bufp->writableData(), size, size, offset);
 		bufp->append(size);
 		req->SetFlushReq();
 		req->SetFlushCkptID(ckpt_id);
+		if (pio_unlikely(merge_context)) {
+			VLOG(5) << __func__ << "Merge context is set, Write ckpt id is ::" << ckpt_id + 1;
+			req->SetMoveWriteCkptID(ckpt_id + 1);
+		} else {
+			req->SetMoveWriteCkptID(ckpt_id);
+		}
+		req->SetMoveReadCkptID(ckpt_id);
+		req->SetMergeContext(merge_context);
 		return req;
 	};
 
@@ -2334,7 +2531,7 @@ ActiveVmdk::BulkMove(ActiveVmdk* vmdkp,
 		iobuf->coalesce();
 		log_assert(not iobuf->isChained());
 
-		auto req = NewRequest(reqid, vmdkp, iobuf.get(), size, offset, ckpt_id);
+		auto req = NewRequest(reqid, vmdkp, iobuf.get(), size, offset, ckpt_id, merge_context);
 		if (pio_unlikely(not req)) {
 			LOG(ERROR) << __func__ << "Allocating IOBuf for read failed";
 			return -ENOMEM;
@@ -2410,7 +2607,7 @@ ActiveVmdk::BulkMove(ActiveVmdk* vmdkp,
 }
 
 folly::Future<int> ActiveVmdk::BulkMoveStart(std::vector<FlushBlock>& blocks,
-		CheckPointID ckpt_id) {
+		CheckPointID ckpt_id, bool merge_context) {
 
 	::hyc_thrift::RequestID req_id = 0;
 	std::vector<ReadRequest> requests;
@@ -2428,14 +2625,15 @@ folly::Future<int> ActiveVmdk::BulkMoveStart(std::vector<FlushBlock>& blocks,
 			block.second << bs, block.first << bs};
 	});
 
-	return BulkMove(this, requests.begin(), requests.end(), ckpt_id)
+	return BulkMove(this, requests.begin(), requests.end(), ckpt_id, merge_context)
 	.then([requests = std::move(requests)] (int rc) mutable {
 		return rc;
 	});
 }
 
 int ActiveVmdk::MoveStage_v3(CheckPointID ckpt_id,
-        uint32_t max_req_size, uint32_t max_pending_reqs) {
+        uint32_t max_req_size, uint32_t max_pending_reqs,
+	bool merge_context, const Roaring& ref_bitmap) {
 
 	/*
 	 * TBD :- Since a fix number of requests can under process
@@ -2443,18 +2641,19 @@ int ActiveVmdk::MoveStage_v3(CheckPointID ckpt_id,
 	 * creating and destroying it again and again (slab)
 	 */
 
-	aux_info_->InitState(FlushAuxData::FlushStageType::kMoveStage);
-	aux_info_->MoveStartedAt_ = std::chrono::steady_clock::now();
-
 	auto ckptp = GetCheckPoint(ckpt_id);
 	log_assert(ckptp != nullptr);
-	log_assert(ckptp->IsFlushed() == false);
+	if (pio_likely(!merge_context)) {
+		aux_info_->InitState(FlushAuxData::FlushStageType::kMoveStage);
+		aux_info_->MoveStartedAt_ = std::chrono::steady_clock::now();
+		log_assert(ckptp->IsFlushed() == false);
+	}
 
 	int64_t prev_block = -1, cur_block = -1, start_block = -1;
 	uint32_t block_cnt = 0;
 	auto vmdkid  = GetID();
 
-	VLOG (5) << __func__ << vmdkid << "::"
+	LOG (INFO) << __func__ << vmdkid << "::"
 			<< " Move stage start"
 			<< ", max_pending_reqs::"
 			<< max_pending_reqs;
@@ -2463,6 +2662,7 @@ int ActiveVmdk::MoveStage_v3(CheckPointID ckpt_id,
 	std::vector <FlushBlock> blocks;
 	uint32_t acc_size = 0;
 	auto blk_sz = BlockSize();
+	uint64_t exclude_blks = 0;
 
 	for (const auto& block : bitmap) {
 
@@ -2471,6 +2671,13 @@ int ActiveVmdk::MoveStage_v3(CheckPointID ckpt_id,
 		 * bitmap and probably generating large sequential
 		 * requests.
 		 */
+
+		if (pio_unlikely(merge_context)) {
+			if (ref_bitmap.contains(block)) {
+				exclude_blks++;
+				continue;
+			}
+		}
 
 		if (pio_unlikely(start_block == -1)) {
 			start_block = block;
@@ -2522,7 +2729,7 @@ int ActiveVmdk::MoveStage_v3(CheckPointID ckpt_id,
 
 		aux_info_->pending_cnt_++;
 		aux_info_->lock_.unlock();
-		BulkMoveStart(blocks, ckpt_id)
+		BulkMoveStart(blocks, ckpt_id, merge_context)
 		.then([this, vmdkid, acc_size = acc_size, blk_sz = blk_sz] (int rc) mutable {
 			/* TBD : Free the created IO buffer */
 			this->aux_info_->lock_.lock();
@@ -2592,7 +2799,7 @@ int ActiveVmdk::MoveStage_v3(CheckPointID ckpt_id,
 	} else {
 		aux_info_->pending_cnt_++;
 		aux_info_->lock_.unlock();
-		BulkMoveStart(blocks, ckpt_id)
+		BulkMoveStart(blocks, ckpt_id, merge_context)
 		.then([this, vmdkid, acc_size = acc_size, blk_sz = blk_sz] (int rc) mutable {
 			/* TBD : Free the created IO buffer */
 			this->aux_info_->lock_.lock();
@@ -2651,10 +2858,15 @@ int ActiveVmdk::MoveStage_v3(CheckPointID ckpt_id,
 	aux_info_->MoveStageDuration_ = duration.count();
 	aux_info_->lock_.unlock();
 
-	VLOG (5) << __func__ << vmdkid << "::"
+	LOG (INFO) << __func__ << "vmid::" << vmdkid << "::"
 		<< "Move stage End, total attempted moved blocks count::"
 		<< aux_info_->moved_blks_
 		<< ", status::" << aux_info_->failed_;
+
+	if (merge_context) {
+		LOG (INFO) << __func__ << "vmid::" << vmdkid << "::"
+			<< "Move stage End, exclude blocks cnt is::" << exclude_blks;
+	}
 	return aux_info_->failed_;
 }
 
@@ -2758,33 +2970,32 @@ CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
 	return nullptr;
 }
 
-folly::Future<int> ActiveVmdk::MoveUnflushedToFlushed() {
-	std::lock_guard<std::mutex> guard(checkpoints_.mutex_);
+folly::Future<int> ActiveVmdk::MoveUnflushedToFlushed(
+		std::vector<::ondisk::CheckPointID>& vec_ckpts) {
 	if (pio_unlikely(checkpoints_.unflushed_.empty())) {
 		LOG(INFO) << "Unflushed checkpoint list is empty.";
 		return 0;
 	}
-	pio::MoveLastElements(checkpoints_.flushed_, checkpoints_.unflushed_,
-			checkpoints_.unflushed_.size());
-	return 0;
-}
 
-uint64_t ActiveVmdk::WritesInProgress() const noexcept {
-	return stats_.writes_in_progress_;
-}
+	for (auto& elem : vec_ckpts) {
+		auto it1 = pio::BinarySearch(checkpoints_.unflushed_.begin(),
+			checkpoints_.unflushed_.end(), elem, []
+					(const std::unique_ptr<CheckPoint>& ckpt, CheckPointID ckpt_id) {
+				return ckpt->ID() < ckpt_id;
+			});
+		if (it1 == checkpoints_.unflushed_.end()) {
+			//error case should not be here
+			log_assert(0);
+			return folly::makeFuture(1);
+		}
+		it1->get()->SetFlushed();
 
-uint64_t ActiveVmdk::ReadsInProgress() const noexcept {
-	return stats_.reads_in_progress_;
-}
+		checkpoints_.flushed_.emplace_back(std::move(*it1));
+		checkpoints_.unflushed_.erase(it1);
+	}
 
-uint64_t ActiveVmdk::FlushesInProgress() const noexcept {
-	return stats_.flushes_in_progress_;
+	return folly::makeFuture(0);
 }
-
-uint64_t ActiveVmdk::MovesInProgress() const noexcept {
-	return stats_.moves_in_progress_;
-}
-
 uint64_t ActiveVmdk::FlushedCheckpoints() const noexcept {
 	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
     return checkpoints_.flushed_.size();
@@ -2799,11 +3010,20 @@ uint64_t ActiveVmdk::UnflushedCheckpoints() const noexcept {
     return checkpoints_.unflushed_.size();
 }
 
-void ActiveVmdk::UnflushedCheckpoints(
+void ActiveVmdk::GetUnflushedCheckpoints(
 	std::vector<::ondisk::CheckPointID>& unflushed_ckpts) const noexcept {
 	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
-    for (const auto& ckpt : checkpoints_.unflushed_) {
+	auto& ckpt = checkpoints_.unflushed_.front();
+	if (pio_likely(ckpt)) {
 		unflushed_ckpts.push_back(ckpt->ID());
+	}
+}
+
+void ActiveVmdk::GetFlushedCheckpoints(
+	std::vector<::ondisk::CheckPointID>& flushed_ckpts) const noexcept {
+	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
+	for (const auto& ckpt : checkpoints_.flushed_) {
+		flushed_ckpts.push_back(ckpt->ID());
 	}
 }
 
@@ -2828,43 +3048,52 @@ uint64_t ActiveVmdk::GetPendingBlksCnt() const noexcept {
 	return aux_info_->GetPendingBlksCnt();
 }
 
-uint64_t ActiveVmdk::GetReadHits() const noexcept {
-	return 0;
-}
-
-uint64_t ActiveVmdk::GetReadMisses() const noexcept {
-	return 0;
-}
-
-uint64_t ActiveVmdk::GetDirtyBlockCount() const noexcept {
-	return 0;
-}
-
-uint64_t ActiveVmdk::GetCleanBlockCount() const noexcept {
-	return 0;
-}
-
-void ActiveVmdk::GetVmdkInfo(st_vmdk_stats& vmdk_stats) {
-    vmdk_stats.writes_in_progress = WritesInProgress();
-    vmdk_stats.reads_in_progress = ReadsInProgress();
-    vmdk_stats.flushes_in_progress = FlushesInProgress();
-    vmdk_stats.moves_in_progress = MovesInProgress();
-    vmdk_stats.block_size = BlockSize();
-    vmdk_stats.block_shift = BlockShift();
-    vmdk_stats.block_mask = BlockMask();
-    vmdk_stats.flushed_chkpnts = FlushedCheckpoints();
-    vmdk_stats.unflushed_chkpnts = UnflushedCheckpoints();
-    vmdk_stats.flushed_blocks = GetFlushedBlksCnt();
-    vmdk_stats.moved_blocks = GetMovedBlksCnt() ;
-    vmdk_stats.pending_blocks = GetPendingBlksCnt();
-    vmdk_stats.read_misses = GetReadMisses();
-    vmdk_stats.read_hits = GetReadHits();
-    vmdk_stats.dirty_blocks = GetDirtyBlockCount();
-    vmdk_stats.clean_blocks = GetCleanBlockCount();
-}
-
 CheckPoint::CheckPoint(VmdkID vmdk_id, CheckPointID id) :
 	vmdk_id_(std::move(vmdk_id)), self_(id) {
+}
+
+int
+CheckPoint::CkptBitmapMerge(ActiveVmdk *vmdkp, std::vector<CheckPointID> &ckpt_vec) {
+
+	std::vector<const Roaring *> bitmap_vec;
+	auto vmdkid = vmdkp->GetID();
+	::ondisk::BlockID min = -1, max = -1;
+	for (auto id : ckpt_vec) {
+		auto ckptp = vmdkp->GetCheckPoint(id);
+		if (pio_unlikely(ckptp == nullptr)) {
+			LOG(ERROR) << __func__ << "Unable to find ckpt id:"
+				<< id <<" for vmdkid:" << vmdkp->GetID();
+			return -EINVAL;
+		}
+
+		vmdkp->ValidateCkpt(id);
+		if (pio_unlikely(min == -1) || min > ckptp->block_id_.first_) {
+			min = ckptp->block_id_.first_;
+		}
+
+		if (pio_unlikely(max == -1) || max < ckptp->block_id_.last_) {
+			max = ckptp->block_id_.last_;
+		}
+
+		bitmap_vec.emplace_back(&ckptp->GetRoaringBitMap());
+	}
+
+	/* Create a Union of all extracted bitmaps */
+	if(pio_unlikely(UnionRoaringBitmaps(bitmap_vec))) {
+		LOG(ERROR) << __func__ << "Bitmap union operation failed for vmdkid:"
+				<< vmdkid;
+		return -ENOMEM;
+	}
+
+	/* TBD : Do we need this */
+	blocks_bitset_.runOptimize();
+        block_id_.first_ = min;
+        block_id_.last_ = max;
+
+	LOG(INFO) << __func__ << "For vmdkid:" << vmdkid
+			<< ", post Union min block id is :"
+			<< min << ", max is :" << max;
+	return 0;
 }
 
 CheckPoint::~CheckPoint() = default;
@@ -2929,16 +3158,17 @@ const Roaring& CheckPoint::GetRoaringBitMap() const noexcept {
  * Takes a vector of Roaring bitmaps and OR/Union those to yield
  * a merged Roaring bitmap instance
  */
-std::unique_ptr<Roaring*>CheckPoint::UnionRoaringBitmaps(
-			const std::vector<Roaring*>& roaring_bitmaps) {
+
+int CheckPoint::UnionRoaringBitmaps(
+	const std::vector<const Roaring*> roaring_bitmaps) {
 	if(roaring_bitmaps.size() < 2) {
 		LOG(WARNING) << __func__ << "Input vector size must be >= 2";
-		return NULL;
+		return -ENOMEM;
 	}
 
-	auto union_bitmap = Roaring::fastunion(roaring_bitmaps.size(), (const Roaring**)roaring_bitmaps.data());
-
-	return std::make_unique<Roaring*>(&union_bitmap);
+	blocks_bitset_ = Roaring::fastunion(roaring_bitmaps.size(),
+				(const Roaring**)roaring_bitmaps.data());
+	return 0;
 }
 
 void CheckPoint::SetSerialized() noexcept {

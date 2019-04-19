@@ -17,6 +17,7 @@
 #include "VmConfig.h"
 #include "ArmConfig.h"
 #include "FlushManager.h"
+#include "CkptMergeManager.h"
 #include "Singleton.h"
 #include "AeroOps.h"
 #include "BlockTraceHandler.h"
@@ -208,7 +209,7 @@ void VirtualMachine::NewVmdk(ActiveVmdk* vmdkp) {
 	auto blktrace = std::make_unique<BlockTraceHandler>(vmdkp);
 	auto unalingned = std::make_unique<UnalignedHandler>();
 	auto compress = std::make_unique<CompressHandler>(configp);
-	auto encrypt = std::make_unique<EncryptHandler>(configp);
+	auto encrypt = std::make_unique<EncryptHandler>(vmdkp, configp);
 	auto multi_target = std::make_unique<MultiTargetHandler>(vmdkp, configp);
 
 	vmdkp->RegisterRequestHandler(std::move(blktrace));
@@ -299,7 +300,7 @@ int VirtualMachine::GetUnflushedCheckpoints(std::vector<CheckPointID>& unflushed
 	{
 		std::lock_guard<std::mutex> lock(vmdk_.mutex_);
 		for (const auto& vmdkp : vmdk_.list_) {
-			vmdkp->UnflushedCheckpoints(unflushed_ckpts);
+			vmdkp->GetUnflushedCheckpoints(unflushed_ckpts);
 		}
 	}
 
@@ -313,6 +314,27 @@ int VirtualMachine::GetUnflushedCheckpoints(std::vector<CheckPointID>& unflushed
 			return rc;
 		}
 		unflushed_ckpts.push_back(ckpt_id);
+	} else {
+		sort(unflushed_ckpts.begin(), unflushed_ckpts.end());
+		unflushed_ckpts.erase(unique(unflushed_ckpts.begin(),
+			unflushed_ckpts.end()), unflushed_ckpts.end());
+	}
+
+	return 0;
+}
+
+int VirtualMachine::GetflushedCheckpoints(std::vector<CheckPointID>& flushed_ckpts) {
+	{
+		std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+		for (const auto& vmdkp : vmdk_.list_) {
+			vmdkp->GetFlushedCheckpoints(flushed_ckpts);
+		}
+	}
+
+	if(pio_likely(not flushed_ckpts.empty())) {
+		sort(flushed_ckpts.begin(), flushed_ckpts.end());
+		flushed_ckpts.erase(unique(flushed_ckpts.begin(),
+			flushed_ckpts.end()), flushed_ckpts.end());
 	}
 	return 0;
 }
@@ -338,6 +360,26 @@ int VirtualMachine::SerializeCheckpoints(int64_t snap_id, const std::vector<int6
 			LOG(ERROR) << __func__ << "Failed to find CheckpointID: " << ckpt_id;
 			return -EINVAL;
 		}
+	}
+	return 0;
+}
+
+int VirtualMachine::DeSerializeCheckpoints(const std::vector<int64_t>& vec_ckpts) {
+	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+	for (const auto& ckpt_id : vec_ckpts) {
+		for (const auto& vmdkp : vmdk_.list_) {
+			std::string key = vmdkp->GetID() + ":" + std::to_string(ckpt_id);
+			snap_ckpt_map_.erase(key);
+		}
+	}
+	return 0;
+}
+
+int VirtualMachine::DeSerializeCheckpoint(CheckPointID ckpt_id) {
+	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+	for (const auto& vmdkp : vmdk_.list_) {
+		std::string key = vmdkp->GetID() + ":" + std::to_string(ckpt_id);
+		snap_ckpt_map_.erase(key);
 	}
 	return 0;
 }
@@ -428,14 +470,15 @@ folly::Future<int> VirtualMachine::CommitCheckPoint(CheckPointID ckpt_id) {
 	});
 }
 
-folly::Future<int> VirtualMachine::MoveUnflushedToFlushed() {
+folly::Future<int> VirtualMachine::MoveUnflushedToFlushed(
+		std::vector<::ondisk::CheckPointID>& vec_ckpts) {
 
 	std::vector<folly::Future<int>> futures;
 	futures.reserve(vmdk_.list_.size());
 
 	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
 	for (const auto& vmdkp : vmdk_.list_) {
-		auto fut = vmdkp->MoveUnflushedToFlushed();
+		auto fut = vmdkp->MoveUnflushedToFlushed(vec_ckpts);
 		futures.emplace_back(std::move(fut));
 	}
 
@@ -513,8 +556,8 @@ int VirtualMachine::FlushStatus(FlushStats &flush_stat) {
 		flush_bytes += (vmdkp->aux_info_->GetFlushedBlksCnt() * vmdkp->BlockSize());
 		move_bytes  += (vmdkp->aux_info_->GetMovedBlksCnt() * vmdkp->BlockSize());
 	}
-	flush_stat.emplace("-2", std::make_pair(flush_time, move_time));
-	flush_stat.emplace("-3", std::make_pair(flush_bytes, move_bytes));
+	flush_stat.emplace("flush_data", std::make_pair(flush_time, flush_bytes));
+	flush_stat.emplace("move_data", std::make_pair(move_time, move_bytes));
 	return 0;
 }
 
@@ -660,6 +703,101 @@ int VirtualMachine::GetVmdkParentStats(AeroSpikeConn *aerop, ActiveVmdk* vmdkp,
 	return rc;
 }
 
+int VirtualMachine::MergeStart(CheckPointID ckpt_id) {
+
+	auto managerp = SingletonHolder<CkptMergeManager>::GetInstance();
+
+	/* Start with Bitmap Merge stage */
+	{
+	std::vector<folly::Future<int>> futures;
+	futures.reserve(vmdk_.list_.size());
+	{
+		std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+		for (const auto& vmdkp : vmdk_.list_) {
+			folly::Promise<int> promise;
+			auto fut = promise.getFuture();
+			managerp->threadpool_.pool_->AddTask([vmdkp, ckpt_id,
+				promise = std::move(promise)]() mutable {
+				auto rc = vmdkp->MergeStages(ckpt_id,
+					MergeStageType::kBitmapMergeStage);
+				promise.setValue(rc);
+			});
+
+			futures.emplace_back(std::move(fut));
+		}
+	}
+
+	int rc = 0;
+	folly::collectAll(std::move(futures))
+	.then([&rc] (const std::vector<folly::Try<int>>& results) {
+		for (auto& t : results) {
+			if (pio_likely(t.hasValue() and t.value() != 0)) {
+				rc = t.value();
+			}
+		}
+	})
+	.wait();
+
+	if(pio_unlikely(rc)) {
+		LOG(ERROR) << __func__
+			<< "Data Merge stage failed for Vmid:" << GetID()
+				<< ", ckptid:" << ckpt_id;
+		return rc;
+	}
+	}
+
+	/* Now call stun on ckpt so that we can phase out already submitted IOs */
+	LOG(INFO) << __func__ << " Trying for Stun";
+	auto f = RStun(ckpt_id);
+	f.wait();
+	auto rc = f.value();
+	if (pio_unlikely(rc)) {
+		LOG(ERROR) << __func__ << "Stun failed for Vmid:"
+			<< GetID() << ", ckptid:" << ckpt_id;
+		return rc;
+	}
+
+	/* Start data merging/promotion stage now */
+	{
+	std::vector<folly::Future<int>> futures;
+	futures.reserve(vmdk_.list_.size());
+	{
+		std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+		for (const auto& vmdkp : vmdk_.list_) {
+			folly::Promise<int> promise;
+			auto fut = promise.getFuture();
+			managerp->threadpool_.pool_->AddTask([vmdkp, ckpt_id,
+				promise = std::move(promise)]() mutable {
+				auto rc = vmdkp->MergeStages(ckpt_id,
+					MergeStageType::kDataMergeStage);
+				promise.setValue(rc);
+			});
+
+			futures.emplace_back(std::move(fut));
+		}
+	}
+
+	folly::collectAll(std::move(futures))
+	.then([&rc] (const std::vector<folly::Try<int>>& results) {
+		for (auto& t : results) {
+			if (pio_likely(t.hasValue() and t.value() != 0)) {
+				rc = t.value();
+			}
+		}
+	})
+	.wait();
+	}
+
+	if(pio_unlikely(rc)) {
+		LOG(ERROR) << __func__ << "Data merge failed for Vmid:"
+				<< GetID() << ", ckptid:" << ckpt_id;
+		return rc;
+	}
+
+	DeSerializeCheckpoint(ckpt_id);
+	return 0;
+}
+
 int VirtualMachine::FlushStart(CheckPointID ckpt_id, bool perform_flush,
 		bool perform_move,
 		uint32_t max_req_size, uint32_t max_pending_reqs) {
@@ -762,6 +900,36 @@ folly::Future<int> VirtualMachine::BulkWrite(ActiveVmdk* vmdkp,
 	});
 }
 
+void VirtualMachine::IncCheckPointRef(CheckPointID &ckpt_id) {
+	std::lock_guard<std::mutex> guard(checkpoint_.r_mutex_);
+	++checkpoint_.reads_per_checkpoint_[ckpt_id];
+	VLOG(5) << __func__ << "Inc ckpt_id:" << ckpt_id << ", count:" <<
+		checkpoint_.reads_per_checkpoint_[ckpt_id];
+}
+
+void VirtualMachine::DecCheckPointRef(CheckPointID &ckpt_id) {
+	std::lock_guard<std::mutex> guard(checkpoint_.r_mutex_);
+	if (!checkpoint_.reads_per_checkpoint_[ckpt_id]) {
+		LOG(ERROR) << __func__ << "BUG!!!, ckpt_id:" << ckpt_id;
+		log_assert(0);
+		return;
+	}
+
+	auto c = --checkpoint_.reads_per_checkpoint_[ckpt_id];
+	VLOG(5) << __func__ << "Dec ckpt_id:" << ckpt_id << ", count:" <<
+		checkpoint_.reads_per_checkpoint_[ckpt_id];
+	if (pio_unlikely(not c and ckpt_id != checkpoint_.checkpoint_id_)) {
+		log_assert(ckpt_id < checkpoint_.checkpoint_id_);
+		auto it = checkpoint_.r_stuns_.find(ckpt_id);
+		if (pio_unlikely(it == checkpoint_.r_stuns_.end())) {
+			return;
+		}
+		auto stun = std::move(it->second);
+		checkpoint_.r_stuns_.erase(it);
+		stun->SetPromise(0);
+	}
+}
+
 folly::Future<int> VirtualMachine::Read(ActiveVmdk* vmdkp, Request* reqp) {
 	if (pio_unlikely(not FindVmdk(vmdkp->GetHandle()))) {
 		throw std::invalid_argument("VMDK not attached to VM");
@@ -823,7 +991,7 @@ folly::Future<std::unique_ptr<ReadResultVec>>
 VirtualMachine::BulkRead(ActiveVmdk* vmdkp,
 		std::vector<ReadRequest>::const_iterator it,
 		std::vector<ReadRequest>::const_iterator eit,
-		bool trigger_read_ahead = true) {
+		bool is_read_ahead_req = false) {
 	static_assert(kBulkReadMaxSize >= 32*1024, "kBulkReadMaxSize too small");
 	using ReturnType = std::unique_ptr<ReadResultVec>;
 
@@ -856,11 +1024,13 @@ VirtualMachine::BulkRead(ActiveVmdk* vmdkp,
 		return std::make_tuple(rd.get_reqid(), rd.get_size(), rd.get_offset());
 	};
 
-	auto NewRequest = [&trigger_read_ahead] (RequestID reqid, ActiveVmdk* vmdkp, folly::IOBuf* bufp,
+	auto NewRequest = [&is_read_ahead_req] (RequestID reqid, ActiveVmdk* vmdkp, folly::IOBuf* bufp,
 			size_t size, int64_t offset) {
 		auto req = std::make_unique<Request>(reqid, vmdkp, Request::Type::kRead,
 			bufp->writableData(), size, size, offset);
-		req->SetReadAheadRequired(trigger_read_ahead);
+		if(is_read_ahead_req) { 
+        	req->SetReadAheadRequest();
+        }  	
 		bufp->append(size);
 		return req;
 	};
@@ -923,7 +1093,9 @@ VirtualMachine::BulkRead(ActiveVmdk* vmdkp,
 		log_assert(iobuf->computeChainDataLength() == static_cast<size_t>(size));
 
 		auto reqp = req.get();
-		req->SetReadAheadRequired(trigger_read_ahead);
+		if(is_read_ahead_req) { 
+        	req->SetReadAheadRequest();
+        }  	
 		--pending;
 
 		if (reqp->HasUnalignedIO()) {
@@ -1151,6 +1323,34 @@ folly::Future<int> VirtualMachine::Stun(CheckPointID ckpt_id) {
 		auto stun = std::make_unique<struct Stun>();
 		auto fut = stun->GetFuture();
 		checkpoint_.stuns_.emplace(ckpt_id, std::move(stun));
+		return fut;
+	} else {
+		return it->second->GetFuture();
+	}
+}
+
+folly::Future<int> VirtualMachine::RStun(CheckPointID ckpt_id) {
+
+	std::lock_guard<std::mutex> guard(checkpoint_.r_mutex_);
+	LOG(INFO) << __func__ << " Pending read count is (after lock)::"
+		<< checkpoint_.reads_per_checkpoint_[ckpt_id]
+		<< ", ckpt id::" << ckpt_id;
+
+	if (auto it = checkpoint_.reads_per_checkpoint_.find(ckpt_id);
+			it == checkpoint_.reads_per_checkpoint_.end() ||
+			it->second == 0) {
+		LOG(ERROR) << __func__ << " No pending read for ckpt::"
+					<< ckpt_id;
+		return 0;
+	} else {
+		log_assert(it->second > 0);
+	}
+
+	if (auto it = checkpoint_.r_stuns_.find(ckpt_id);
+			pio_likely(it == checkpoint_.r_stuns_.end())) {
+		auto stun = std::make_unique<struct Stun>();
+		auto fut = stun->GetFuture();
+		checkpoint_.r_stuns_.emplace(ckpt_id, std::move(stun));
 		return fut;
 	} else {
 		return it->second->GetFuture();

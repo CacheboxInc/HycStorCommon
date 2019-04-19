@@ -26,6 +26,7 @@
 #include "Rendez.h"
 #include "ReadAhead.h"
 #include "RangeLock.h"
+#include "CkptMergeInstance.h"
 
 namespace pio {
 
@@ -48,26 +49,6 @@ namespace config {
 	class FlushConfig;
 }
 
-/* Vmdk statistics */
-typedef struct __st_vmdk_stats__ {
-    uint64_t    writes_in_progress;
-    uint64_t    reads_in_progress;
-    uint64_t    flushes_in_progress;
-    uint64_t    moves_in_progress;
-    uint64_t    block_size;
-    uint64_t    block_shift;
-    uint64_t    block_mask;
-    uint64_t    flushed_chkpnts;
-    uint64_t    unflushed_chkpnts;
-    uint64_t    flushed_blocks;
-    uint64_t    moved_blocks;
-    uint64_t    pending_blocks;
-    uint64_t    read_misses;
-    uint64_t    read_hits;
-    uint64_t    dirty_blocks;
-    uint64_t    clean_blocks;
-}st_vmdk_stats;
-
 class CheckPoint {
 public:
 	CheckPoint(::ondisk::VmdkID vmdk_id, ::ondisk::CheckPointID id);
@@ -80,12 +61,13 @@ public:
 
 	std::pair<::ondisk::BlockID, ::ondisk::BlockID> Blocks() const noexcept;
 	const Roaring& GetRoaringBitMap() const noexcept;
-	std::unique_ptr<Roaring*> UnionRoaringBitmaps(const std::vector<Roaring*>& roaring_bitmaps);
+	int UnionRoaringBitmaps(const std::vector<const Roaring*> roaring_bitmaps);
 	void SetSerialized() noexcept;
 	void UnsetSerialized() noexcept;
 	bool IsSerialized() const noexcept;
 	void SetFlushed() noexcept;
 	bool IsFlushed() const noexcept;
+	int CkptBitmapMerge(ActiveVmdk *vmdkp, std::vector<CheckPointID> &ckpt_vec);
 private:
 	::ondisk::VmdkID vmdk_id_;
 	::ondisk::CheckPointID self_;
@@ -202,11 +184,11 @@ public:
 		const std::vector<RequestBlock*>& process);
 	folly::Future<int> Move(Request* reqp, const CheckPoints& min_max);
 	folly::Future<int> BulkMoveStart(std::vector<FlushBlock>& blocks,
-				ondisk::CheckPointID ckpt_id);
+				ondisk::CheckPointID ckpt_id, bool merge_context);
 	folly::Future<int> BulkMove(ActiveVmdk* vmdkp,
 		std::vector<ReadRequest>::const_iterator it,
 		std::vector<ReadRequest>::const_iterator eit,
-		ondisk::CheckPointID ckpt_id);
+		ondisk::CheckPointID ckpt_id, bool merge_context);
 	folly::Future<int> BulkMove(const CheckPoints& min_max,
 		std::unique_ptr<ReqVec> requests,
 		std::unique_ptr<ReqBlockVec> process,
@@ -221,16 +203,20 @@ public:
 	folly::Future<int> CommitCheckPoint(::ondisk::CheckPointID check_point);
 	int FlushStages(::ondisk::CheckPointID check_point, bool perform_flush,
 			bool perform_move, uint32_t, uint32_t);
+	int MergeStages(::ondisk::CheckPointID check_point, MergeStageType type);
 	int FlushStage(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
+	folly::Future<int> CkptBitmapMerge(::ondisk::CheckPointID check_point);
+	int ValidateCkpt(CheckPointID ckpt_id);
 	int FlushStage_v2(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
 	int FlushStage_v3(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
 	int MoveStage(::ondisk::CheckPointID check_point, uint32_t);
 	int MoveStage_v2(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
-	int MoveStage_v3(::ondisk::CheckPointID check_point, uint32_t, uint32_t);
+	int MoveStage_v3(::ondisk::CheckPointID check_point, uint32_t, uint32_t, bool, const Roaring& );
 	int FlushStages(::ondisk::CheckPointID check_point, bool perform_flush, bool perform_move);
 	int FlushStage(::ondisk::CheckPointID check_point);
 	int MoveStage(::ondisk::CheckPointID check_point);
 	CheckPoint* GetCheckPoint(::ondisk::CheckPointID ckpt_id) const;
+
 	folly::Future<int> MoveUnflushedToFlushed();
 	::ondisk::CheckPointID GetFlushedCheckPointID() const noexcept;
 
@@ -240,6 +226,9 @@ public:
 	uint64_t ReadsInProgress() const noexcept;
 	uint64_t FlushesInProgress() const noexcept;
 	uint64_t MovesInProgress() const noexcept;
+
+	folly::Future<int> MoveUnflushedToFlushed(std::vector<::ondisk::CheckPointID>&);
+
 	uint64_t FlushedCheckpoints() const noexcept;
 	uint64_t UnflushedCheckpoints() const noexcept;
 	uint64_t GetFlushedBlksCnt() const noexcept;
@@ -250,12 +239,6 @@ public:
 	uint64_t GetDirtyBlockCount() const noexcept;
 	uint64_t GetCleanBlockCount() const noexcept;
 
-	void IncrReadBytes(size_t read_bytes);
-	void IncrWriteBytes(size_t write_bytes);
-	void IncrNwReadBytes(size_t read_bytes);
-	void IncrNwWriteBytes(size_t write_bytes);
-	void IncrAeroReadBytes(size_t read_bytes);
-	void IncrAeroWriteBytes(size_t write_bytes);
 
 	folly::Future<int> BulkWrite(::ondisk::CheckPointID ckpt_id,
 		const std::vector<std::unique_ptr<Request>>& requests,
@@ -270,7 +253,11 @@ public:
 		std::unordered_set<::ondisk::BlockID>& blocks);
 
 	const std::vector<PreloadBlock>& GetPreloadBlocks() const noexcept;
-	void UnflushedCheckpoints(std::vector<::ondisk::CheckPointID>& unflushed_ckpts) const noexcept;
+	void GetUnflushedCheckpoints(std::vector<::ondisk::CheckPointID>& unflushed_ckpts) const noexcept;
+	void GetFlushedCheckpoints(std::vector<::ondisk::CheckPointID>& flushed_ckpts) const noexcept;
+	bool IsCkptFlushed(::ondisk::CheckPointID ckpt_id);
+	void IncCheckPointRef(const std::vector<RequestBlock*>& blockps);
+	void DecCheckPointRef(const std::vector<RequestBlock*>& blockps);
 public:
 	int32_t delta_fd_{-1};
 	int CreateNewVmdkDeltaContext(int64_t snap_id);
@@ -297,50 +284,7 @@ public:
 	VirtualMachine* GetVM() const noexcept;
 	const config::VmdkConfig* GetJsonConfig() const noexcept;
 
-	std::atomic<unsigned long long> w_total_latency{0};
-	std::atomic<uint64_t> w_io_count{0};
-	std::atomic<uint64_t> w_io_blks_count{0};
-
-	std::atomic<unsigned long long> r_total_latency{0};
-	std::atomic<uint64_t> r_io_count{0};
-	std::atomic<uint64_t> r_io_blks_count{0};
-	std::atomic<uint64_t> r_pending_count{0}, w_pending_count{0};
-	std::mutex r_stat_lock_, w_stat_lock_;
-
-	std::atomic<unsigned long long> w_aero_total_latency_{0};
-	std::atomic<unsigned long long> r_aero_total_latency_{0};
-	std::atomic<uint64_t> w_aero_io_blks_count_{0};
-	std::atomic<uint64_t> r_aero_io_blks_count_{0};
-	std::mutex r_aero_stat_lock_, w_aero_stat_lock_;
-
-	struct {
-		std::atomic<uint64_t> total_reads_{0};
-		std::atomic<uint64_t> total_writes_{0};
-		std::atomic<size_t> total_bytes_reads_{0};
-		std::atomic<size_t> total_bytes_writes_{0};
-
-		std::atomic<uint64_t> total_blk_reads_{0};
-
-		std::atomic<uint64_t> parent_blks_{0};
-		std::atomic<uint64_t> read_populates_{0};
-		std::atomic<uint64_t> cache_writes_{0};
-
-		std::atomic<uint64_t> read_hits_{0};
-		std::atomic<uint64_t> read_miss_{0};
-
-		std::atomic<uint64_t> read_failed_{0};
-		std::atomic<uint64_t> write_failed_{0};
-
-		std::atomic<size_t> nw_bytes_write_{0};
-		std::atomic<size_t> nw_bytes_read_{0};
-		std::atomic<size_t> aero_bytes_write_{0};
-		std::atomic<size_t> aero_bytes_read_{0};
-
-		std::atomic<uint64_t> bufsz_before_compress{0};
-		std::atomic<uint64_t> bufsz_after_compress{0};
-		std::atomic<uint64_t> bufsz_before_uncompress{0};
-		std::atomic<uint64_t> bufsz_after_uncompress{0};
-	} cache_stats_;
+	VmdkCacheStats* stats_;
 
 	void GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept;
 	void FillCacheStats(::ondisk::IOAVmdkStats& dest) const noexcept;
@@ -390,19 +334,13 @@ private:
 		mutable std::mutex mutex_;
 		std::vector<std::unique_ptr<CheckPoint>> unflushed_;
 		std::vector<std::unique_ptr<CheckPoint>> flushed_;
+		std::vector<std::unique_ptr<CheckPoint>> tracked_;
 	} checkpoints_;
 
 	std::unique_ptr<MetaDataKV> metad_kv_{nullptr};
 
-	struct {
-		std::atomic<uint64_t> writes_in_progress_{0};
-		std::atomic<uint64_t> reads_in_progress_{0};
-		std::atomic<uint64_t> flushes_in_progress_{0};
-		std::atomic<uint64_t> moves_in_progress_{0};
-	} stats_;
-
 	std::vector<PreloadBlock> preload_blocks_;
-	mutable VmdkCacheStats old_cache_stats_;
+	mutable VmdkCacheStats old_stats_;
 
 public:
 	std::unique_ptr<RequestHandler> headp_{nullptr};
@@ -428,6 +366,69 @@ private:
 			.then([lock = std::move(lock)] (auto& rc) {
 				return std::move(rc);
 			});
+		});
+	}
+
+	template <typename Func>
+	auto TryLockAndBulkInvoke(const std::vector<std::unique_ptr<Request>>& requests,
+        /*[IN]*/const std::vector<RequestBlock*>& process,
+		/*[OUT]*/std::vector<RequestBlock*>& locked_process, 
+		Func&& func) {
+		assert(locked_process.empty());
+		assert(!process.empty());
+		(void)locked_process;
+		(void)process;
+		auto g = std::make_unique<RangeLock::LockGuard>(range_lock_.get(), Ranges(requests));
+		std::vector<pio::RangeLock::range_t> ranges;
+		bool full_lock = g->SelectiveLock(ranges);
+		
+		// Temporary code to prove that two reads on same offset works
+		// After several successful CHO runs on master this code and related
+		// stats in ReadAhead class may be safely removed.
+		// Moreover, once dropping off unlocked message works we will no longer require
+		// this code and related stats
+		if(!full_lock && requests[0]->IsReadAheadRequest()) {
+			int unlocked_reads = process.size() - ranges.size();
+			assert(unlocked_reads > 0);
+			assert(this->read_aheadp_ != NULL);
+			this->read_aheadp_->UpdateTotalUnlockedReads(unlocked_reads);	
+		}
+		if(pio_unlikely(not g->IsLocked() || ranges.empty())) {
+			LOG(WARNING) << "Couldn't acquire lock on even a single block";
+			return folly::makeFuture(-EINVAL);
+		}
+		
+		// Dropping of messages does not work right now and hence is postponed till next iteration
+		// Dropping of messages encounters a crash and the traces depict that in AeroOps.cpp
+		// while actually submitting the batch request we hit count mismatch which is not yet fully
+		// analyzed.
+#if 0
+		try {
+			locked_process.reserve(ranges.size());
+		} 
+		catch(const std::bad_alloc& e) {
+			return folly::makeFuture(-ENOMEM);
+		}
+		for(const auto& block : process) {
+			assert(block != nullptr);
+			auto block_id = block->GetBlockID();
+			if(full_lock || std::find(ranges.begin(), ranges.end(), 
+				pio::RangeLock::range_t(block_id, block_id)) != ranges.end()) {
+				LOG(ERROR) << "Pushing into locked_process, block ID = " << block_id;
+				locked_process.emplace_back(block);
+			}
+		}
+		auto l_size = locked_process.size();
+		auto p_size = process.size();
+		assert(!locked_process.empty() 
+			&& (full_lock ? (l_size == p_size) : (l_size < p_size)));
+		(void)l_size;
+		(void)p_size;
+#endif
+		return func()
+		.then([g = std::move(g) 
+		/*,locked_process = std::move(locked_process)*/] (int rc) {
+			return rc;
 		});
 	}
 

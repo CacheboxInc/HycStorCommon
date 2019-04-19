@@ -112,9 +112,12 @@ int ScanInstance::ScanTask() {
 	/* Create argument list (VMDKids) for UDF */
 	as_arraylist arglist;
 	as_arraylist_init(&arglist, working_list_.size(), 0);
+
+	std::string os;
 	for (auto entry : working_list_) {
-		LOG(ERROR) << __func__ << " Adding entry in UDF arglist::" << entry;
-		as_arraylist_append_int64(&arglist, entry);
+		os = entry.first + ":" + std::to_string(entry.second);
+		LOG(INFO) << __func__ << " Adding in array list :" << os.c_str();
+		as_arraylist_append_str(&arglist, os.c_str());
 	}
 
 	/* Lua has number of arguments limitations (< 50), encapsulate all the
@@ -208,7 +211,7 @@ void ScanInstance::Scanfn(void) {
 			/* SUCCESS, remove working_list entries from pending_list */
 			std::sort(pending_list_.begin(), pending_list_.end());
 			std::sort(working_list_.begin(), working_list_.end());
-			std::vector<uint64_t> tmp_list;
+			std::vector<scan_param> tmp_list;
 			std::set_symmetric_difference(pending_list_.begin(),
 				pending_list_.end(), working_list_.begin(),
 				working_list_.end(), std::back_inserter(tmp_list));

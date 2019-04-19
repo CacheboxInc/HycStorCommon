@@ -7,6 +7,7 @@
 
 namespace pio {
 
+using scan_param = std::pair<::ondisk::VmdkID, ::ondisk::CheckPointID>;
 class ScanInstance {
 public:
 	ScanInstance(AeroClusterID cluster_id);
@@ -17,9 +18,10 @@ public:
 	int ScanStatus(ScanStats& scan_stats);
 	int ScanTask();
 
-	std::vector<uint64_t> pending_list_;
-	std::vector<uint64_t> working_list_;
+	std::vector<scan_param> pending_list_;
+	std::vector<scan_param> working_list_;
 	AeroSpikeConn* aero_conn_{nullptr};
+	std::unordered_map<uint64_t, ::ondisk::CheckPointID> vmdk_ckpt_map_;
 
 private:
 	std::chrono::steady_clock::time_point start_time_;

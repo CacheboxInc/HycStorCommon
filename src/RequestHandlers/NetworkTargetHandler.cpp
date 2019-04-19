@@ -75,7 +75,13 @@ folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, MAYBE_UNUSED(Re
 
 	auto req_blocks = std::make_shared<std::vector<req_buf_type>>();
 	for (auto blockp : process) {
-		auto snap_id = GetSnapID(vmdkp, blockp->GetReadCheckPointId());
+		auto ckpt_id = blockp->GetReadCheckPointId();
+		auto snap_id = GetSnapID(vmdkp, ckpt_id);
+		if (pio_unlikely(snap_id < 0)) {
+			LOG(ERROR) << __func__ << "Found invalid snap id:"
+				<< snap_id << " for ckpt id:" << ckpt_id;
+			return -EEXIST;
+		}
 		io->AddIoVec(snap_id, blockp->GetAlignedOffset(), vmdkp->BlockSize(),
 			[req_blocks](int buflen) -> void* {
 				auto destp = NewRequestBuffer(buflen);
@@ -116,7 +122,8 @@ folly::Future<int> NetworkTargetHandler::Read(ActiveVmdk *vmdkp, MAYBE_UNUSED(Re
                                 ":" << crc_t10dif((unsigned char *) bufferp->Payload(), bufferp->Size());
 			#endif
 			log_assert(it != eit);
-			vmdkp->IncrNwReadBytes((*it)->PayloadSize());
+			vmdkp->stats_->IncrNwReadBytes((*it)->PayloadSize());
+			vmdkp->stats_->IncrNwTotalReads(1);
 			blockp->PushRequestBuffer(std::move(*it));
 			blockp->SetResult(0, RequestStatus::kSuccess);
 
@@ -164,7 +171,8 @@ folly::Future<int> NetworkTargetHandler::BulkWrite(ActiveVmdk* vmdkp,
 			std::copy(process.begin(), process.end(), std::back_inserter(failed));
 			return rc < 0 ? rc : -rc;
 		}
-		vmdkp->IncrNwWriteBytes(curr_bytes_write);
+		vmdkp->stats_->IncrNwWriteBytes(curr_bytes_write);
+		vmdkp->stats_->IncrNwTotalWrites(process.size());
 		return 0;
 	});
 }
@@ -229,7 +237,8 @@ folly::Future<int> NetworkTargetHandler::BulkRead(ActiveVmdk* vmdkp,
 		auto eit = buffers->end();
 		for (auto blockp : process) {
 			log_assert(it != eit);
-			vmdkp->IncrNwReadBytes((*it)->PayloadSize());
+			vmdkp->stats_->IncrNwReadBytes((*it)->PayloadSize());
+			vmdkp->stats_->IncrNwTotalReads(1);
 			blockp->PushRequestBuffer(std::move(*it));
 			blockp->SetResult(0, RequestStatus::kSuccess);
 
@@ -294,7 +303,8 @@ folly::Future<int> NetworkTargetHandler::Write(ActiveVmdk *vmdkp,
 			std::copy(process.begin(), process.end(), std::back_inserter(failed));
 			return rc < 0 ? rc : -rc;
 		}
-		vmdkp->IncrNwWriteBytes(curr_bytes_write);
+		vmdkp->stats_->IncrNwWriteBytes(curr_bytes_write);
+		vmdkp->stats_->IncrNwTotalWrites(1);
 		return 0;
 	});
 }

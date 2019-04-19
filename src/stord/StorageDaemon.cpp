@@ -24,6 +24,7 @@
 #include "Singleton.h"
 #include "AeroFiberThreads.h"
 #include "FlushManager.h"
+#include "CkptMergeManager.h"
 #include "TgtInterfaceImpl.h"
 #include "ScanManager.h"
 #include "VmManager.h"
@@ -119,9 +120,7 @@ public:
 		iobuf->coalesce();
 		assert(pio_likely(not iobuf->isChained()));
 
-		std::unique_lock<std::mutex> r_lock(vmdkp->r_stat_lock_);
-		vmdkp->r_pending_count++;
-		r_lock.unlock();
+		vmdkp->stats_->r_pending_count++;
 
 		//LOG(ERROR) << "Size ::" << size << "Offset::" << offset;
 		auto reqp = std::make_unique<Request>(reqid, vmdkp, Request::Type::kRead,
@@ -141,32 +140,30 @@ public:
 			/* Overflow wrap, hoping that wrap logic works with temp var too*/
 			/* Track only MAX_R_IOS_IN_HISTORY previous IOs in histoty, after that reset */
 
-			std::unique_lock<std::mutex> r_lock(vmdkp->r_stat_lock_);
-			if ((vmdkp->r_total_latency + duration < vmdkp->r_total_latency) ||
-					vmdkp->r_io_count >= MAX_R_IOS_IN_HISTORY) {
-				vmdkp->r_total_latency = 0;
-				vmdkp->r_io_count = 0;
-				vmdkp->r_io_blks_count = 0;
+			if ((vmdkp->stats_->r_total_latency + duration < vmdkp->stats_->r_total_latency) ||
+					vmdkp->stats_->r_io_count >= MAX_R_IOS_IN_HISTORY) {
+				vmdkp->stats_->r_total_latency = 0;
+				vmdkp->stats_->r_io_count = 0;
+				vmdkp->stats_->r_io_blks_count = 0;
 			} else {
-				vmdkp->r_total_latency += duration;
-				vmdkp->r_io_blks_count += reqp->NumberOfRequestBlocks();
-				vmdkp->r_io_count += 1;
+				vmdkp->stats_->r_total_latency += duration;
+				vmdkp->stats_->r_io_blks_count += reqp->NumberOfRequestBlocks();
+				vmdkp->stats_->r_io_count += 1;
 			}
 
 			/* We may not hit the modulo condition, keep the value somewhat agressive */
-			if (((vmdkp->r_io_count % 100) == 0) && vmdkp->r_io_count && vmdkp->r_io_blks_count) {
+			if (((vmdkp->stats_->r_io_count % 100) == 0) && vmdkp->stats_->r_io_count && vmdkp->stats_->r_io_blks_count) {
 				VLOG(5) << __func__ <<
 					"[Read:VmdkID:" << vmdkp->GetID() <<
-					", Total latency(microsecs) :" << vmdkp->r_total_latency <<
-					", Total blks IO count (in blk size):" << vmdkp->r_io_blks_count <<
-					", Total IO count:" << vmdkp->r_io_count <<
-					", avg blk access latency:" << vmdkp->r_total_latency / vmdkp->r_io_blks_count <<
-					", avg IO latency:" << vmdkp->r_total_latency / vmdkp->r_io_count <<
-					", pending IOs:" << vmdkp->r_pending_count;
+					", Total latency(microsecs) :" << vmdkp->stats_->r_total_latency <<
+					", Total blks IO count (in blk size):" << vmdkp->stats_->r_io_blks_count <<
+					", Total IO count:" << vmdkp->stats_->r_io_count <<
+					", avg blk access latency:" << vmdkp->stats_->r_total_latency / vmdkp->stats_->r_io_blks_count <<
+					", avg IO latency:" << vmdkp->stats_->r_total_latency / vmdkp->stats_->r_io_count <<
+					", pending IOs:" << vmdkp->stats_->r_pending_count;
 			}
 
-			vmdkp->r_pending_count--;
-			r_lock.unlock();
+			vmdkp->stats_->r_pending_count--;
 			cb->result(std::move(read));
 		});
 	}
@@ -212,9 +209,7 @@ public:
 		iobuf->coalesce();
 		assert(pio_likely(not iobuf->isChained()));
 
-		std::unique_lock<std::mutex> w_lock(vmdkp->w_stat_lock_);
-		vmdkp->w_pending_count++;
-		w_lock.unlock();
+		vmdkp->stats_->w_pending_count++;
 
 		auto reqp = std::make_unique<Request>(reqid, vmdkp, Request::Type::kWrite,
 			iobuf->writableData(), size, size, offset);
@@ -231,32 +226,30 @@ public:
 			/* Overflow wrap, hoping that wrap logic works with temp var too*/
 			/* Track only MAX_W_IOS_IN_HISTORY previous IOs in histoty, after that reset */
 
-			std::unique_lock<std::mutex> w_lock(vmdkp->w_stat_lock_);
-			if ((vmdkp->w_total_latency + duration < vmdkp->w_total_latency)
-					|| vmdkp->w_io_count >= MAX_W_IOS_IN_HISTORY) {
-				vmdkp->w_total_latency = 0;
-				vmdkp->w_io_count = 0;
-				vmdkp->w_io_blks_count = 0;
+			if ((vmdkp->stats_->w_total_latency + duration < vmdkp->stats_->w_total_latency)
+					|| vmdkp->stats_->w_io_count >= MAX_W_IOS_IN_HISTORY) {
+				vmdkp->stats_->w_total_latency = 0;
+				vmdkp->stats_->w_io_count = 0;
+				vmdkp->stats_->w_io_blks_count = 0;
 			} else {
-				vmdkp->w_total_latency += duration;
-				vmdkp->w_io_blks_count += reqp->NumberOfRequestBlocks();
-				vmdkp->w_io_count += 1;
+				vmdkp->stats_->w_total_latency += duration;
+				vmdkp->stats_->w_io_blks_count += reqp->NumberOfRequestBlocks();
+				vmdkp->stats_->w_io_count += 1;
 			}
 
 			/* We may not hit the modulo condition, keep the value somewhat agressive */
-			if (((vmdkp->w_io_count % 100) == 0) && vmdkp->w_io_count && vmdkp->w_io_blks_count) {
+			if (((vmdkp->stats_->w_io_count % 100) == 0) && vmdkp->stats_->w_io_count && vmdkp->stats_->w_io_blks_count) {
 				VLOG(5) << __func__ <<
 					"[Write:VmdkID:" << vmdkp->GetID() <<
-					", Total latency(microsecs) :" << vmdkp->w_total_latency <<
-					", Total blks IO count (in blk size):" << vmdkp->w_io_blks_count <<
-					", Total IO count:" << vmdkp->w_io_count <<
-					", avg blk access latency:" << vmdkp->w_total_latency / vmdkp->w_io_blks_count <<
-					", avg IO latency:" << vmdkp->w_total_latency / vmdkp->w_io_count <<
-					", pending IOs:" << vmdkp->w_pending_count;
+					", Total latency(microsecs) :" << vmdkp->stats_->w_total_latency <<
+					", Total blks IO count (in blk size):" << vmdkp->stats_->w_io_blks_count <<
+					", Total IO count:" << vmdkp->stats_->w_io_count <<
+					", avg blk access latency:" << vmdkp->stats_->w_total_latency / vmdkp->stats_->w_io_blks_count <<
+					", avg IO latency:" << vmdkp->stats_->w_total_latency / vmdkp->stats_->w_io_count <<
+					", pending IOs:" << vmdkp->stats_->w_pending_count;
 			}
 
-			vmdkp->w_pending_count--;
-			w_lock.unlock();
+			vmdkp->stats_->w_pending_count--;
 
 			cb->result(std::move(write));
 		});
@@ -650,7 +643,7 @@ static int NewVm(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto basep = thrift_server->getServeEventBase();
 	log_assert(basep);
 	vmp->StartTimer(g_thread_.ha_instance_, basep);
-
+	vmp->SetHaInstancePtr(g_thread_.ha_instance_);
 	LOG(INFO) << "Added successfully VmID " << vmid << ", VmHandle is " << vm_handle;
 	const auto res = std::to_string(vm_handle);
 
@@ -937,9 +930,9 @@ static int VmdkStartPreload(const _ha_request *reqp, _ha_response *resp, void *)
 	return HA_CALLBACK_CONTINUE;
 }
 
-static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *) {
+static int NewMergeReq(const _ha_request *reqp, _ha_response *resp, void *) {
 
-	LOG(ERROR) << "NewScanReq start";
+	LOG(INFO) << __func__ << " NewMergeReq start..";
 	auto param_valuep = ha_parameter_get(reqp, "vm-id");
 	if (param_valuep == NULL) {
 		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
@@ -948,14 +941,13 @@ static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *) {
 	}
 	std::string vmid(param_valuep);
 
-	auto data = ha_get_data(reqp);
-	std::string req_data;
-	if (data != nullptr) {
-		req_data.assign(data);
-		::free(data);
-	} else {
-		req_data.clear();
+	param_valuep = ha_parameter_get(reqp, "ckpt-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"ckpt-id param not given");
+		return HA_CALLBACK_CONTINUE;
 	}
+	std::string ckptid(param_valuep);
 
 	if (GuardHandler()) {
 		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
@@ -974,7 +966,101 @@ static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *) {
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	auto ret = pio::NewScanReq(vmid, req_data);
+	LOG(INFO) << __func__ << " vmid::" << vmid << " ckptid:" <<  stol(ckptid);
+	auto ret = pio::NewMergeReq(vmid, stol(ckptid));
+	if (ret) {
+		std::ostringstream es;
+		LOG(ERROR) << "Starting Merge request for VMID::"  << vmid << "Failed";
+		es << "Starting Merge request for VMID::"  << vmid << " Failed";
+		SetErrMsg(resp, STORD_ERR_INVALID_SCAN, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	LOG(INFO) << "Merge for VM:" << vmid << " started successfully.";
+	const auto res = std::to_string(ret);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+	return HA_CALLBACK_CONTINUE;
+}
+
+static int NewMergeStatusReq(const _ha_request *reqp, _ha_response *resp, void *) {
+
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"aero-cluter-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string id(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+
+	CkptMergeStats merge_stat;
+	auto ret = pio::NewMergeStatusReq(id, merge_stat);
+	if (ret) {
+		std::ostringstream es;
+		LOG(ERROR) << "Merge status request for aero-cluster-id::"  << id << " Failed, errno:" << ret;
+		if (ret == -EINVAL) {
+			es << "Merge is not running currently for aero-cluster-id::"  << id;
+			SetErrMsg(resp, STORD_ERR_SCAN_NOT_STARTED, es.str());
+		} else {
+			es << "Failed to get merge status for aero-cluster-id::"  << id;
+			SetErrMsg(resp, STORD_ERR_INVALID_SCAN, es.str());
+		}
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	json_t *merge_params = json_object();
+	if (pio_likely(merge_stat.running)) {
+		json_object_set_new(merge_params, "merge_running", json_boolean(true));
+	} else {
+		json_object_set_new(merge_params, "merge_running", json_boolean(false));
+	}
+
+	auto *merge_params_str = json_dumps(merge_params, JSON_ENCODE_ANY);
+	json_object_clear(merge_params);
+	json_decref(merge_params);
+	ha_set_response_body(resp, HTTP_STATUS_OK, merge_params_str,
+			strlen(merge_params_str));
+	::free(merge_params_str);
+
+	return HA_CALLBACK_CONTINUE;
+}
+
+static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *) {
+
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"vm-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
+		std::ostringstream es;
+		LOG(ERROR) << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		es << "Retriving information related to VM failed. Invalid VmID = " << vmid;
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto ret = pio::NewScanReq(vmid, MetaData_constants::kInvalidCheckPointID());
 	if (ret) {
 		std::ostringstream es;
 		LOG(ERROR) << "Starting Scan request for VMID::"  << vmid << "Failed";
@@ -983,13 +1069,10 @@ static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *) {
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	LOG(INFO) << "Scan for VM:" << vmid << "started successfully.";
-
 	const auto res = std::to_string(ret);
 	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
 	return HA_CALLBACK_CONTINUE;
 }
-
 
 static int NewScanStatusReq(const _ha_request *reqp, _ha_response *resp, void *) {
 	auto param_valuep = ha_parameter_get(reqp, "aero-cluster-id");
@@ -1302,7 +1385,9 @@ NewCommitCkpt(const _ha_request *reqp, _ha_response *resp, void *) {
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	ret = pio::MoveUnflushedToFlushed(vm_handle);
+	std::vector<::ondisk::CheckPointID> vec_ckpts;
+	vec_ckpts.emplace_back(stol(ckptid));
+	ret = pio::MoveUnflushedToFlushed(vm_handle, vec_ckpts);
 	if (ret) {
 		std::ostringstream es;
 		es << "Moving checkpoints from unflushed to flushed failed."
@@ -1381,17 +1466,17 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 		if (pio_unlikely(flush_not_running)) {
 			break;
 		}
-		if (itr->first == "-1") {
+		if (itr->first == "time_data") {
 			VLOG(10) << boost::format("%1% %2% %3% %4%")
 				% "Start time:-" % (itr->second).first
 				% "Elapsed time:-" % (itr->second).second;
-		} else if (itr->first == "-2") {
+		} else if (itr->first == "flush_data") {
 			flush_duration = (itr->second).first;
-			move_duration  = (itr->second).second;
-		} else if (itr->first == "-3") {
-			flush_bytes = (itr->second).first;
+			flush_bytes = (itr->second).second;
+		} else if (itr->first == "move_data") {
+			move_duration  = (itr->second).first;
 			move_bytes  = (itr->second).second;
-		} else {
+		} else if (itr->first == vmid) {
 			VLOG(10) << boost::format("[LUN:%1%] %2% %3% %|20t|%4% %5%")
 				% itr->first % "Flushed Blks:-" % (itr->second).first
 				% "Moved Blks:-" % (itr->second).second;
@@ -1588,8 +1673,18 @@ static int GlobalStats([[maybe_unused]] const _ha_request *reqp, _ha_response *r
 
 	json_array_append_new(stat_params, GetElement("read_miss", 
 		g_stats.vmdk_cache_stats_.read_miss_, "number of read miss across of all vmdks"));
+	json_array_append_new(stat_params, GetElement("read_populates",
+		g_stats.vmdk_cache_stats_.read_populates_, "number of read populated into cache"));
+	json_array_append_new(stat_params, GetElement("total_blk_reads",
+		g_stats.vmdk_cache_stats_.total_blk_reads_, "total blocks read"));
+
 	json_array_append_new(stat_params, GetElement("read_hits", 
 		g_stats.vmdk_cache_stats_.read_hits_, "number of read hits across of all vmdks"));
+	json_array_append_new(stat_params, GetElement("nw_bytes_read",
+		g_stats.vmdk_cache_stats_.nw_bytes_read_, "network read bytes"));
+	json_array_append_new(stat_params, GetElement("nw_bytes_write",
+		g_stats.vmdk_cache_stats_.nw_bytes_write_, "network write bytes"));
+	
 	json_array_append_new(stat_params, GetElement("total_reads",
 		g_stats.vmdk_cache_stats_.total_reads_, "total number of reads across vmdks"));
 	json_array_append_new(stat_params, GetElement("total_writes",
@@ -1598,16 +1693,16 @@ static int GlobalStats([[maybe_unused]] const _ha_request *reqp, _ha_response *r
 		g_stats.vmdk_cache_stats_.total_bytes_reads_, "total bytes read across vmdks"));
 	json_array_append_new(stat_params, GetElement("total_writes_in_bytes",
 		g_stats.vmdk_cache_stats_.total_bytes_writes_, "total bytes written across vmdks"));
+	
+
 	json_array_append_new(stat_params, GetElement("read_failed", 
 		g_stats.vmdk_cache_stats_.read_failed_, "number of read failed across all vmdks"));
 	json_array_append_new(stat_params, GetElement("write_failed", 
 		g_stats.vmdk_cache_stats_.write_failed_, "number of write failed across all vmdks"));
-	json_array_append_new(stat_params, GetElement("dirty_cnt", 
-		g_stats.aero_cache_stats_.dirty_cnt_, "number of dirty blocks across all vmdks"));
-	json_array_append_new(stat_params, GetElement("clean_cnt", 
-		g_stats.aero_cache_stats_.clean_cnt_, "number of clean blocks across all vmdks"));
-	json_array_append_new(stat_params, GetElement("parent_cnt", 
-		g_stats.aero_cache_stats_.parent_cnt_, "number of parent blocks across all vmdks"));
+	json_array_append_new(stat_params, GetElement("reads_in_progress", 
+		g_stats.vmdk_cache_stats_.reads_in_progress_, "reads in progress across of all vmdks"));
+	json_array_append_new(stat_params, GetElement("writes_in_progress_", 
+		g_stats.vmdk_cache_stats_.writes_in_progress_, "writes in progress across of all vmdks"));
 
 
 	auto *stat_params_str = json_dumps(stat_params, JSON_ENCODE_ANY);
@@ -1679,6 +1774,11 @@ static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *) 
 	json_object_set_new(stat_params, "writes_in_progress", json_integer(vmdk_stats_p->writes_in_progress_));
 
 	json_object_set_new(stat_params, "read_ahead_blks", json_integer(vmdk_stats_p->read_ahead_blks_));
+	json_object_set_new(stat_params, "read_ahead_random_patterns", json_integer(vmdk_stats_p->rh_random_patterns_));
+  	json_object_set_new(stat_params, "read_ahead_strided_patterns", json_integer(vmdk_stats_p->rh_strided_patterns_));
+  	json_object_set_new(stat_params, "read_ahead_correlated_patterns", json_integer(vmdk_stats_p->rh_correlated_patterns_));
+  	json_object_set_new(stat_params, "read_ahead_unlcoked_reads", json_integer(vmdk_stats_p->rh_unlocked_reads_));
+	
 	json_object_set_new(stat_params, "flushes_in_progress", json_integer(vmdk_stats_p->flushes_in_progress_));
 	json_object_set_new(stat_params, "moves_in_progress", json_integer(vmdk_stats_p->moves_in_progress_));
 	json_object_set_new(stat_params, "block_size", json_integer(vmdk_stats_p->block_size_));
@@ -1880,12 +1980,13 @@ static int GetUnflushedCheckpoints(const _ha_request *reqp, _ha_response *resp, 
 	}
 
 	json_object_set_new(json_params, "unflushed_checkpoints", array);
-	std::string json_params_str = json_dumps(json_params, JSON_ENCODE_ANY);
+	auto *json_params_str = json_dumps(json_params, JSON_ENCODE_ANY);
 	json_object_clear(json_params);
 	json_decref(json_params);
 	json_decref(array);
 
-	ha_set_response_body(resp, HTTP_STATUS_OK, json_params_str.c_str(), strlen(json_params_str.c_str()));
+	ha_set_response_body(resp, HTTP_STATUS_OK, json_params_str, strlen(json_params_str));
+	::free(json_params_str);
 
 	return HA_CALLBACK_CONTINUE;
 }
@@ -2545,6 +2646,8 @@ RestHandlers GetRestCallHandlers() {
 		{GET, "aero_stat", NewAeroCacheStatReq, nullptr},
 		{POST, "scan_del_req", NewScanReq, nullptr},
 		{POST, "scan_status", NewScanStatusReq, nullptr},
+		{POST, "merge_req", NewMergeReq, nullptr},
+		{GET, "merge_status", NewMergeStatusReq, nullptr},
 		{POST, "aero_set_cleanup", AeroSetCleanup, nullptr},
 
 		{POST, "flush_req", NewFlushReq, nullptr},
@@ -2563,8 +2666,12 @@ RestHandlers GetRestCallHandlers() {
 		{POST, "delete_snapshots", DeleteSnapshots, nullptr},
 		{GET, "move_status", GetMoveStatus, nullptr},
 		{GET, "read_ahead_stats", ReadAheadStatsReq, nullptr},
+
 		{GET, "get_component_stats", GlobalStats, nullptr},
 		{POST, "new_delta_context", NewDeltaContextSet, nullptr},
+
+		{GET, "get_stord_stats", GlobalStats, nullptr},
+		{POST, "new_delta_context", NewDeltaContextSet, nullptr}
 
 		{POST, "create_ckpt", CreateCkpt, nullptr},
 		{POST, "add_vcenter_details", AddVcenterDetails, nullptr},
@@ -2663,15 +2770,14 @@ int main(int argc, char* argv[])
 		SingletonHolder<pio::hyc::TargetManager>::GetInstance().get(),
 		g_thread_.ha_instance_);
 #endif
-
-	/* Initialize threadpool for AeroSpike accesses */
-	auto rc = SingletonHolder<AeroFiberThreads>::GetInstance()
-				->CreateInstance();
+	/* Initialize threadpool for Flush processing */
+	auto rc = SingletonHolder<FlushManager>::GetInstance()
+			->CreateInstance(g_thread_.ha_instance_);
 	log_assert(rc == 0);
 
-	/* Initialize threadpool for Flush processing */
-	rc = SingletonHolder<FlushManager>::GetInstance()
-				->CreateInstance(g_thread_.ha_instance_);
+	/* Initialize threadpool for Merge processing */
+	rc = SingletonHolder<CkptMergeManager>::GetInstance()
+			->CreateInstance(g_thread_.ha_instance_);
 	log_assert(rc == 0);
 
 	LOG(INFO) << "Starting Thrift Server";
@@ -2685,8 +2791,8 @@ int main(int argc, char* argv[])
 	thrift_server->setNumIOWorkerThreads(3);
 	thrift_server->serve();
 
+	SingletonHolder<CkptMergeManager>::GetInstance()->DestroyInstance();
 	SingletonHolder<FlushManager>::GetInstance()->DestroyInstance();
-	SingletonHolder<AeroFiberThreads>::GetInstance()->FreeInstance();
 
 	stord_instance->DeinitStordLib();
 

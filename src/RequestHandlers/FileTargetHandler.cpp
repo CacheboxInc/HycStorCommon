@@ -24,9 +24,15 @@ int event_add(int fd, int ep_fd, int events, event_handler_t handler, void *data
 using namespace ::ondisk;
 #if 0
 #define INJECT_WRITE_FAILURE 1
+#define INJECT_READ_DELAY 1
 #endif
 
 namespace pio {
+
+const uint64_t StartOffset = 100 * 1024 * 1024;
+const uint64_t EndOffset = 200 * 1024 * 1024;
+struct event_data *data_ptr_;
+
 #ifdef FILETARGET_ASYNC
 int event_add(int fd, int ep_fd, int events, event_handler_t handler, void *data)
 {
@@ -34,6 +40,7 @@ int event_add(int fd, int ep_fd, int events, event_handler_t handler, void *data
 	int err;
 	/* TBD : Need to free this */
 	struct event_data *data_ptr = new event_data;
+	data_ptr_ = data_ptr;
 	if (!data_ptr) {
 		return -ENOMEM;
 	}
@@ -190,11 +197,11 @@ FileTargetHandler::FileTargetHandler(const config::VmdkConfig* configp) :
 		LOG(ERROR) << __func__ << "Final Path is:" << file_path_.c_str();
 		fd_ = ::open(file_path_.c_str(), O_RDWR | O_SYNC | O_DIRECT| O_CREAT, 0777);
 		if (pio_unlikely(fd_ == -1)) {
-			throw std::runtime_error("File open failed");
+			throw std::runtime_error("File open failed, please check if the filepath: " + file_path_ + " is valid");
 		} else {
 			if (create_file_) {
 				if(ftruncate(fd_, file_size_)) {
-					throw std::runtime_error("File truncate failed");
+					throw std::runtime_error("File truncate failed, please check if the filepath: " + file_path_ + " is valid");
 				}
 			}
 			LOG(ERROR) << __func__ << "file fd_ is:" << fd_;
@@ -263,6 +270,7 @@ FileTargetHandler::~FileTargetHandler() {
 		::close(afd_);
 	}
 
+	delete data_ptr_;
 	if (ep_fd_ != -1) {
 		close(ep_fd_);
 	}
@@ -436,6 +444,19 @@ retry:
 	return aio_req->promise_->getFuture()
 	.then([this, aio_req, &process] (int rc) mutable {
 		pending_io_ -= process.size();
+
+#ifdef INJECT_READ_DELAY
+		for (auto blockp : process) {
+			if (blockp->GetAlignedOffset() >= StartOffset &&
+				blockp->GetAlignedOffset() <= EndOffset) {
+				LOG(ERROR) << __func__ << "::Delaying at offset::"
+					<< blockp->GetAlignedOffset();
+				usleep(5 * 1000000);
+				LOG(ERROR) << __func__ << "Delay done for offset::"
+					<< blockp->GetAlignedOffset();
+			}
+		}
+#endif
 		return rc;
 	});
 }
@@ -584,7 +605,7 @@ folly::Future<int> FileTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		}
 
 		if(0) {
-		LOG(ERROR) << __func__ << "[Cksum]" << blockp->GetAlignedOffset() <<
+			LOG(ERROR) << __func__ << "[Cksum]" << blockp->GetAlignedOffset() <<
 				":" << destp->Size() <<
 				":" << crc_t10dif((unsigned char *) destp->Payload(), destp->Size());
 		}
@@ -671,6 +692,20 @@ folly::Future<int> FileTargetHandler::BulkRead(ActiveVmdk* vmdkp,
 		const std::vector<std::unique_ptr<Request>>&,
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock*>& failed) {
+
+#ifdef INJECT_READ_DELAY
+	for (auto blockp : process) {
+		if (blockp->GetAlignedOffset() >= StartOffset &&
+				blockp->GetAlignedOffset() <= EndOffset) {
+			LOG(ERROR) << __func__ << "::Delaying at offset::"
+				<< blockp->GetAlignedOffset();
+			usleep(2 * 1000000);
+			LOG(ERROR) << __func__ << "Delay done for offset::"
+				<< blockp->GetAlignedOffset();
+		}
+	}
+#endif
+
 	return this->Read(vmdkp, nullptr, process, failed);
 }
 

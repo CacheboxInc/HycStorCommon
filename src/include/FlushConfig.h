@@ -13,6 +13,8 @@ public:
 
 	void SetMoveAllowedStatus(bool status);
 	bool GetMoveAllowedStatus(bool& status);
+	void SetCkptMerge(bool status);
+	bool GetCkptMerge(bool& status);
 	bool GetFlushAllowedStatus(bool& status);
 	bool GetMaxPendingReqsCnt(uint32_t& val);
 	bool GetMaxReqSize(uint32_t& val);
@@ -21,5 +23,6 @@ public:
 	static const std::string kFlushAllowed;
 	static const std::string kMaxPendingReqCnt;
 	static const std::string kMaxReqSize;
+	static const std::string kCkptMerge;
 };
 }}

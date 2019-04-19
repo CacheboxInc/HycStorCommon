@@ -65,12 +65,12 @@ public:
 	folly::Future<int> Write(ActiveVmdk* vmdkp, Request* reqp);
 	folly::Future<int> WriteSame(ActiveVmdk* vmdkp, Request* reqp);
 	folly::Future<int> Read(ActiveVmdk* vmdkp, Request* reqp);
-//	folly::Future<int> Flush(ActiveVmdk* vmdkp, Request* reqp, const CheckPoints& min_max);
 	folly::Future<CheckPointResult> TakeCheckPoint();
 	folly::Future<int> CommitCheckPoint(::ondisk::CheckPointID ckpt_id);
 	int FlushStart(::ondisk::CheckPointID ckpt_id,bool perform_flush,
 			bool perform_move, uint32_t, uint32_t);
-	folly::Future<int> MoveUnflushedToFlushed();
+	folly::Future<int> MoveUnflushedToFlushed(std::vector<::ondisk::CheckPointID>&);
+	int MergeStart(::ondisk::CheckPointID ckpt_id);
 	folly::Future<int> CreateNewVmDeltaContext(int64_t snap_id);
 	int FlushStart(::ondisk::CheckPointID ckpt_id, bool perform_flush, bool perform_move);
 	int FlushStatus(FlushStats &flush_stat);
@@ -78,6 +78,7 @@ public:
 	int GetVmdkParentStats(AeroSpikeConn *aerop, ActiveVmdk* vmdkp,
 		VmdkCacheStats *vmdk_stats);
 	folly::Future<int> Stun(::ondisk::CheckPointID ckpt_id);
+	folly::Future<int> RStun(::ondisk::CheckPointID ckpt_id);
 	std::vector <::ondisk::VmdkID> GetVmdkIDs();
 	::ondisk::CheckPointID GetCurCkptID() const;
 
@@ -92,13 +93,16 @@ public:
 	folly::Future<std::unique_ptr<ReadResultVec>> BulkRead(ActiveVmdk* vmdkp,
 		std::vector<ReadRequest>::const_iterator it,
 		std::vector<ReadRequest>::const_iterator eit,
-		bool trigger_read_ahead);
+		bool is_read_ahead_req);
 
 	folly::Future<int> TruncateBlocks(ActiveVmdk* vmdkp,
                 RequestID reqid, const std::vector<TruncateReq>& requests);
 
 	int GetUnflushedCheckpoints(std::vector<::ondisk::CheckPointID>& unflushed_ckpts);
 	int SerializeCheckpoints(int64_t snap_id, const std::vector<int64_t>& vec_ckpts);
+	int GetflushedCheckpoints(std::vector<::ondisk::CheckPointID>& flushed_ckpts);
+	int DeSerializeCheckpoints(const std::vector<int64_t>& vec_ckpts);
+	int DeSerializeCheckpoint(::ondisk::CheckPointID ckpt_id);
 	int64_t GetSnapID(ActiveVmdk* vmdkp, const uint64_t& ckpt_id);
 
 	bool AddVmSync(std::unique_ptr<VmSync> sync);
@@ -125,6 +129,10 @@ public:
 		return setname_;
 	};
 
+	void SetHaInstancePtr(void *instancep) { ha_instancep_ = instancep;}
+	void *GetHaInstancePtr() { return ha_instancep_;}
+	void IncCheckPointRef(CheckPointID &ckpt_id);
+	void DecCheckPointRef(CheckPointID &ckpt_id);
 private:
 	ActiveVmdk* FindVmdk(VmdkHandle vmdk_handle) const;
 
@@ -133,6 +141,7 @@ private:
 	void WriteComplete(::ondisk::CheckPointID ckpt_id);
 	void CheckPointComplete(::ondisk::CheckPointID ckpt_id);
 	void FlushComplete(::ondisk::CheckPointID ckpt_id);
+	void MergeComplete(::ondisk::CheckPointID ckpt_id);
 
 	void PostIOStats(_ha_instance* instancep);
 	void PostFingerPrintStats(_ha_instance* instancep);
@@ -149,6 +158,7 @@ private:
 	std::atomic<RequestID> request_id_{0};
 	std::unique_ptr<config::VmConfig> config_;
 	std::unique_ptr<config::ArmConfig> armconfig_{nullptr};
+	void *ha_instancep_{nullptr};
 
 	Analyzer analyzer_;
 	RecurringTimer timer_;
@@ -159,9 +169,11 @@ private:
 			::ondisk::MetaData_constants::kInvalidCheckPointID()+1
 		};
 
-		mutable std::mutex mutex_;
+		mutable std::mutex mutex_, r_mutex_;
 		std::unordered_map<::ondisk::CheckPointID, std::atomic<uint64_t>> writes_per_checkpoint_;
+		std::unordered_map<::ondisk::CheckPointID, std::atomic<uint64_t>> reads_per_checkpoint_;
 		std::unordered_map<::ondisk::CheckPointID, std::unique_ptr<struct Stun>> stuns_;
+		std::unordered_map<::ondisk::CheckPointID, std::unique_ptr<struct Stun>> r_stuns_;
 	} checkpoint_;
 
 	struct {

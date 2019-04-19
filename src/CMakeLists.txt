@@ -157,6 +157,8 @@ set(StorageLayerFiles
 	FlushInstance.cpp
 	ScanManager.cpp
 	ScanInstance.cpp
+	CkptMergeManager.cpp
+	CkptMergeInstance.cpp
 	FlushConfig.cpp
 	AeroFiberThreads.cpp
 	SetCkptBmapConfig.cpp

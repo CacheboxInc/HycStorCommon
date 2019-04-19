@@ -30,9 +30,9 @@ TargetID="%s" %VmId
 LunID="%s" %VmdkID
 FileTarget="/tmp/hyc/"
 createfile="false"
-DevTarget="/dev/sdc"
+DevTarget="/dev/sde"
 
-size_in_gb="5" #Size in GB
+size_in_gb="20" #Size in GB
 size_in_bytes=int(size_in_gb) * int(1024) * int(1024) * int(1024)
 
 DevName="iscsi-%s-disk_%s" %(TargetName, LunID)
@@ -77,7 +77,7 @@ assert (r.status_code == 200)
 print ("Send POST stord_svc new_vmdk 1")
 parent = False
 if parent == True:
-	data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"16384", "ParentDiskName":"pset721", "ParentDiskVmdkID" : "12", "Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"}, "ReadAhead":{"Enabled":"false"}, "SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true","CreateFile":"%s" %createfile, "TargetFilePath":"%s" %DevTarget,"TargetFileSize":"%s" %size_in_bytes}, "CleanupOnWrite":"true", 'DiskSizeBytes': "%d" %size_in_bytes, 'VmUUID': 'hycvc43primaryiolan_Lin-cho-LINKED_CLONE-19', 'VmdkUUID': 'hycvc43primaryiolan_6000c2936a9b98fd962c959e4f509b91_Lin-cho-LINKED_CLONE-19'}
+	data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"16384", "ParentDiskName":"pset721", "ParentDiskVmdkID" : "12", "Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"}, "ReadAhead":{"Enabled":"false"}, "SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true","CreateFile":"%s" %createfile, "TargetFilePath":"%s" %DevTarget,"TargetFileSize":"%s" %size_in_bytes, "DeltaTargetFilePath" :"/mnt"}, "CleanupOnWrite":"true", 'DiskSizeBytes': "%d" %size_in_bytes, 'VmUUID': 'hycvc43primaryiolan_Lin-cho-LINKED_CLONE-19', 'VmdkUUID': 'hycvc43primaryiolan_6000c2936a9b98fd962c959e4f509b91_Lin-cho-LINKED_CLONE-19', "DeltaTargetFilePath" :"/mnt"}
 else:
 	data2 = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"16384", "Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true","CreateFile":"%s" %createfile, "TargetFilePath":"%s" %DevTarget,"TargetFileSize":"%s" %size_in_bytes, "DeltaTargetFilePath" :"/mnt"}, "CleanupOnWrite":"true", "ReadAhead":{"Enabled":"false"}, 'DiskSizeBytes': "%d" %size_in_bytes, 'VmUUID': 'hycvc43primaryiolan_Lin-cho-LINKED_CLONE-19', 'VmdkUUID': 'hycvc43primaryiolan_6000c2936a9b98fd962c959e4f509b91_Lin-cho-LINKED_CLONE-19', "DeltaTargetFilePath" :"/mnt"}
 
@@ -112,9 +112,11 @@ assert (r.status_code == 200)
 
 #Ckpt to snapshot related mapping
 ckptID="1"
+print ("Send POST prepare ckpt %s" %ckptID)
 r = requests.post("http://127.0.0.1:9000/stord_svc/v1.0/prepare_ckpt/?vm-id=%s" %(VmId), headers=headers, cert=cert, verify=False)
 assert (r.status_code == 200)
 
+print ("Send POST commit ckpt %s" %ckptID)
 r = requests.post("http://127.0.0.1:9000/stord_svc/v1.0/commit_ckpt/?vm-id=%s&ckpt-id=%s" % (VmId, ckptID), headers=headers, cert=cert, verify=False)
 assert (r.status_code == 200)
 

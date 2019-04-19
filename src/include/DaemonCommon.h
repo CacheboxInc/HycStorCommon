@@ -12,6 +12,7 @@
 namespace pio {
 const std::string kAsNamespaceCacheClean = "CLEAN";
 const std::string kAsNamespaceCacheDirty = "DIRTY";
+const uint32_t kMaxFlushIoSize = 256 * 1024;
 class Vmdk;
 class VirtualMachine;
 
@@ -40,8 +41,18 @@ struct ComponentStats {
 	//and list goes on 
 };
 
-
 struct ScanStats {
+	std::chrono::steady_clock::time_point start_time_;
+	uint32_t progress_pct{0};
+	uint64_t records_scanned;
+};
+
+struct CkptMergeStats {
+	std::chrono::steady_clock::time_point start_time_;
+	bool running{false};
+};
+
+struct MergeStats {
 	std::chrono::steady_clock::time_point start_time_;
 	uint32_t progress_pct{0};
 	uint64_t records_scanned;

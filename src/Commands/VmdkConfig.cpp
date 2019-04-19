@@ -62,7 +62,7 @@ static void ConfigureEncryption(VmdkConfig& config) {
 	std::cout << "Enter encryption key: ";
 	std::cin >> key;
 
-	config.ConfigureEncryption(VmdkConfig::kEncryptionAlgos[encryption], key);
+	config.ConfigureEncryption(VmdkConfig::kEncryptionAlgos[encryption], key, {0});
 }
 
 static void ConfigureRamCache(VmdkConfig& config) {

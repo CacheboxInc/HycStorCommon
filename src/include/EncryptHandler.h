@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RequestHandler.h"
+#include "HycEncrypt.hpp"
 
 namespace pio {
 namespace hyc {
@@ -10,7 +11,7 @@ namespace hyc {
 class EncryptHandler : public RequestHandler {
 public:
 	static constexpr char kName[] = "EncryptHandler";
-	EncryptHandler(const config::VmdkConfig* configp);
+	EncryptHandler(const ActiveVmdk* vmdkp, const config::VmdkConfig* configp);
 	~EncryptHandler();
 	virtual folly::Future<int> Read(ActiveVmdk *vmdkp, Request *reqp,
 		const std::vector<RequestBlock*>& process,
@@ -43,7 +44,8 @@ private:
 private:
 	bool enabled_{false};
 	std::string algorithm_{"aes256-gcm"};
-	std::string key_;
-	hyc::hyc_encrypt_ctx_* ctxp_{nullptr};
+	std::vector<uint64_t> keyids_;
+	//hyc::hyc_encrypt_ctx_* ctxp_{nullptr};
+	pio::hyc::HycEncrypt *ctxp_{nullptr};
 };
 }

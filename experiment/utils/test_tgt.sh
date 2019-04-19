@@ -15,6 +15,7 @@ fi
 python3 test_tgt.py
 
 #Discovey on local host
+echo "Discovering.."
 discover=true
 if [ $discover = true ] ; then
 	iscsiadm --mode discovery --type sendtargets --portal $TargetIP

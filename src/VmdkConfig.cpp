@@ -1,5 +1,6 @@
 #include <algorithm>
-
+#include <iostream>
+#include <boost/foreach.hpp>
 #include <glog/logging.h>
 
 #include "gen-cpp2/MetaData_types.h"
@@ -9,6 +10,7 @@
 #include "DaemonCommon.h"
 
 using namespace ::ondisk;
+using boost::property_tree::ptree;
 
 namespace pio { namespace config {
 
@@ -22,6 +24,7 @@ const std::string VmdkConfig::kBlockSize = "BlockSize";
 const std::string VmdkConfig::kEncryption = "Encryption";
 const std::string VmdkConfig::kEncryptionType = "Type";
 const std::string VmdkConfig::kEncryptionKey = "EncryptionKey";
+const std::string VmdkConfig::kEncryptionKeyIDs = "key_ids";
 const std::vector<std::string> VmdkConfig::kEncryptionAlgos = {
 	"aes128-gcm",
 	"aes256-gcm",
@@ -241,8 +244,37 @@ void VmdkConfig::DisableEncryption() {
 	JsonConfig::SetKey(key, false);
 }
 
+static void dump_ptree(const int depth, const ptree& tree) {
+	BOOST_FOREACH(ptree::value_type const&v, tree.get_child("")) {
+		ptree subtree = v.second;
+		std::string nodestr = tree.get<std::string>(v.first);
+		LOG(INFO) << std::string("").assign(depth*2,' ') << "* "
+			<< v.first << "=\""
+			<< tree.get<std::string>(v.first) << "\"";
+		dump_ptree(depth + 1, subtree);
+	}
+}
+
+void VmdkConfig::GetEncryptionKeyIDs(std::vector<uint64_t>& key_ids) const {
+	//dump_ptree(0, tree_);
+	LOG(INFO) << "Printing KEY_IDs";
+	std::string key = kEncryption + '.' + kEncryptionKeyIDs;
+	try {
+		const auto& child = tree_.get_child(key);
+		(void) child;
+	} catch (const boost::property_tree::ptree_bad_path& e) {
+		LOG(ERROR) << "No keyids are given.";
+		return;
+	}
+
+	for (const auto& e : tree_.get_child(key)) {
+		LOG(INFO) << "keyID: " << e.second.data();
+		key_ids.push_back(std::stoull(e.second.data()));
+	}
+}
+
 void VmdkConfig::ConfigureEncryption(const std::string& algo,
-		const std::string& ekey) {
+		const std::string& ekey, std::vector<uint64_t> key_ids) {
 	std::string key;
 
 	StringDelimAppend(key, '.', {kEncryption, kEnabled});
@@ -257,6 +289,23 @@ void VmdkConfig::ConfigureEncryption(const std::string& algo,
 		throw std::invalid_argument("Invalid Encryption Argument");
 	}
 	JsonConfig::SetKey(key, algo);
+
+	std::stringstream ss;
+	bool first = true;
+	ss<<"[";
+	for (const auto& n : key_ids) {
+		if (first) {
+			first = false;
+			ss << n;
+		} else {
+			ss << "," << n;
+		}
+	}
+	ss << "]";
+	StringDelimAppend(key, '.', {kEncryption, kEncryptionKeyIDs});
+	boost::property_tree::ptree child;
+	boost::property_tree::json_parser::read_json(ss, child);
+	tree_.add_child(key, child);
 }
 
 bool VmdkConfig::IsEncryptionEnabled() const {
@@ -276,7 +325,6 @@ std::string VmdkConfig::GetEncryptionType() const {
 	if (not rc) {
 		type = kEncryptionAlgos[0];
 	}
-
 	auto it = std::find(kEncryptionAlgos.begin(), kEncryptionAlgos.end(), type);
 	if (it == kEncryptionAlgos.end()) {
 		LOG(ERROR) << "Invalid Encryption Type Argument: " << type;

@@ -45,6 +45,23 @@ std::unique_ptr<folly::Promise<int>> Range::MovePromise() const {
 	return std::move(details_.promise_);
 }
 
+bool RangeLock::SelectiveLock(/*[IN]*/const std::vector<range_t>& ranges_in, 
+				/*[OUT]*/std::vector<range_t>& ranges_out) {
+	std::lock_guard<std::mutex> l(mutex_);
+	ranges_out.reserve(ranges_in.size());
+	bool full_lock = true;
+	for(auto it = ranges_in.begin(); it != ranges_in.end(); ++it) {
+		if(!IsRangeLocked(*it)) {
+			LockRange(*it);
+			ranges_out.emplace_back(*it);
+		}
+		else if(full_lock) {
+			full_lock = false;
+		}
+	}
+	return full_lock;
+}
+
 void RangeLock::LockRange(const range_t& range) {
 	ranges_.emplace(range);
 }
@@ -180,6 +197,15 @@ folly::Future<int> LockGuard::Lock() {
 		this->is_locked_ = rc == 0;
 		return rc;
 	});
+}
+
+bool LockGuard::SelectiveLock(/*[OUT]*/std::vector<range_t>& ranges) {
+	bool full_lock = lockp_->SelectiveLock(ranges_, ranges);
+	is_locked_ = ranges.size() > 0;
+	if(!full_lock) {
+		ranges_= ranges;
+	}
+	return full_lock;
 }
 
 bool LockGuard::IsLocked() const noexcept {

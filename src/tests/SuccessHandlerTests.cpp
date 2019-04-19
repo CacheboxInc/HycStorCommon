@@ -60,7 +60,7 @@ protected:
 		config.SetVmUUID(kVmUUID);
 		config.SetBlockSize(kVmdkBlockSize);
 		config.ConfigureCompression("snappy", 1);
-		config.ConfigureEncryption("aes128-gcm", "abcd");
+		config.ConfigureEncryption("aes128-gcm", "abcd", {0});
 		config.DisableCompression();
 		config.DisableEncryption();
 		config.DisableFileCache();

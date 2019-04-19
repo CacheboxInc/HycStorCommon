@@ -34,8 +34,6 @@ AeroSpikeConn::AeroSpikeConn(AeroClusterID cluster_id,
 }
 
 AeroSpikeConn::~AeroSpikeConn() {
-	reconfig_timer_.~RecurringTimer();
-	work_scheduler_ = nullptr;
 	this->Disconnect();
 }
 
