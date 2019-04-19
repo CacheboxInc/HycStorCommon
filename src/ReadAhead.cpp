@@ -76,16 +76,15 @@ ReadAhead::RunPredictions(ReqBlockVec& req_blocks, uint32_t io_block_count) {
 	assert((io_block_count > 0) && !req_blocks.empty());
 	auto block_size = vmdkp_->BlockSize();
 	auto block_shift = vmdkp_->BlockShift();
-	uint64_t* prefetch_lbas = NULL;
+	uint64_t prefetch_lbas[max_prefetch_depth_] = {0};
 	int n_prefetch = 0;
-	std::set<int64_t> predictions;
+	std::set<uint64_t> predictions;
 	std::unique_ptr<ReadResultVec> results;
 
 	// Update history & prefetch if determined so
 	std::unique_lock<std::mutex> prediction_lock(prediction_mutex_);
 	if(ShouldPrefetch(req_blocks.size(), io_block_count)) {
 		bool is_strided = false;
-		prefetch_lbas = new uint64_t[max_prefetch_depth_];
 		for(const auto& block : req_blocks) {
 			n_prefetch = ghb_update_and_query(&ghb_, 1, block->GetOffset(), prefetch_lbas, 
 							max_prefetch_depth_, &is_strided);
@@ -101,13 +100,10 @@ ReadAhead::RunPredictions(ReqBlockVec& req_blocks, uint32_t io_block_count) {
 		if(!IsBlockSizeAlgined(offset, block_size)) {
 			offset = AlignDownToBlockSize(offset, block_size);
 		}
-		if(((int64_t)offset <= max_offset_) && (offset >= block_size)) {
+		if(offset <= max_offset_ && offset >= block_size) {
 			predictions.insert(offset);
 		}
 	}
-	delete[] prefetch_lbas;
-	prefetch_lbas = NULL;
-	
 	if(predictions.size() > 0) {
 		auto pred_size = predictions.size();
 		auto pred_size_bytes = pred_size << block_shift;
@@ -124,7 +120,7 @@ ReadAhead::RunPredictions(ReqBlockVec& req_blocks, uint32_t io_block_count) {
 }
 
 folly::Future<std::unique_ptr<ReadResultVec>>
-ReadAhead::Read(std::set<int64_t>& predictions) {
+ReadAhead::Read(std::set<uint64_t>& predictions) {
 	assert(!predictions.empty());
 	ReadRequestVec requests;
 	requests.reserve(predictions.size());
@@ -140,7 +136,7 @@ ReadAhead::Read(std::set<int64_t>& predictions) {
 	return vmp->BulkRead(vmdkp_, requests.begin(), requests.end(), true);
 }
 
-void ReadAhead::CoalesceRequests(/*[In]*/std::set<int64_t>& predictions, 
+void ReadAhead::CoalesceRequests(/*[In]*/std::set<uint64_t>& predictions, 
 	/*[Out]*/ReadRequestVec& requests, size_t mergeability = MAX_PACKET_SIZE) {
     auto req_id = 0;
     auto block_size = vmdkp_->BlockSize();
@@ -163,7 +159,7 @@ void ReadAhead::CoalesceRequests(/*[In]*/std::set<int64_t>& predictions,
     auto start_offset = *predictions.begin();
     size_t total_size = 0;
     for(auto it = ++predictions.begin(); it != predictions.end(); ++it) {
-		auto size = (size_t)((*it - start_offset) / num_blocks);
+		auto size = (*it - start_offset) / num_blocks;
         total_size += (*it == LONG_MAX) ? block_size : size;
         if((size == block_size) && (total_size < mergeability)) {
             ++num_blocks;
@@ -309,7 +305,7 @@ void ReadAhead::InitializeEssentials() {
 #endif
 }
 
-void ReadAhead::UpdateReadMissStats(int64_t size) {
+void ReadAhead::UpdateReadMissStats(uint32_t size) {
 	if(st_read_ahead_stats_.stats_rh_read_misses_ + size >= ULONG_MAX - 10) {
 		LOG(INFO) << "Resetting stats_rh_read_misses_ counter, current value = [" 
 				<< st_read_ahead_stats_.stats_rh_read_misses_ << "].";
@@ -318,7 +314,7 @@ void ReadAhead::UpdateReadMissStats(int64_t size) {
 	st_read_ahead_stats_.stats_rh_read_misses_ += size;
 }
 
-void ReadAhead::UpdateReadAheadStats(int64_t size) {
+void ReadAhead::UpdateReadAheadStats(uint32_t size) {
 	if(st_read_ahead_stats_.stats_rh_blocks_size_ + size >= ULONG_MAX - 10) {
 		LOG(INFO) << "Resetting stats_rh_blocks_size_ counter, current value = [" 
 					<< st_read_ahead_stats_.stats_rh_blocks_size_ << "].";
@@ -327,13 +323,13 @@ void ReadAhead::UpdateReadAheadStats(int64_t size) {
 	st_read_ahead_stats_.stats_rh_blocks_size_ += size;
 }
 
-void ReadAhead::UpdateTotalUnlockedReads(int reads) {
-	if(st_read_ahead_stats_.stats_rh_unlocked_reads_ + reads >= ULONG_MAX - 10) {
-		LOG(INFO) << "Resetting stats_rh_unlocked_reads_ counter, current value = [" 
-					<< st_read_ahead_stats_.stats_rh_unlocked_reads_ << "].";
-		st_read_ahead_stats_.stats_rh_unlocked_reads_ = 0;
+void ReadAhead::UpdateTotalDroppedReads(uint32_t reads) {
+	if(st_read_ahead_stats_.stats_rh_dropped_reads_ + reads >= ULONG_MAX - 10) {
+		LOG(INFO) << "Resetting stats_rh_dropped_reads_ counter, current value = [" 
+					<< st_read_ahead_stats_.stats_rh_dropped_reads_ << "].";
+		st_read_ahead_stats_.stats_rh_dropped_reads_ = 0;
 	}
-	st_read_ahead_stats_.stats_rh_unlocked_reads_ += reads;
+	st_read_ahead_stats_.stats_rh_dropped_reads_ += reads;
 }
 
 void ReadAhead::UpdatePatternStats(PatternType pattern, int count) {

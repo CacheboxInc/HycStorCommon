@@ -255,7 +255,7 @@ void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
 		vmdk_stats->rh_random_patterns_ = read_aheadp_->StatsTotalRandomPatterns();
 		vmdk_stats->rh_strided_patterns_ = read_aheadp_->StatsTotalStridedPatterns();
 		vmdk_stats->rh_correlated_patterns_ = read_aheadp_->StatsTotalCorrelatedPatterns();
-		vmdk_stats->rh_unlocked_reads_ = read_aheadp_->StatsTotalUnlockedReads();
+		vmdk_stats->rh_dropped_reads_ = read_aheadp_->StatsTotalDroppedReads();
 
 		auto app_reads = stats_->total_blk_reads_ - vmdk_stats->read_ahead_blks_;
 		vmdk_stats->total_blk_reads_ = app_reads;
@@ -443,64 +443,76 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp, const CheckPoints& min_max) {
 	});
 }
 
+int32_t ActiveVmdk::SetCompletionResults(const std::vector<std::unique_ptr<Request>>& requests, 
+	const std::vector<RequestBlock*>& failed, folly::Try<int>& result) {
+	auto Fail = [&requests, &failed] (int rc = -ENXIO, bool all = true) {
+	if (all) {
+		for (auto& request : requests) {
+			request->SetResult(rc, RequestStatus::kFailed);
+		}
+	} else {
+		for (auto& bp : failed) {
+			auto reqp = bp->GetRequest();
+			reqp->SetResult(bp->GetResult(), RequestStatus::kFailed);
+		}
+	}
+	};
+	if (pio_unlikely(result.hasException())) {
+		Fail();
+	} else {
+		auto rc = result.value();
+		if (pio_unlikely(rc < 0 || not failed.empty())) {
+			Fail(rc, not failed.empty());
+		}
+	}
+	int32_t res = 0;
+	stats_->reads_in_progress_ -= requests.size();
+	for (auto& reqp : requests) {
+		auto rc = reqp->Complete();
+		if (pio_unlikely(rc < -1)) {
+			res = rc;
+		}
+		stats_->IncrReadBytes(reqp->GetBufferSize());
+	}
+	return res;
+}
+
 folly::Future<int> ActiveVmdk::BulkRead(const CheckPoints& min_max,
 		const std::vector<std::unique_ptr<Request>>& requests,
 		const std::vector<RequestBlock*>& process) {
-	auto locked_process = std::make_unique<std::vector<RequestBlock*>>();
-	auto cb = [this, &requests, &process, /*&locked_process,*/ min_max = std::move(min_max)]() {
-		SetReadCheckPointId(process, min_max);
-		stats_->reads_in_progress_ += requests.size();
-		stats_->total_reads_ += requests.size();
-
-		auto failed = std::make_unique<std::vector<RequestBlock*>>();
-		return headp_->BulkRead(this, requests, process, *failed)
-		.then([this, failed = std::move(failed), &requests
-			/*,locked_process = std::move(locked_process)*/]
-			(folly::Try<int>& result) mutable {
-			auto failedp = failed.get();
-			auto Fail = [&requests, &failedp] (int rc = -ENXIO, bool all = true) {
-				if (all) {
-					for (auto& request : requests) {
-						request->SetResult(rc, RequestStatus::kFailed);
-					}
-				} else {
-					for (auto& bp : *failedp) {
-						auto reqp = bp->GetRequest();
-						reqp->SetResult(bp->GetResult(), RequestStatus::kFailed);
-					}
-				}
-			};
-			if (pio_unlikely(result.hasException())) {
-				Fail();
-			} else {
-				auto rc = result.value();
-				if (pio_unlikely(rc < 0 || not failedp->empty())) {
-					Fail(rc, not failedp->empty());
-				}
-			}
-			
-			int32_t res = 0;
-			stats_->reads_in_progress_ -= requests.size();
-			for (auto& reqp : requests) {
-				//if(!reqp->IsReadAheadRequest()) {
-					auto rc = reqp->Complete();
-					if (pio_unlikely(rc < -1)) {
-						res = rc;
-					}
-					stats_->IncrReadBytes(reqp->GetBufferSize());
-				//}
-			}
-			return res;
-		});
-	};
 	if(requests[0]->IsReadAheadRequest()) {
 		// TryLock implementation for ReadAhead
 		// Selective-non-block-locking on all ranges in the Request vector
 		// Emits locked_process which contains only those blocks for which a lock
 		// was successfully acquired without blocking
-		return TryLockAndBulkInvoke(requests, process, *locked_process, cb);
+		auto locked_process = std::make_unique<std::vector<RequestBlock*>>();
+		return TryLockAndBulkInvoke(requests, process, *locked_process, 
+			[this, &requests, &locked_process, min_max = std::move(min_max)]() {
+        	SetReadCheckPointId(*locked_process, min_max);
+        	stats_->reads_in_progress_ += requests.size();
+        	stats_->total_reads_ += requests.size();
+
+        	auto failed = std::make_unique<std::vector<RequestBlock*>>();
+			return headp_->BulkRead(this, requests, *locked_process, *failed)
+        	.then([this, failed = std::move(failed), &requests, locked_process = std::move(locked_process)]
+            	(folly::Try<int>& result) mutable {
+            	return SetCompletionResults(requests, *failed, result);
+        	});
+    	});
 	}
-	return TakeLockAndBulkInvoke(requests, cb);	
+	return TakeLockAndBulkInvoke(requests,
+	[this, &requests, &process, min_max = std::move(min_max)] () {
+		SetReadCheckPointId(process, min_max);
+		stats_->reads_in_progress_ += requests.size();
+		stats_->total_reads_ += requests.size();
+
+        auto failed = std::make_unique<std::vector<RequestBlock*>>();
+        return headp_->BulkRead(this, requests, process, *failed)
+        .then([this, failed = std::move(failed), &requests]
+            (folly::Try<int>& result) mutable {
+            return SetCompletionResults(requests, *failed, result);
+        });
+    });
 }
 
 folly::Future<int> ActiveVmdk::TruncateBlocks([[maybe_unused]] RequestID reqid,

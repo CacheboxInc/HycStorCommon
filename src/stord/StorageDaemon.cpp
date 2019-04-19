@@ -1761,7 +1761,7 @@ static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *) 
 	json_object_set_new(stat_params, "read_ahead_random_patterns", json_integer(vmdk_stats_p->rh_random_patterns_));
   	json_object_set_new(stat_params, "read_ahead_strided_patterns", json_integer(vmdk_stats_p->rh_strided_patterns_));
   	json_object_set_new(stat_params, "read_ahead_correlated_patterns", json_integer(vmdk_stats_p->rh_correlated_patterns_));
-  	json_object_set_new(stat_params, "read_ahead_unlcoked_reads", json_integer(vmdk_stats_p->rh_unlocked_reads_));
+  	json_object_set_new(stat_params, "read_ahead_dropped_reads", json_integer(vmdk_stats_p->rh_dropped_reads_));
 	
 	json_object_set_new(stat_params, "flushes_in_progress", json_integer(vmdk_stats_p->flushes_in_progress_));
 	json_object_set_new(stat_params, "moves_in_progress", json_integer(vmdk_stats_p->moves_in_progress_));

@@ -63,7 +63,7 @@ public:
 		atomic_store(&rh_random_patterns_, atomic_load(&other.rh_random_patterns_));
 		atomic_store(&rh_strided_patterns_, atomic_load(&other.rh_strided_patterns_));
 		atomic_store(&rh_correlated_patterns_, atomic_load(&other.rh_correlated_patterns_));
-		atomic_store(&rh_unlocked_reads_, atomic_load(&other.rh_unlocked_reads_));
+		atomic_store(&rh_dropped_reads_, atomic_load(&other.rh_dropped_reads_));
 		atomic_store(&nw_bytes_write_, atomic_load(&other.nw_bytes_write_));
 		atomic_store(&nw_bytes_read_, atomic_load(&other.nw_bytes_read_));
 		atomic_store(&aero_bytes_write_, 
@@ -121,7 +121,7 @@ public:
 	std::atomic<uint64_t> rh_random_patterns_{0}; 
 	std::atomic<uint64_t> rh_strided_patterns_{0}; 
 	std::atomic<uint64_t> rh_correlated_patterns_{0}; 
-	std::atomic<uint64_t> rh_unlocked_reads_{0}; 
+	std::atomic<uint64_t> rh_dropped_reads_{0}; 
 
 	std::atomic<size_t> nw_bytes_write_{0};
 	std::atomic<size_t> nw_bytes_read_{0};

@@ -91,7 +91,7 @@ struct IOAVmdkStats {
 	65: i64 rh_random_patterns;
 	66: i64 rh_strided_patterns;
 	67: i64 rh_correlated_patterns;
-	68: i64 rh_unlocked_reads;
+	68: i64 rh_dropped_reads;
 }
 
 struct IOAVmStats {
