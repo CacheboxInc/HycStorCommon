@@ -1458,10 +1458,11 @@ void HycDumpVmdk(VmdkHandle handle) {
 
 }
 
-void HycSetExpectedWanLatency(uint32_t latency) {
+int HycSetExpectedWanLatency(uint32_t latency) {
 	LOG(ERROR) << "Changing expecting WAN latency from "
 		<< kExpectedWanLatency
 		<< " to " << latency
 		<< " (all units in micro-seconds)";
 	kExpectedWanLatency = latency;
+	return 0;
 }
