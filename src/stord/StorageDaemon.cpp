@@ -524,6 +524,7 @@ enum StordSvcErr {
 	STORD_ERR_ARM_MIGRATION_NOT_ENABLED,
 	STORD_ERR_ARM_INVALID_INFO,
 	STORD_ERR_ARM_SYNC_START_FAILED,
+	STORD_ERR_ARM_SYNC_EXIST,
 	STORD_ERR_ARM_VCENTER_CONN,
 	STORD_ERR_CREATE_CKPT,
 	STORD_ERR_ALLOC_FAILED,
@@ -2339,6 +2340,14 @@ static int ArmSyncStart(const _ha_request *reqp, _ha_response *resp, void *) {
 
 	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
 	log_assert(vmp);
+
+	auto vmsyncp = vmp->GetVmSync(VmSync::Type::kSyncArm);
+	if (vmsyncp != nullptr) {
+		es << "ARM sync is already in progress for vm-id = " << vmid << std::endl;
+		LOG(ERROR) << es.str();
+		SetErrMsg(resp, STORD_ERR_ARM_SYNC_EXIST, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
 
 	auto err_msg = [&vmp, &es, &resp] (bool unset, StordSvcErr err) {
 		if (unset) {
