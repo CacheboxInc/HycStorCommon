@@ -536,7 +536,6 @@ public:
 	const VmdkStats& GetVmdkStats() const noexcept;
 
 	friend std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
-	void ScheduleNow(Request *reqp);
 
 	mutable std::mutex stats_mutex_;
 
@@ -921,15 +920,11 @@ Request::~Request() {
 }
 
 SyncRequest::SyncRequest(RequestID id, Type t, const void* privatep,
-	uint64_t length, int64_t offset, StordVmdk* vmdkp) :
-	RequestBase(id, t, privatep, length, offset), vmdkp(vmdkp) {
+	uint64_t length, int64_t offset) :
+	RequestBase(id, t, privatep, length, offset) {
 }
 
 SyncRequest::~SyncRequest() {
-	for (auto write_req : write_pending) {
-		Request *reqp = reinterpret_cast<Request *>(write_req.get());
-		vmdkp->ScheduleNow(reqp);
-	}
 }
 
 template <typename R,
@@ -955,7 +950,8 @@ constexpr T GetErrNo(T arg1, Args... args) {
 }
 
 bool StordVmdk::SyncRequestComplete(RequestID id, int32_t result) {
-	std::lock_guard<std::mutex> lock(requests_.mutex_);
+	bool pending_ios = false;
+	std::unique_lock<std::mutex> lock(requests_.mutex_);
 	auto sync_it = requests_.sync_pending_.find(id);
 	log_assert(sync_it != requests_.sync_pending_.end());
 	if (result) {
@@ -964,7 +960,21 @@ bool StordVmdk::SyncRequestComplete(RequestID id, int32_t result) {
 
 	auto sync_req = std::move(sync_it->second);
 	requests_.sync_pending_.erase(sync_it);
+
+	for (auto write_req : sync_req->write_pending) {
+		pending_ios = true;
+		Request *reqp = reinterpret_cast<Request *>(write_req.get());
+		requests_.rpc_pending_.emplace_back(reqp);
+	}
+
 	requests_.complete_.emplace_back(std::move(sync_req));
+
+	if (pending_ios) {
+		lock.unlock();
+		auto basep = connectp_->GetEventBase();
+		auto clientp = connectp_->GetRpcClient();
+		ScheduleNow(basep, clientp);
+	}
 
 	return true;
 }
@@ -1360,16 +1370,6 @@ void StordVmdk::ScheduleTruncate(folly::EventBase* basep,
 	});
 }
 
-void StordVmdk::ScheduleNow(Request *reqp) {
-	std::unique_lock<std::mutex> lock(requests_.mutex_);
-	requests_.rpc_pending_.emplace_back(reqp);
-	lock.unlock();
-
-	auto basep = connectp_->GetEventBase();
-	auto clientp = connectp_->GetRpcClient();
-	ScheduleNow(basep, clientp);
-}
-
 void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp) {
 	auto GetPending = [this] (std::vector<Request*>& pending) mutable {
 		pending.clear();
@@ -1543,7 +1543,7 @@ RequestID StordVmdk::ScheduleSyncCache(const void* privatep, uint64_t offset,
 	}
 
 	auto sync_req = std::make_shared<SyncRequest>(++requestid_,
-		Request::Type::kSync, privatep, length, offset, this);
+		Request::Type::kSync, privatep, length, offset);
 	if (hyc_unlikely(not sync_req)) {
 		return kInvalidRequestID;
 	}

@@ -56,10 +56,9 @@ class SyncRequest : public RequestBase {
 public:
 	uint32_t count;
 	std::vector<std::shared_ptr<RequestBase>> write_pending;
-	StordVmdk* vmdkp;
 
 	SyncRequest(RequestID id, Type t, const void* privatep, uint64_t length,
-		int64_t offset, StordVmdk* vmdkp);
+		int64_t offset);
 	~SyncRequest();
 };
 
