@@ -221,7 +221,6 @@ public:
 	::ondisk::CheckPointID GetFlushedCheckPointID() const noexcept;
 
 	/* Functions to gathering Vmdk statistics at this point in time */
-	void GetVmdkInfo(st_vmdk_stats& vmdk_stats);
 	uint64_t WritesInProgress() const noexcept;
 	uint64_t ReadsInProgress() const noexcept;
 	uint64_t FlushesInProgress() const noexcept;
