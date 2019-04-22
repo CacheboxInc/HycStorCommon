@@ -2632,7 +2632,7 @@ RestHandlers GetRestCallHandlers() {
 		void* datap;
 	};
 
-	static constexpr std::array<RestEndPoint, 32> kHaEndPointHandlers = {{
+	static constexpr std::array<RestEndPoint, 34> kHaEndPointHandlers = {{
 		{POST, "new_vm", NewVm, nullptr},
 		{POST, "vm_delete", RemoveVm, nullptr},
 		{POST, "new_vmdk", NewVmdk, nullptr},
@@ -2666,12 +2666,8 @@ RestHandlers GetRestCallHandlers() {
 		{POST, "delete_snapshots", DeleteSnapshots, nullptr},
 		{GET, "move_status", GetMoveStatus, nullptr},
 		{GET, "read_ahead_stats", ReadAheadStatsReq, nullptr},
-
-		{GET, "get_component_stats", GlobalStats, nullptr},
-		{POST, "new_delta_context", NewDeltaContextSet, nullptr},
-
 		{GET, "get_stord_stats", GlobalStats, nullptr},
-		{POST, "new_delta_context", NewDeltaContextSet, nullptr}
+		{POST, "new_delta_context", NewDeltaContextSet, nullptr},
 
 		{POST, "create_ckpt", CreateCkpt, nullptr},
 		{POST, "add_vcenter_details", AddVcenterDetails, nullptr},
