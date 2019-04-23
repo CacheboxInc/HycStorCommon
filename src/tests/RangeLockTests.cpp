@@ -353,8 +353,9 @@ TEST(RangeLockTest, SelectiveLockTest_MultiThreaded) {
 	auto cores = std::thread::hardware_concurrency();
 	std::vector<std::thread> threads;
 	for (auto c = cores; c > 0; --c) {
-		threads.emplace_back(std::thread([&range_lock, &kLoop, 
-		&full_lock_count, &partial_lock_count, &in_ranges] () {
+		threads.emplace_back(
+			std::thread(
+				[&range_lock, &full_lock_count, &partial_lock_count, &in_ranges] () {
 			for (auto i = 0; i < kLoop; ++i) {
 				auto r = in_ranges;
 				r.erase(r.begin(), r.begin() + kLoop % (abs(65 - i) + 1));

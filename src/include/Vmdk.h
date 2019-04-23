@@ -217,14 +217,7 @@ public:
 	int MoveStage(::ondisk::CheckPointID check_point);
 	CheckPoint* GetCheckPoint(::ondisk::CheckPointID ckpt_id) const;
 
-	folly::Future<int> MoveUnflushedToFlushed();
 	::ondisk::CheckPointID GetFlushedCheckPointID() const noexcept;
-
-	/* Functions to gathering Vmdk statistics at this point in time */
-	uint64_t WritesInProgress() const noexcept;
-	uint64_t ReadsInProgress() const noexcept;
-	uint64_t FlushesInProgress() const noexcept;
-	uint64_t MovesInProgress() const noexcept;
 
 	folly::Future<int> MoveUnflushedToFlushed(std::vector<::ondisk::CheckPointID>&);
 

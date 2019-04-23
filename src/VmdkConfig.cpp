@@ -244,7 +244,7 @@ void VmdkConfig::DisableEncryption() {
 	JsonConfig::SetKey(key, false);
 }
 
-static void dump_ptree(const int depth, const ptree& tree) {
+void dump_ptree(const int depth, const ptree& tree) {
 	BOOST_FOREACH(ptree::value_type const&v, tree.get_child("")) {
 		ptree subtree = v.second;
 		std::string nodestr = tree.get<std::string>(v.first);

@@ -69,6 +69,7 @@ target_link_libraries(AeroBench
 	boost_system
 	boost_context
 	${LIBRARY_LIST}
+	${HA_LIBS}
 	-Wl,--end-group
 )
 
@@ -79,5 +80,6 @@ add_executable(PrefetchBench
 target_link_libraries(PrefetchBench
 	-Wl,--start-group
 	${LIBRARY_LIST}
+	${HA_LIBS}
 	-Wl,--end-group
 )
