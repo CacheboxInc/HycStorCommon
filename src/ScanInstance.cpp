@@ -113,13 +113,11 @@ int ScanInstance::ScanTask() {
 	as_arraylist arglist;
 	as_arraylist_init(&arglist, working_list_.size(), 0);
 
-	as_string s;
 	std::string os;
 	for (auto entry : working_list_) {
 		os = entry.first + ":" + std::to_string(entry.second);
 		LOG(INFO) << __func__ << " Adding in array list :" << os.c_str();
-		as_string_init(&s, (char *) os.c_str(), false);
-		as_arraylist_append_string(&arglist, &s);
+		as_arraylist_append_str(&arglist, os.c_str());
 	}
 
 	/* Lua has number of arguments limitations (< 50), encapsulate all the
