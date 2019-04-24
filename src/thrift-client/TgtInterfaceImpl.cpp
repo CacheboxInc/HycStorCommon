@@ -979,8 +979,8 @@ bool StordVmdk::SyncRequestComplete(RequestID id, int32_t result) {
 	++stats_.sync_requests_;
 	requests_.complete_.emplace_back(std::move(sync_req));
 
+	lock.unlock();
 	if (pending_ios) {
-		lock.unlock();
 		auto basep = connectp_->GetEventBase();
 		auto clientp = connectp_->GetRpcClient();
 		ScheduleNow(basep, clientp);
