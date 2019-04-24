@@ -21,6 +21,8 @@ EtcdIps = configParser.get("HYC", "EtcdIps")
 
 #All disks will be of below size
 size_in_gb=20
+size_in_bytes= size_in_gb << 30
+
 
 TargetNameStr = configParser.get("HYC", "TargetNameStr")
 

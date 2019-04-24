@@ -463,13 +463,14 @@ int VirtualMachine::FlushStatus(FlushStats &flush_stat) {
 	uint64_t move_time   = 0;
 	uint64_t flush_bytes = 0;
 	uint64_t move_bytes  = 0;
+	uint64_t flush_blks  = 0;
+	uint64_t move_blks   = 0;
+
+	VmID vmid;
 
 	per_disk_flush_stat disk_stats;
 	for (const auto& vmdkp : vmdk_.list_) {
-		disk_stats = std::make_pair(vmdkp->aux_info_->GetFlushedBlksCnt(),
-			vmdkp->aux_info_->GetMovedBlksCnt());
-		flush_stat.emplace(vmdkp->GetID(), disk_stats);
-
+		vmid = vmdkp->GetVM()->GetID();
 		if (not vmdkp->aux_info_->FlushStageDuration_ &&
 			vmdkp->aux_info_->FlushStartedAt_ < std::chrono::steady_clock::now()) {
 			auto vmdk_flush_time = std::chrono::duration_cast<std::chrono::milliseconds>
@@ -489,9 +490,15 @@ int VirtualMachine::FlushStatus(FlushStats &flush_stat) {
 
 		flush_bytes += (vmdkp->aux_info_->GetFlushedBlksCnt() * vmdkp->BlockSize());
 		move_bytes  += (vmdkp->aux_info_->GetMovedBlksCnt() * vmdkp->BlockSize());
+
+		flush_blks += vmdkp->aux_info_->GetFlushedBlksCnt();
+		move_blks  += vmdkp->aux_info_->GetMovedBlksCnt();
 	}
 	flush_stat.emplace("flush_data", std::make_pair(flush_time, flush_bytes));
 	flush_stat.emplace("move_data", std::make_pair(move_time, move_bytes));
+
+	disk_stats = std::make_pair(flush_blks,	move_blks);
+	flush_stat.emplace(vmid, disk_stats);
 	return 0;
 }
 

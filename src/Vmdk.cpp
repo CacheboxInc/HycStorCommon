@@ -1575,6 +1575,9 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 	log_assert(aux_info_->sleeping_ == false);
 	log_assert(aux_info_->pending_cnt_ == 0);
 
+	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>
+		(std::chrono::steady_clock::now() - aux_info_->FlushStartedAt_);
+	aux_info_->FlushStageDuration_ = duration.count();
 	aux_info_->lock_.unlock();
 
 	LOG (INFO) << __func__ << vmdkid << "::"

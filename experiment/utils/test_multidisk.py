@@ -59,13 +59,13 @@ def new_vm(VmId, TargetName):
 def create_vmdk(VmId, LunID, DevName, DevPath, VmdkID, target, createfile = "false"):
     TargetID = VmId
 
-    vmdk_data = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"4096","Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true", "CreateFile":"%s" %createfile, "TargetFilePath":"%s" %target, "TargetFileSize":"%s" %FileSize, "DeltaTargetFilePath" :"/mnt"}, 'VmUUID': '%s' %VmId, 'VmdkUUID': '%s' %VmdkID, "DeltaTargetFilePath" :"/mnt", "ReadAhead":{"Enabled":"false"}}
+    vmdk_data = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"16384","Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true", "CreateFile":"%s" %createfile, "TargetFilePath":"%s" %target, "TargetFileSize":"%s" %FileSize, "DeltaTargetFilePath" :"/mnt"}, 'VmUUID': '%s' %VmId, 'VmdkUUID': '%s' %VmdkID, "DeltaTargetFilePath" :"/mnt", "ReadAhead":{"Enabled":"false"}}
 
     r = requests.post("%s://%s/stord_svc/v1.0/new_vmdk/?vm-id=%s&vmdk-id=%s" % (h, StordUrl, VmId, VmdkID), data=json.dumps(vmdk_data), headers=headers, cert=cert, verify=False)
     assert (r.status_code == 200)
     print ("STORD: New VMDK: %s added for VM: %s" %(VmdkID, VmId))
 
-    data2 = {"DevName": "%s" %(DevName), "VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID, "LunSize":"%s" %size_in_gb}
+    data2 = {"DevName": "%s" %(DevName), "VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID, "LunSize":"%s" %size_in_bytes}
     r = requests.post("%s://%s/tgt_svc/v1.0/lun_create/?tid=%s&lid=%s" % (h, TgtUrl, TargetID, LunID), data=json.dumps(data2), headers=headers, cert=cert, verify=False)
     assert (r.status_code == 200)
     print ("TGT: New VMDK: %s added for VM: %s" %(VmdkID, VmId))
@@ -74,7 +74,7 @@ def create_vmdk(VmId, LunID, DevName, DevPath, VmdkID, target, createfile = "fal
 def truncate_disk(i, j):
     Name="iscsi-disk_%s_%s" %(i, j)
     Path="/var/hyc/%s" %(Name)
-    cmd="truncate --size=%sG %s" %(size_in_gb, Path)
+    cmd="truncate --size=%s %s" %(size_in_bytes, Path)
     os.system(cmd);
 
     return Name, Path
@@ -135,31 +135,27 @@ def do_setup(no_of_vms, no_of_vmdks):
 
             disk_no += 1
 
-        RTO = False
-        #RTO = True
-        if RTO:
-            # Setup time calls
-            # One first snapshot is required to represent powered off state of VM
+    # Setup time calls
+    # One first snapshot is required to represent powered off state of VM
+    VmID = i
+    ckptID="1"
 
-            VmID = i
-            ckptID="1"
+    r = requests.post("http://%s/stord_svc/v1.0/prepare_ckpt/?vm-id=%s" %(StordUrl, VmID), headers=headers, cert=cert, verify=False)
+    assert (r.status_code == 200)
 
-            r = requests.post("http://%s/stord_svc/v1.0/prepare_ckpt/?vm-id=%s" %(StordUrl, VmID), headers=headers, cert=cert, verify=False)
-            assert (r.status_code == 200)
+    r = requests.post("http://%s/stord_svc/v1.0/commit_ckpt/?vm-id=%s&ckpt-id=%s" %(StordUrl, VmID, ckptID), headers=headers, cert=cert, verify=False)
+    assert (r.status_code == 200)
 
-            r = requests.post("http://%s/stord_svc/v1.0/commit_ckpt/?vm-id=%s&ckpt-id=%s" %(StordUrl, VmID, ckptID), headers=headers, cert=cert, verify=False)
-            assert (r.status_code == 200)
-
-            ckpt_ids = [1]
-            snapshot_id = 1
-            data = {"checkpoint-ids": "%s" %ckpt_ids, "snapshot-id": "%s" %snapshot_id}
-            r = requests.post("http://%s/stord_svc/v1.0/serialize_checkpoints/?vm-id=1" %StordUrl,
-                    data=json.dumps(data), headers=headers, cert=None, verify=False)
-            if r.status_code == 200:
-                    print("moving ahead")
-            else:
-                    print("error")
-            assert (r.status_code == 200)
+    ckpt_ids = [1]
+    snapshot_id = 1
+    data = {"checkpoint-ids": "%s" %ckpt_ids, "snapshot-id": "%s" %snapshot_id}
+    r = requests.post("http://%s/stord_svc/v1.0/serialize_checkpoints/?vm-id=1" %StordUrl,
+            data=json.dumps(data), headers=headers, cert=None, verify=False)
+    if r.status_code == 200:
+            print("moving ahead")
+    else:
+            print("error")
+    assert (r.status_code == 200)
 
     cmd = "iscsiadm --mode discovery --type sendtargets --portal %s" %TargetIp
     os.system(cmd);
