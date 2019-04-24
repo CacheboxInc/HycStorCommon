@@ -497,6 +497,10 @@ struct VmdkStats {
 	std::atomic<int64_t> truncate_failed_{0};
 	std::atomic<int64_t> truncate_latency_{0};
 
+	std::atomic<int64_t> sync_requests_;
+	std::atomic<int64_t> sync_ongoing_writes_;
+	std::atomic<int64_t> sync_hold_new_writes_;
+
 	std::atomic<int64_t> pending_{0};
 	std::atomic<int64_t> rpc_requests_scheduled_{0};
 };
@@ -757,7 +761,8 @@ bool StordVmdk::PrepareRequest(std::shared_ptr<SyncRequest> request) {
 			req_ptr->type == Request::Type::kWriteSame) &&
 			req_ptr->IsOverlapped(nreqp->offset, nreqp->length)) {
 				req_ptr->sync_req = request;
-				nreqp->count++;
+				++nreqp->count;
+				++stats_.sync_ongoing_writes_;
 				/* Do not complete a sync request as overlapping writes on
 				   sync are not completed */
 				prepared = false;
@@ -774,19 +779,20 @@ bool StordVmdk::PrepareRequest(std::shared_ptr<Request> request) {
 	auto nreqp = request.get();
 
 	++stats_.pending_;
-
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
 
 	/* Effective for new writes overlapping on sync */
 	bool overlapped_write = false;
-	if (nreqp->type == Request::Type::kWrite or
-		nreqp->type == Request::Type::kWriteSame) {
+	if ((nreqp->type == Request::Type::kWrite or
+		nreqp->type == Request::Type::kWriteSame) &&
+		requests_.sync_pending_.size()) {
 		for (auto& sync_req : requests_.sync_pending_) {
 			SyncRequest *syncp = sync_req.second.get();
 			if (nreqp->IsOverlapped(syncp->offset, syncp->length)) {
 				syncp->write_pending.emplace_back(request);
 				overlapped_write = true;
 				prepared = false;
+				++stats_.sync_hold_new_writes_;
 			}
 		}
 	}
@@ -951,6 +957,7 @@ constexpr T GetErrNo(T arg1, Args... args) {
 
 bool StordVmdk::SyncRequestComplete(RequestID id, int32_t result) {
 	bool pending_ios = false;
+
 	std::unique_lock<std::mutex> lock(requests_.mutex_);
 	auto sync_it = requests_.sync_pending_.find(id);
 	log_assert(sync_it != requests_.sync_pending_.end());
@@ -965,8 +972,11 @@ bool StordVmdk::SyncRequestComplete(RequestID id, int32_t result) {
 		pending_ios = true;
 		Request *reqp = reinterpret_cast<Request *>(write_req.get());
 		requests_.rpc_pending_.emplace_back(reqp);
+		--stats_.sync_hold_new_writes_;
 	}
 
+	--stats_.pending_;
+	++stats_.sync_requests_;
 	requests_.complete_.emplace_back(std::move(sync_req));
 
 	if (pending_ios) {
@@ -1002,7 +1012,8 @@ bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
 		auto sync_req = std::move(reqp->sync_req);
 		SyncRequest *sync_reqp = reinterpret_cast<SyncRequest *>(sync_req.get());
 
-		sync_reqp->count--;
+		--stats_.sync_ongoing_writes_;
+		--sync_reqp->count;
 		if (!sync_reqp->count) {
 			sync_reqp->result = 0;
 			lock.unlock();
@@ -1551,6 +1562,7 @@ RequestID StordVmdk::ScheduleSyncCache(const void* privatep, uint64_t offset,
 	sync_req->count = 0;
 	sync_req->result = 0;
 
+	++stats_.pending_;
 	auto sync_reqp = sync_req.get();
 	if (PrepareRequest(std::move(sync_req))) {
 		RequestComplete(sync_reqp);
@@ -1923,6 +1935,10 @@ int HycGetVmdkStats(const char* vmdkid, vmdk_stats_t *vmdk_stats) {
 	vmdk_stats->truncate_failed = stats.truncate_failed_;
 	vmdk_stats->truncate_latency = stats.truncate_latency_;
 
+	vmdk_stats->sync_requests = stats.sync_requests_;
+	vmdk_stats->sync_ongoing_writes = stats.sync_ongoing_writes_;
+	vmdk_stats->sync_hold_new_writes = stats.sync_hold_new_writes_;
+
 	vmdk_stats->pending = stats.pending_;
 	vmdk_stats->rpc_requests_scheduled = stats.rpc_requests_scheduled_;
 
@@ -1956,6 +1972,7 @@ int HycGetComponentStats(component_stats_t *g_stats)
 		g_stats->vmdk_stats.truncate_requests += stats.truncate_requests_;
 		g_stats->vmdk_stats.truncate_failed += stats.truncate_failed_;
 		g_stats->vmdk_stats.truncate_latency += stats.truncate_latency_;
+		g_stats->vmdk_stats.sync_requests += stats.sync_requests_;
 		g_stats->vmdk_stats.pending += stats.pending_;
 		g_stats->vmdk_stats.rpc_requests_scheduled += stats.rpc_requests_scheduled_;
 		lock.unlock();

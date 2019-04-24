@@ -27,6 +27,10 @@ typedef struct vmdk_stats
 	int64_t truncate_failed;
 	int64_t truncate_latency;
 
+	int64_t sync_requests;
+	int64_t sync_ongoing_writes;
+	int64_t sync_hold_new_writes;
+
 	int64_t pending;
 	int64_t rpc_requests_scheduled;
 } vmdk_stats_t;
