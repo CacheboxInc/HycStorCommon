@@ -467,10 +467,12 @@ int VirtualMachine::FlushStatus(FlushStats &flush_stat) {
 	uint64_t move_blks   = 0;
 
 	VmID vmid;
+	int stage;
 
 	per_disk_flush_stat disk_stats;
 	for (const auto& vmdkp : vmdk_.list_) {
 		vmid = vmdkp->GetVM()->GetID();
+		stage = (unsigned int)vmdkp->aux_info_->GetStageInProgress();
 		if (not vmdkp->aux_info_->FlushStageDuration_ &&
 			vmdkp->aux_info_->FlushStartedAt_ < std::chrono::steady_clock::now()) {
 			auto vmdk_flush_time = std::chrono::duration_cast<std::chrono::milliseconds>
@@ -496,6 +498,7 @@ int VirtualMachine::FlushStatus(FlushStats &flush_stat) {
 	}
 	flush_stat.emplace("flush_data", std::make_pair(flush_time, flush_bytes));
 	flush_stat.emplace("move_data", std::make_pair(move_time, move_bytes));
+	flush_stat.emplace("op", std::make_pair(stage, stage));
 
 	disk_stats = std::make_pair(flush_blks,	move_blks);
 	flush_stat.emplace(vmid, disk_stats);

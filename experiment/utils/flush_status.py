@@ -11,6 +11,7 @@ import sys
 
 from collections import OrderedDict
 from urllib.parse import urlencode
+from tabulate import tabulate
 
 h = "http"
 cert = None
@@ -26,19 +27,35 @@ headers = {'Content-type': 'application/json'}
 params = OrderedDict([('first', 1), ('second', 2), ('third', 3)])
 data = { "service_type": "test_server", "service_instance" : 0, "etcd_ips" : ["3213213", "213213"]}
 
+def print_flush_table(r):
+    data = json.loads(r.text)
+    elems = json.loads(data['history'])
+
+    data=[]
+    for k, v in sorted(elems.items(), reverse = True):
+        data.append(json.loads(v))
+
+    header = data[0].keys()
+
+    rows =  [x.values() for x in data]
+    print ("\n----------------------------------------------flush_history----------------------------------------------------")
+    print(tabulate(rows, header))
+
+
 # POST call 1 to stord_svc
 data1 = {"vmid": 1}
-print ("Send GET stord_svc flush_status 1")
 r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/flush_status/?vm-id=1" % h)
-print(r.text)
 assert (r.status_code == 200)
 
-print ("Send GET stord_svc flush_status with flush_history 1")
 r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/flush_status/?vm-id=1&get_history=1" % h)
-print(r.text)
 assert (r.status_code == 200)
+a = r.json()
+a.pop('history')
+print(a)
+print_flush_table(r)
+print("\n\n\n")
 
-print ("Send GET stord_svc flush_history 1")
 r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/flush_history/?vm-id=1&vmdk-id=1" % h)
-print(r.text)
 assert (r.status_code == 200)
+print_flush_table(r)
+

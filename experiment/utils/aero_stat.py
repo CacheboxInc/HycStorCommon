@@ -28,12 +28,15 @@ data = { "service_type": "test_server", "service_instance" : 0, "etcd_ips" : ["3
 
 # POST call 1 to stord_svc
 data1 = {"vmid": 1}
-print ("Send GET stord_svc aero_stat 1")
+print ("\nSend GET stord_svc aero_stat")
 r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/aero_stat/?vm-id=1" % h)
 print(r.text)
 assert (r.status_code == 200)
 
-print ("Send GET stord_svc vmdk_stats 2")
+print ("\n\nLabel Sorted vmdk_stats")
 r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/vmdk_stats/?vmdk-id=1" % h)
-print(r.json())
+a = r.json()
+sorted_by_value = sorted(a.items(), key=lambda kv: kv[0])
+print(sorted_by_value)
+#print(r.json())
 assert (r.status_code == 200)

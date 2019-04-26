@@ -1440,6 +1440,7 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 	uint64_t move_duration = 0;
 	uint64_t flush_bytes = 0;
 	uint64_t move_bytes = 0;
+	int stage;
 
 	/*TODO: Get total number of blocks to be flushed from bitmap.
 	 *      For now sending zero.
@@ -1466,6 +1467,8 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 				% "Moved Blks:-" % (itr->second).second;
 			total_flushed_blks += (itr->second).first;
 			total_moved_blks   += (itr->second).second;
+		} else if (itr->first == "op") {
+			stage = (itr->second).first;
 		}
 	}
 
@@ -1479,21 +1482,31 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 		json_object_set_new(flush_params, "flush_running", json_boolean(true));
 	}
 
-	if (flush_duration && ((flush_duration / 1000) / 1024)) {
-		auto flush_speed = ((flush_bytes) / (flush_duration / 1000) / 1024);
-		json_object_set_new(flush_params, "curr_flush_speed(KBps)", json_integer(flush_speed));
+	if (stage == (int)FlushAuxData::FlushStageType::kFlushStage) {
+		if (flush_duration && (flush_duration / 1000)) {
+			LOG(INFO) << "flush_duration:" << flush_duration << " flush_bytes:" << flush_bytes
+				<< " speed: " << ((flush_bytes / (flush_duration / 1000)) / 1024);
+			auto flush_dur   = (flush_duration / 1000);
+			auto flush_speed = ((flush_bytes / flush_dur) / 1024);
+			json_object_set_new(flush_params, "curr_speed(KBps)", json_integer(flush_speed));
+		}
+		json_object_set_new(flush_params, "Operation", json_string("Flush"));
+		json_object_set_new(flush_params, "blks_cnt", json_integer(total_flushed_blks));
+		json_object_set_new(flush_params, "duration(ms)", json_integer(flush_duration));
+	} else {
+		if (move_duration && (move_duration / 1000)) {
+			LOG(INFO) << "move_duration:" << move_duration << " move_bytes:" << move_bytes
+				<< " speed: " << ((move_bytes / (move_duration / 1000)) / 1024);
+			auto move_dur   = (move_duration / 1000);
+			auto move_speed = ((move_bytes / move_dur) / 1024);
+			json_object_set_new(flush_params, "curr_speed(KBps)", json_integer(move_speed));
+		}
+		json_object_set_new(flush_params, "Operation", json_string("Move"));
+		json_object_set_new(flush_params, "blks_cnt", json_integer(total_moved_blks));
+		json_object_set_new(flush_params, "duration(ms)", json_integer(move_duration));
 	}
 
-	if (move_duration && ((move_duration / 1000) / 1024)) {
-		auto move_speed = ((move_bytes) / (move_duration / 1000) / 1024);
-		json_object_set_new(flush_params, "curr_move_speed(KBps)", json_integer(move_speed));
-	}
-
-	json_object_set_new(flush_params, "flushed_blks_cnt", json_integer(total_flushed_blks));
-	json_object_set_new(flush_params, "moved_blks_cnt", json_integer(total_moved_blks));
 	json_object_set_new(flush_params, "remaining_blks_cnt", json_integer(remaining_blks));
-	json_object_set_new(flush_params, "flush_duration(ms)", json_integer(flush_duration));
-	json_object_set_new(flush_params, "move_duration(ms)", json_integer(move_duration));
 
 	param_valuep = ha_parameter_get(reqp, "get_history");
 	if (param_valuep) {
@@ -1559,7 +1572,7 @@ static int NewAeroCacheStatReq(const _ha_request *reqp, _ha_response *resp, void
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	LOG(INFO) << "Successful...";
+	VLOG(10) << "Successful...";
 
 	json_t *aero_params = json_object();
 	const auto res = std::to_string(ret);

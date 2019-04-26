@@ -99,9 +99,11 @@ void FlushManager::PopulateHistory(const VmID& vmid, FlushInstance *fi, int stat
 		} else if (itr->first == "flush_data" && perform_flush) {
 			h.FlushDuration = (itr->second).first;
 			h.FlushBytes    = (itr->second).second;
+			h.stage         = 0;
 		} else if (itr->first == "move_data" && perform_move) {
 			h.MoveDuration  = (itr->second).first;
 			h.MoveBytes     = (itr->second).second;
+			h.stage         = 1;
 		} else if (itr->first == vmid) {
 			if (perform_flush) {
 				h.FlushedBlks += (itr->second).first;
@@ -152,29 +154,39 @@ int FlushManager::GetHistory(const VmID& vmid, void *history_p) {
 		auto end_time = h.StartedAt + std::chrono::milliseconds(h.RunDuration);
 		auto et = std::chrono::system_clock::to_time_t(end_time);
 		if (pio_unlikely(h.status)) {
+			json_object_set_new(all_params, "blks_cnt",
+				json_integer(-1));
+			json_object_set_new(all_params, "Op duration(ms)",
+				json_integer(-1));
+			json_object_set_new(all_params, "Operation",
+					json_string( h.stage == 0 ? "Flush" : "Move"));
+			json_object_set_new(all_params, "Started at",
+				json_string(strtok(std::ctime(&st), "\n")));
+			json_object_set_new(all_params, "Ended at",
+				json_string(strtok(std::ctime(&et), "\n")));
 			json_object_set_new(all_params, "Status",
 				json_string("Flush failed!!"));
-			json_object_set_new(all_params, "Flush Started at",
-				json_string(strtok(std::ctime(&st), "\n")));
 		} else {
 			if (h.FlushedBlks) {
-				json_object_set_new(all_params, "flushed_blks_cnt",
+				json_object_set_new(all_params, "blks_cnt",
 					json_integer(h.FlushedBlks));
-				json_object_set_new(all_params, "flush_duration(ms)",
+				json_object_set_new(all_params, "Op duration(ms)",
 					json_integer(h.FlushDuration));
+				json_object_set_new(all_params, "Operation",
+					json_string("Flush"));
 			}
 			if (h.MovedBlks) {
-				json_object_set_new(all_params, "moved_blks_cnt",
+				json_object_set_new(all_params, "blks_cnt",
 					json_integer(h.MovedBlks));
-				json_object_set_new(all_params, "move_duration(ms)",
+				json_object_set_new(all_params, "Op duration(ms)",
 					json_integer(h.MoveDuration));
+				json_object_set_new(all_params, "Operation",
+					json_string("Move"));
 			}
 			json_object_set_new(all_params, "Started at",
 				json_string(strtok(std::ctime(&st), "\n")));
 			json_object_set_new(all_params, "Ended at",
 				json_string(strtok(std::ctime(&et), "\n")));
-			json_object_set_new(all_params, "Operation time(ms)",
-				json_integer(h.RunDuration));
 			json_object_set_new(all_params, "Status",
 				json_string("Completed"));
 		}

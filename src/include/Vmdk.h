@@ -102,6 +102,7 @@ public:
 	uint32_t failure_cnt_{0};
 	std::list<TrackFlushBlocks> failed_list_;
 
+	FlushStageType stage_in_progress_;
 	std::chrono::steady_clock::time_point FlushStartedAt_;
 	uint64_t FlushStageDuration_{0};
 	std::chrono::steady_clock::time_point MoveStartedAt_;
@@ -116,9 +117,11 @@ public:
 		failed_ = false;
 		failure_cnt_ = 0;
 		failed_list_.clear();
+		stage_in_progress_ = type;
 		if (type == FlushStageType::kFlushStage) {
 			flushed_blks_ = 0;
 			moved_blks_ = 0;
+
 		} else {
 			moved_blks_ = 0;
 		}
@@ -134,6 +137,10 @@ public:
 
 	uint64_t GetPendingBlksCnt() {
 		return pending_cnt_;
+	}
+
+	enum FlushStageType GetStageInProgress() {
+		return stage_in_progress_;
 	}
 };
 

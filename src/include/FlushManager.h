@@ -32,6 +32,7 @@ public:
 	void FreeHistory(const ::ondisk::VmID& vmid);
 	struct instance_history {
 		int status;
+		int stage;
 		uint64_t FlushedBlks{0};
 		uint64_t MovedBlks{0};
 		uint64_t RunDuration{0};
