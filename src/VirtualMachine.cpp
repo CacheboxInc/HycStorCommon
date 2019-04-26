@@ -465,6 +465,7 @@ int VirtualMachine::FlushStatus(FlushStats &flush_stat) {
 	uint64_t move_bytes  = 0;
 	uint64_t flush_blks  = 0;
 	uint64_t move_blks   = 0;
+	uint64_t total_blks  = 0;
 
 	VmID vmid;
 	int stage;
@@ -495,10 +496,11 @@ int VirtualMachine::FlushStatus(FlushStats &flush_stat) {
 
 		flush_blks += vmdkp->aux_info_->GetFlushedBlksCnt();
 		move_blks  += vmdkp->aux_info_->GetMovedBlksCnt();
+		total_blks += vmdkp->aux_info_->GetTotalFlushBlksCnt();
 	}
 	flush_stat.emplace("flush_data", std::make_pair(flush_time, flush_bytes));
 	flush_stat.emplace("move_data", std::make_pair(move_time, move_bytes));
-	flush_stat.emplace("op", std::make_pair(stage, stage));
+	flush_stat.emplace("op", std::make_pair(stage, total_blks));
 
 	disk_stats = std::make_pair(flush_blks,	move_blks);
 	flush_stat.emplace(vmid, disk_stats);

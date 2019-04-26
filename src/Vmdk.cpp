@@ -1118,6 +1118,8 @@ int ActiveVmdk::FlushStage(CheckPointID ckpt_id,
 
 	LOG (ERROR) << __func__ << vmdkid << "::" << " Flush stage start";
 	const auto& bitmap = ckptp->GetRoaringBitMap();
+	aux_info_->total_blks_ = bitmap.cardinality();
+
 	for (const auto& block : bitmap) {
 
 		/* TBD: Try to generate WAN (on prem disk) friendly
@@ -1342,6 +1344,8 @@ int ActiveVmdk::FlushStage_v3(CheckPointID ckpt_id,
 			<< max_pending_reqs;
 
 	const auto& bitmap = ckptp->GetRoaringBitMap();
+	aux_info_->total_blks_ = bitmap.cardinality();
+
 	TrackFlushBlocks cur_blocks, saved_blocks;
 	cur_blocks.id = id;
 	uint32_t acc_size = 0, saved_acc_size = 0;
@@ -1614,6 +1618,8 @@ int ActiveVmdk::FlushStage_v2(CheckPointID ckpt_id,
 			<< max_pending_reqs;
 
 	const auto& bitmap = ckptp->GetRoaringBitMap();
+	aux_info_->total_blks_ = bitmap.cardinality();
+
 	std::vector <FlushBlock> blocks;
 	uint32_t acc_size = 0;
 	auto blk_sz = BlockSize();
@@ -2066,6 +2072,8 @@ int ActiveVmdk::MoveStage_v2(CheckPointID ckpt_id,
 
 	LOG (ERROR) << __func__ << vmdkid << "::" << " Move_v2 stage start";
 	const auto& bitmap = ckptp->GetRoaringBitMap();
+	aux_info_->total_blks_ = bitmap.cardinality();
+
 	for (const auto& block : bitmap) {
 
 		/* Try to generate large size IOs */
@@ -2278,6 +2286,8 @@ int ActiveVmdk::MoveStage(CheckPointID ckpt_id, uint32_t max_pending_reqs) {
 
 	auto min_max = std::make_pair(ckpt_id, ckpt_id);
 	const auto& bitmap = ckptp->GetRoaringBitMap();
+	aux_info_->total_blks_ = bitmap.cardinality();
+
 	auto vmdkid = GetID();
 	LOG (ERROR) << __func__ << vmdkid << "::" << "Move stage start";
 	for (const auto& block : bitmap) {
@@ -2658,6 +2668,8 @@ int ActiveVmdk::MoveStage_v3(CheckPointID ckpt_id,
 			<< max_pending_reqs;
 
 	const auto& bitmap = ckptp->GetRoaringBitMap();
+	aux_info_->total_blks_ = bitmap.cardinality();
+
 	std::vector <FlushBlock> blocks;
 	uint32_t acc_size = 0;
 	auto blk_sz = BlockSize();
@@ -3043,6 +3055,12 @@ uint64_t ActiveVmdk::GetPendingBlksCnt() const noexcept {
 	return aux_info_->GetPendingBlksCnt();
 }
 
+uint64_t ActiveVmdk::GetTotalFlushBlksCnt() const noexcept {
+	if (not aux_info_) {
+		return 0;
+	}
+	return aux_info_->GetPendingBlksCnt();
+}
 CheckPoint::CheckPoint(VmdkID vmdk_id, CheckPointID id) :
 	vmdk_id_(std::move(vmdk_id)), self_(id) {
 }

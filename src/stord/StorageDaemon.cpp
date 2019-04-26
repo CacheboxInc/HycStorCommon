@@ -1442,9 +1442,7 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 	uint64_t move_bytes = 0;
 	int stage;
 
-	/*TODO: Get total number of blocks to be flushed from bitmap.
-	 *      For now sending zero.
-	 */
+	uint64_t total_blks_in_op = 0;
 	uint64_t remaining_blks = 0;
 
 	for (itr = flush_stat.begin(); itr != flush_stat.end(); ++itr) {
@@ -1469,6 +1467,7 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 			total_moved_blks   += (itr->second).second;
 		} else if (itr->first == "op") {
 			stage = (itr->second).first;
+			total_blks_in_op = (itr->second).second;
 		}
 	}
 
@@ -1493,6 +1492,7 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 		json_object_set_new(flush_params, "Operation", json_string("Flush"));
 		json_object_set_new(flush_params, "blks_cnt", json_integer(total_flushed_blks));
 		json_object_set_new(flush_params, "duration(ms)", json_integer(flush_duration));
+		remaining_blks = total_blks_in_op - total_flushed_blks;
 	} else {
 		if (move_duration && (move_duration / 1000)) {
 			LOG(INFO) << "move_duration:" << move_duration << " move_bytes:" << move_bytes
@@ -1504,6 +1504,7 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 		json_object_set_new(flush_params, "Operation", json_string("Move"));
 		json_object_set_new(flush_params, "blks_cnt", json_integer(total_moved_blks));
 		json_object_set_new(flush_params, "duration(ms)", json_integer(move_duration));
+		remaining_blks = total_blks_in_op - total_moved_blks;
 	}
 
 	json_object_set_new(flush_params, "remaining_blks_cnt", json_integer(remaining_blks));

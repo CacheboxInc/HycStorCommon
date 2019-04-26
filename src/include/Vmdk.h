@@ -95,6 +95,7 @@ public:
 	uint64_t pending_cnt_{0};
 	uint64_t flushed_blks_{0};
 	uint64_t moved_blks_{0};
+	uint64_t total_blks_{0};
 	bool sleeping_{false};
 	bool done_{false};
 	bool failed_{false};
@@ -116,6 +117,7 @@ public:
 		done_ = false;
 		failed_ = false;
 		failure_cnt_ = 0;
+		total_blks_ = 0;
 		failed_list_.clear();
 		stage_in_progress_ = type;
 		if (type == FlushStageType::kFlushStage) {
@@ -137,6 +139,10 @@ public:
 
 	uint64_t GetPendingBlksCnt() {
 		return pending_cnt_;
+	}
+
+	uint64_t GetTotalFlushBlksCnt() {
+		return total_blks_;
 	}
 
 	enum FlushStageType GetStageInProgress() {
@@ -229,6 +235,7 @@ public:
 	uint64_t GetFlushedBlksCnt() const noexcept;
 	uint64_t GetMovedBlksCnt() const noexcept;
 	uint64_t GetPendingBlksCnt() const noexcept;
+	uint64_t GetTotalFlushBlksCnt() const noexcept;
 	uint64_t GetReadHits() const noexcept;
 	uint64_t GetReadMisses() const noexcept;
 	uint64_t GetDirtyBlockCount() const noexcept;
