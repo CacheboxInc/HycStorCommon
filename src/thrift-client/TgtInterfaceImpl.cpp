@@ -31,7 +31,12 @@ static std::string StordIp = "127.0.0.1";
 static uint16_t StordPort = 9876;
 
 using namespace std::chrono_literals;
-static size_t kExpectedWanLatency = std::chrono::microseconds(20ms).count();
+static size_t kMaxLatency = std::chrono::microseconds(20ms).count();
+static size_t kIdealLatency = std::chrono::microseconds(16ms).count(); //* 0.8
+static size_t BatchSize = 32;//each tgt conn can have 32 pend
+static bool sched_early = false;
+static uint64_t kInitialBatchSize = 1;
+static uint64_t kBulkIODepth = 128;
 
 namespace hyc {
 using namespace apache::thrift;
@@ -44,11 +49,13 @@ class StordConnection;
 
 std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
 
-template <typename T, uint64_t N>
+template <typename T>
 class MovingAverage {
 public:
-	MovingAverage() = default;
-	~MovingAverage() = default;
+	MovingAverage(uint64_t N) {
+		samples_.reserve(N);
+	}
+	~MovingAverage();
 
 	MovingAverage(const MovingAverage& rhs) = delete;
 	MovingAverage(MovingAverage&& rhs) = delete;
@@ -57,31 +64,43 @@ public:
 
 	T Add(T sample) {
 		std::lock_guard<std::mutex> lock(mutex_);
-		if (nsamples_ < N) {
-			samples_[nsamples_++] = sample;
+		if (samples_.size() < samples_.capacity()) {
+			samples_.push_back(sample);
 			total_ += sample;
 		} else {
-			T& oldest = samples_[nsamples_++ % N];
+			T& oldest = samples_.front();
+			samples_.erase(samples_.begin());
+			samples_.push_back(sample);
 			total_ -= oldest;
 			total_ += sample;
-			oldest = sample;
 		}
 		return Average();
 	}
 
 	T Average() const noexcept {
-		auto div = std::min(nsamples_, N);
+		auto div = std::min(samples_.size(), samples_.capacity());
 		if (not div) {
 			return 0;
 		}
 		return total_ / div;
 	}
 
+	void Clear(void) noexcept {
+		std::lock_guard<std::mutex> lock(mutex_);
+		total_ = 0;
+		samples_.clear();
+	}
+
+	void SetNewBatchSize(size_t batch_size) {
+		//resize array to new size
+		std::lock_guard<std::mutex> lock(mutex_);
+		samples_.reserve(batch_size);
+	}
+
 private:
 	std::mutex mutex_;
-	T samples_[N];
+	std::vector<T> samples_;
 	T total_{0};
-	uint64_t nsamples_{0};
 };
 
 class ReschedulingTimeout : public AsyncTimeout {
@@ -137,6 +156,7 @@ struct Request {
 	int32_t xfer_sz;
 	int64_t offset;
 	int32_t result;
+	size_t batch_size;
 
 	TimePoint timer;
 };
@@ -163,7 +183,8 @@ std::ostream& operator << (std::ostream& os, const Request& request) {
 		<< " bufferp " << request.bufferp
 		<< " buf_sz " << request.buf_sz
 		<< " xfer_sz " << request.xfer_sz
-		<< " offset " << request.offset;
+		<< " offset " << request.offset
+		<< " batch size " << request.batch_size;
 	return os;
 }
 
@@ -233,6 +254,7 @@ private:
 StordConnection::StordConnection(std::string ip, uint16_t port, uint16_t cpu,
 		uint32_t ping) : ip_(std::move(ip)), port_(port), cpu_(cpu),
 		ping_{ping, nullptr}, sched_pending_(this) {
+		LOG(ERROR) <<"mdarade version 1";
 }
 
 folly::EventBase* StordConnection::GetEventBase() const noexcept {
@@ -563,6 +585,7 @@ public:
 	::hyc_thrift::VmdkHandle GetHandle() const noexcept;
 	const std::string& GetVmdkId() const noexcept;
 	void ScheduleMore(folly::EventBase* basep, StorRpcAsyncClient* clientp);
+	void AdaptiveBatching();
 
 	friend std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
 private:
@@ -611,8 +634,8 @@ private:
 		std::vector<std::unique_ptr<Request>> complete_;
 	} requests_;
 
-	MovingAverage<uint64_t, 128> latency_avg_{};
-	MovingAverage<uint64_t, 128> bulk_depth_avg_{};
+	MovingAverage<uint64_t>* latency_avg_;
+	MovingAverage<uint64_t>* bulk_depth_avg_;
 	VmdkStats stats_;
 
 	std::atomic<RequestID> requestid_{0};
@@ -641,8 +664,8 @@ std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk) {
 		<< " eventfd " << vmdk.eventfd_
 		<< " pending " << vmdk.stats_.pending_
 		<< " requestid " << vmdk.requestid_
-		<< " latency avg " << vmdk.latency_avg_.Average()
-		<< " Bulk IODepth avg " << vmdk.bulk_depth_avg_.Average()
+		<< " latency avg " << vmdk.latency_avg_->Average()
+		<< " Bulk IODepth avg " << vmdk.bulk_depth_avg_->Average()
 		;
 	return os;
 }
@@ -650,9 +673,13 @@ std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk) {
 StordVmdk::StordVmdk(std::string vmid, std::string vmdkid, int eventfd) :
 		vmid_(std::move(vmid)), vmdkid_(std::move(vmdkid)),
 		eventfd_(eventfd) {
+		latency_avg_ = new MovingAverage<uint64_t>(kInitialBatchSize);
+		bulk_depth_avg_ = new MovingAverage<uint64_t>(kBulkIODepth); 
 }
 
 StordVmdk::~StordVmdk() {
+	delete (uint64_t*)latency_avg_;
+	delete (uint64_t*)bulk_depth_avg_;
 	CloseVmdk();
 }
 
@@ -768,13 +795,23 @@ std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 	request->buf_sz = buf_sz;
 	request->xfer_sz = xfer_sz;
 	request->offset = offset;
+	std::lock_guard<std::mutex> lock(requests_.mutex_);
+	request->batch_size = BatchSize;
 
 	auto reqp = request.get();
-	std::lock_guard<std::mutex> lock(requests_.mutex_);
-	bool schedule_now = requests_.scheduled_.empty() or
-		latency_avg_.Average() > kExpectedWanLatency;
-	requests_.scheduled_.emplace(request->id, std::move(request));
 	requests_.pending_.emplace_back(reqp);
+	bool schedule_now = false;
+	if (requests_.pending_.size() >= BatchSize) {
+		if (RpcRequestScheduledCount() > 0) {
+			sched_early = true;
+		}
+		schedule_now = true;
+		LOG(ERROR) << "pending size grter so abt to submit from newreq";
+	} else if (requests_.scheduled_.empty()) {
+		schedule_now = true;
+		LOG(ERROR) << "found schedule q size empty";
+	}
+	requests_.scheduled_.emplace(request->id, std::move(request));
 	return std::make_pair(reqp, schedule_now);
 }
 
@@ -782,7 +819,9 @@ void StordVmdk::UpdateStats(Request* reqp) {
 	--stats_.pending_;
 	log_assert(stats_.rpc_requests_scheduled_ >= 0);
 	auto latency = reqp->timer.GetMicroSec();
-	latency_avg_.Add(latency);
+	if(reqp->batch_size == BatchSize) {
+		latency_avg_->Add(latency);
+	}
 	switch (reqp->type) {
 	case Request::Type::kRead:
 		++stats_.read_requests_;
@@ -839,18 +878,49 @@ constexpr T GetErrNo(T arg1, Args... args) {
 void StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	auto it = requests_.scheduled_.find(id);
 	log_assert(it != requests_.scheduled_.end());
-	if (result) {
-		VLOG(5) << "reqid " << id << " has nonzero res: " << result;
-	}
+	LOG(ERROR) << "reqid " << id << " has res: " << result;
 
 	auto req = std::move(it->second);
 	auto reqp = req.get();
 	reqp->result = result;
 	UpdateStats(reqp);
-
 	requests_.scheduled_.erase(it);
 	requests_.complete_.emplace_back(std::move(req));
 }
+
+
+void StordVmdk::AdaptiveBatching() {
+
+	std::lock_guard<std::mutex> lock(requests_.mutex_);
+
+	for (auto &reqp : requests_.complete_) {
+			auto old_batch_size = BatchSize;
+			if(reqp->batch_size == BatchSize) {
+				//latency_avg_->Add(latency);
+				//FIXME should we introduce new mutex?
+				if (latency_avg_->Average() <= kIdealLatency) {
+					if (sched_early == true) {
+						BatchSize *= 2;
+					}
+				} else if (latency_avg_->Average() >= kMaxLatency) {
+					//need to reduce batchsize
+					BatchSize /= 2;
+				}
+				if (BatchSize != old_batch_size) {
+					//start new latency_avg calculation based on new batch size
+					latency_avg_->Clear();
+					latency_avg_->SetNewBatchSize(BatchSize);
+				}
+				sched_early = false;
+			}
+	}
+	if((requests_.pending_.size() >= BatchSize) ||
+		RpcRequestScheduledCount() == 0) {
+		LOG(ERROR) << "about to schedule now from req compl path";
+		ScheduleNow(connectp_->GetEventBase(), connectp_->GetRpcClient());
+	}
+}
+
 
 template <>
 void StordVmdk::RequestComplete(Request* reqp) {
@@ -859,7 +929,7 @@ void StordVmdk::RequestComplete(Request* reqp) {
 		std::lock_guard<std::mutex> lock(requests_.mutex_);
 		RequestComplete(reqp->id, reqp->result);
 		post = requests_.scheduled_.empty() or
-			requests_.complete_.size() >= bulk_depth_avg_.Average();
+			requests_.complete_.size() >= bulk_depth_avg_->Average();
 	}
 
 	if (post) {
@@ -1078,7 +1148,7 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp
 		requests_.pending_.swap(pending);
 		requests_.pending_.reserve(32);
 		if (not pending.empty()) {
-			bulk_depth_avg_.Add(pending.size());
+			bulk_depth_avg_->Add(pending.size());
 		}
 	};
 
@@ -1137,6 +1207,9 @@ void StordVmdk::ScheduleMore(folly::EventBase* basep,
 		StorRpcAsyncClient* clientp) {
 	if (not RpcRequestScheduledCount()) {
 		ScheduleNow(basep, clientp);
+	} else {
+		LOG(ERROR) << "should not be here if some requests still pending";
+		AdaptiveBatching();
 	}
 }
 
@@ -1460,8 +1533,8 @@ void HycDumpVmdk(VmdkHandle handle) {
 
 void HycSetExpectedWanLatency(uint32_t latency) {
 	LOG(ERROR) << "Changing expecting WAN latency from "
-		<< kExpectedWanLatency
+		<< kMaxLatency
 		<< " to " << latency
 		<< " (all units in micro-seconds)";
-	kExpectedWanLatency = latency;
+	kMaxLatency = latency;
 }
