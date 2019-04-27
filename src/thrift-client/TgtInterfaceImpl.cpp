@@ -254,7 +254,7 @@ private:
 StordConnection::StordConnection(std::string ip, uint16_t port, uint16_t cpu,
 		uint32_t ping) : ip_(std::move(ip)), port_(port), cpu_(cpu),
 		ping_{ping, nullptr}, sched_pending_(this) {
-		LOG(ERROR) <<"mdarade version 1";
+		LOG(ERROR) <<"mdarade version 2";
 }
 
 folly::EventBase* StordConnection::GetEventBase() const noexcept {
@@ -891,9 +891,10 @@ void StordVmdk::RequestComplete(RequestID id, int32_t result) {
 
 void StordVmdk::AdaptiveBatching() {
 
-	std::lock_guard<std::mutex> lock(requests_.mutex_);
+	{
+		std::lock_guard<std::mutex> lock(requests_.mutex_);
 
-	for (auto &reqp : requests_.complete_) {
+		for (auto &reqp : requests_.complete_) {
 			auto old_batch_size = BatchSize;
 			if(reqp->batch_size == BatchSize) {
 				//latency_avg_->Add(latency);
@@ -913,6 +914,7 @@ void StordVmdk::AdaptiveBatching() {
 				}
 				sched_early = false;
 			}
+		}
 	}
 	if((requests_.pending_.size() >= BatchSize) ||
 		RpcRequestScheduledCount() == 0) {
