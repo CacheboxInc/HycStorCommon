@@ -254,7 +254,7 @@ private:
 StordConnection::StordConnection(std::string ip, uint16_t port, uint16_t cpu,
 		uint32_t ping) : ip_(std::move(ip)), port_(port), cpu_(cpu),
 		ping_{ping, nullptr}, sched_pending_(this) {
-		LOG(ERROR) <<"mdarade version 2";
+		LOG(ERROR) <<"version 3";
 }
 
 folly::EventBase* StordConnection::GetEventBase() const noexcept {
@@ -806,10 +806,8 @@ std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 			sched_early = true;
 		}
 		schedule_now = true;
-		LOG(ERROR) << "pending size grter so abt to submit from newreq";
 	} else if (requests_.scheduled_.empty()) {
 		schedule_now = true;
-		LOG(ERROR) << "found schedule q size empty";
 	}
 	requests_.scheduled_.emplace(request->id, std::move(request));
 	return std::make_pair(reqp, schedule_now);
@@ -878,7 +876,9 @@ constexpr T GetErrNo(T arg1, Args... args) {
 void StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	auto it = requests_.scheduled_.find(id);
 	log_assert(it != requests_.scheduled_.end());
-	LOG(ERROR) << "reqid " << id << " has res: " << result;
+	if (result) {
+		VLOG(5) << "reqid " << id << " has nonzero res: " << result;
+	}
 
 	auto req = std::move(it->second);
 	auto reqp = req.get();
@@ -902,10 +902,12 @@ void StordVmdk::AdaptiveBatching() {
 				if (latency_avg_->Average() <= kIdealLatency) {
 					if (sched_early == true) {
 						BatchSize *= 2;
+						LOG(ERROR) << "new incr batch size is" << BatchSize; 
 					}
 				} else if (latency_avg_->Average() >= kMaxLatency) {
 					//need to reduce batchsize
 					BatchSize /= 2;
+					LOG(ERROR) << "new decr batch size is" << BatchSize; 
 				}
 				if (BatchSize != old_batch_size) {
 					//start new latency_avg calculation based on new batch size
@@ -916,9 +918,10 @@ void StordVmdk::AdaptiveBatching() {
 			}
 		}
 	}
+	//FIXME we may not need to check for RpcRequestScheduledCount as we already
+	//check it in ScheduleMore() just before entering this function
 	if((requests_.pending_.size() >= BatchSize) ||
 		RpcRequestScheduledCount() == 0) {
-		LOG(ERROR) << "about to schedule now from req compl path";
 		ScheduleNow(connectp_->GetEventBase(), connectp_->GetRpcClient());
 	}
 }
@@ -1210,7 +1213,6 @@ void StordVmdk::ScheduleMore(folly::EventBase* basep,
 	if (not RpcRequestScheduledCount()) {
 		ScheduleNow(basep, clientp);
 	} else {
-		LOG(ERROR) << "should not be here if some requests still pending";
 		AdaptiveBatching();
 	}
 }
