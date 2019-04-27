@@ -32,11 +32,13 @@ static uint16_t StordPort = 9876;
 
 using namespace std::chrono_literals;
 static size_t kMaxLatency = std::chrono::microseconds(20ms).count();
-static size_t kIdealLatency = std::chrono::microseconds(16ms).count(); //* 0.8
+static size_t kIdealLatency = kMaxLatency * 0.8;
 static size_t BatchSize = 32;//each tgt conn can have 32 pend
 static bool sched_early = false;
 static uint64_t kInitialBatchSize = 1;
+static bool kAdaptiveBatching = true;
 static uint64_t kBulkIODepth = 128;
+
 
 namespace hyc {
 using namespace apache::thrift;
@@ -1213,7 +1215,9 @@ void StordVmdk::ScheduleMore(folly::EventBase* basep,
 	if (not RpcRequestScheduledCount()) {
 		ScheduleNow(basep, clientp);
 	} else {
-		AdaptiveBatching();
+		if (kAdaptiveBatching == true) {
+			AdaptiveBatching();
+		}
 	}
 }
 
@@ -1541,4 +1545,10 @@ void HycSetExpectedWanLatency(uint32_t latency) {
 		<< " to " << latency
 		<< " (all units in micro-seconds)";
 	kMaxLatency = latency;
+}
+
+void HycSetAdaptiveBatching(bool adaptive_batching) {
+	LOG(ERROR) << "Changing adaptive batching from "
+		<< kAdaptiveBatching << " to " << adaptive_batching;
+	kAdaptiveBatching = adaptive_batching;
 }
