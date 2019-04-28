@@ -1539,16 +1539,13 @@ void HycDumpVmdk(VmdkHandle handle) {
 
 }
 
-void HycSetExpectedWanLatency(uint32_t latency) {
-	LOG(ERROR) << "Changing expecting WAN latency from "
-		<< kMaxLatency
-		<< " to " << latency
-		<< " (all units in micro-seconds)";
-	kMaxLatency = latency;
-}
-
-void HycSetAdaptiveBatching(bool adaptive_batching) {
+void HycSetAdaptiveBatching(uint32_t batching, uint32_t latency) {
 	LOG(ERROR) << "Changing adaptive batching from "
-		<< kAdaptiveBatching << " to " << adaptive_batching;
-	kAdaptiveBatching = adaptive_batching;
+		<< kAdaptiveBatching << " to " << batching;
+	LOG(ERROR) << "Changing expecting WAN latency from "
+		<< kMaxLatency << " to " << latency
+		<< " (all units in micro-seconds)";
+
+	kMaxLatency = latency;
+	batching?kAdaptiveBatching=true:kAdaptiveBatching=false;
 }
