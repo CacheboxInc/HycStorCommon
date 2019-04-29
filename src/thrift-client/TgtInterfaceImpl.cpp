@@ -36,7 +36,7 @@ static size_t kIdealLatency = kMaxLatency * 0.8;
 
 static bool kAdaptiveBatching = true;
 static uint32_t BatchIncrFraction = 1;
-static uint32_t BatchDecrFraction = 0.25;
+static float BatchDecrFraction = 0.25;
 
 
 namespace hyc {
@@ -1544,13 +1544,17 @@ void HycDumpVmdk(VmdkHandle handle) {
 
 }
 
-void HycSetAdaptiveBatching(uint32_t batching, uint32_t latency, uint32_t batch_incr_val,
-		uint32_t batch_decr_val) {
+void HycSetBatchingAttributes(uint32_t batching, uint32_t latency, uint32_t batch_incr_val,
+		float batch_decr_val) {
 	LOG(ERROR) << "Changing adaptive batching from "
 		<< kAdaptiveBatching << " to " << batching;
 	LOG(ERROR) << "Changing expected WAN latency from "
 		<< kMaxLatency << " to " << latency
 		<< " (all units in micro-seconds)";
+	LOG(ERROR) << "Changing BatchIncrFraction from "
+		<< BatchIncrFraction << " to " << batch_incr_val;
+	LOG(ERROR) << "Changing BatchDecrFraction from "
+		<< BatchDecrFraction << " to " << batch_decr_val;
 
 	kMaxLatency = latency;
 	batching?kAdaptiveBatching=true:kAdaptiveBatching=false;
