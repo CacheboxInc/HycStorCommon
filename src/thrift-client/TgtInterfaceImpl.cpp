@@ -31,12 +31,10 @@ static std::string StordIp = "127.0.0.1";
 static uint16_t StordPort = 9876;
 
 using namespace std::chrono_literals;
-static size_t kMaxLatency = std::chrono::microseconds(20ms).count();
+static size_t kMaxLatency = std::chrono::microseconds(40ms).count();
 static size_t kIdealLatency = kMaxLatency * 0.8;
-static bool sched_early = false;
-static bool kAdaptiveBatching = true;
-static uint64_t kBulkIODepth = 128;
 
+static bool kAdaptiveBatching = true;
 static uint32_t BatchIncrFraction = 1;
 static uint32_t BatchDecrFraction = 0.25;
 
@@ -92,6 +90,7 @@ public:
 		std::lock_guard<std::mutex> lock(mutex_);
 		total_ = 0;
 		samples_.clear();
+		samples_.shrink_to_fit();
 	}
 
 	void SetNewBatchSize(size_t batch_size) {
@@ -257,7 +256,7 @@ private:
 StordConnection::StordConnection(std::string ip, uint16_t port, uint16_t cpu,
 		uint32_t ping) : ip_(std::move(ip)), port_(port), cpu_(cpu),
 		ping_{ping, nullptr}, sched_pending_(this) {
-		LOG(ERROR) <<"version 3";
+		LOG(ERROR) <<"version 5";
 }
 
 folly::EventBase* StordConnection::GetEventBase() const noexcept {
@@ -640,6 +639,7 @@ private:
 	MovingAverage<uint64_t>* latency_avg_;
 	MovingAverage<uint64_t>* bulk_depth_avg_;
 	size_t batch_size_{1}; //each tgt conn can have 32 pend
+	bool sched_early{false};
 	VmdkStats stats_;
 
 	std::atomic<RequestID> requestid_{0};
@@ -678,7 +678,7 @@ StordVmdk::StordVmdk(std::string vmid, std::string vmdkid, int eventfd) :
 		vmid_(std::move(vmid)), vmdkid_(std::move(vmdkid)),
 		eventfd_(eventfd) {
 		latency_avg_ = new MovingAverage<uint64_t>(batch_size_);
-		bulk_depth_avg_ = new MovingAverage<uint64_t>(kBulkIODepth); 
+		bulk_depth_avg_ = new MovingAverage<uint64_t>(128);
 }
 
 StordVmdk::~StordVmdk() {
@@ -903,10 +903,13 @@ void StordVmdk::AdaptiveBatching() {
 			if(reqp->batch_size == batch_size_) {
 				//latency_avg_->Add(latency);
 				//FIXME should we introduce new mutex?
+				LOG(ERROR) << "latency_avg is " << latency_avg_->Average();
 				if (latency_avg_->Average() <= kIdealLatency) {
 					if (sched_early == true) {
 						batch_size_ += BatchIncrFraction;
 						LOG(ERROR) << "new incr batch size is" << batch_size_;
+					} else {
+						LOG(ERROR) << "didn't find any already scheduled rpc reqs";
 					}
 				} else if (latency_avg_->Average() >= kMaxLatency) {
 					//need to reduce batchsize
