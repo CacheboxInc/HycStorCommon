@@ -468,7 +468,7 @@ int VirtualMachine::FlushStatus(FlushStats &flush_stat) {
 	uint64_t total_blks  = 0;
 
 	VmID vmid;
-	int stage;
+	int stage = -1;
 
 	per_disk_flush_stat disk_stats;
 	for (const auto& vmdkp : vmdk_.list_) {

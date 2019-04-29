@@ -1440,7 +1440,7 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 	uint64_t move_duration = 0;
 	uint64_t flush_bytes = 0;
 	uint64_t move_bytes = 0;
-	int stage;
+	int stage = -1;
 
 	uint64_t total_blks_in_op = 0;
 	uint64_t remaining_blks = 0;
@@ -1493,7 +1493,7 @@ static int NewFlushStatusReq(const _ha_request *reqp, _ha_response *resp, void *
 		json_object_set_new(flush_params, "blks_cnt", json_integer(total_flushed_blks));
 		json_object_set_new(flush_params, "duration(ms)", json_integer(flush_duration));
 		remaining_blks = total_blks_in_op - total_flushed_blks;
-	} else {
+	} else if (stage == (int)FlushAuxData::FlushStageType::kMoveStage) {
 		if (move_duration && (move_duration / 1000)) {
 			LOG(INFO) << "move_duration:" << move_duration << " move_bytes:" << move_bytes
 				<< " speed: " << ((move_bytes / (move_duration / 1000)) / 1024);
