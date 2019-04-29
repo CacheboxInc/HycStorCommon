@@ -588,6 +588,7 @@ public:
 	const std::string& GetVmdkId() const noexcept;
 	void ScheduleMore(folly::EventBase* basep, StorRpcAsyncClient* clientp);
 	void AdaptiveBatching();
+	void SetBatchSize(uint32_t batch_size) {batch_size_ = batch_size;}
 
 	friend std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
 private:
@@ -643,6 +644,8 @@ private:
 	VmdkStats stats_;
 
 	std::atomic<RequestID> requestid_{0};
+public:
+	std::mutex mutex_;
 };
 
 void SchedulePending::runLoopCallback() noexcept {
@@ -738,6 +741,8 @@ int StordVmdk::CloseVmdk() {
 	if (vmdk_handle_ == kInvalidVmdkHandle) {
 		return 0;
 	}
+
+	std::lock_guard<std::mutex> lock(mutex_);
 
 	if (PendingOperations() != 0) {
 		LOG(ERROR) << "Close VMDK Failed" << *this;
@@ -1293,6 +1298,7 @@ public:
 		int32_t buf_sz, int64_t offset);
 	RequestID VmdkWriteSame(StordVmdk* vmdkp, const void* privatep,
 		char* bufferp, int32_t buf_sz, int32_t write_sz, int64_t offset);
+	std::vector<::hyc::StordVmdk*> GetVmdkList();
 private:
 	StordVmdk* FindVmdk(::hyc_thrift::VmdkHandle handle);
 	StordVmdk* FindVmdk(const std::string& vmdkid);
@@ -1422,6 +1428,15 @@ RequestID Stord::VmdkWriteSame(StordVmdk* vmdkp, const void* privatep,
 	return vmdkp->ScheduleWriteSame(privatep, bufferp, buf_sz, write_sz, offset);
 }
 
+std::vector<::hyc::StordVmdk*> Stord::GetVmdkList() {
+	std::vector<StordVmdk*> vmdks;
+	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+	for (auto& it : vmdk_.ids_) {
+		vmdks.push_back(it.second.get());
+	}
+	return vmdks;
+}
+
 } // namespace hyc
 
 /*
@@ -1539,11 +1554,10 @@ void HycDumpVmdk(VmdkHandle handle) {
 	} catch (std::exception& e) {
 		LOG(ERROR) << "Invalid VMDK " << handle;
 	}
-
 }
 
-void HycSetBatchingAttributes(uint32_t batching, uint32_t latency, uint32_t batch_incr_val,
-		float batch_decr_val) {
+
+void HycSetBatchingAttributes(uint32_t batching, uint32_t latency, uint32_t batch_incr_val, float batch_decr_val, uint32_t batch_size=0) {
 	LOG(ERROR) << "Changing adaptive batching from "
 		<< kAdaptiveBatching << " to " << batching;
 	LOG(ERROR) << "Changing expected WAN latency from "
@@ -1558,4 +1572,16 @@ void HycSetBatchingAttributes(uint32_t batching, uint32_t latency, uint32_t batc
 	batching?kAdaptiveBatching=true:kAdaptiveBatching=false;
 	BatchIncrFraction = batch_incr_val;
 	BatchDecrFraction = batch_decr_val;
+
+	std::vector<::hyc::StordVmdk*> vmdks = g_stord.GetVmdkList();
+	if (vmdks.size()) {
+		for (auto& vmdk: vmdks) {
+			if (vmdk) {
+				std::lock_guard<std::mutex> lock(vmdk->mutex_);
+				if (batch_size) {
+					vmdk->SetBatchSize(batch_size);
+				}
+			}
+		}//end of for loop which traverses list of vmdks
+	}
 }
