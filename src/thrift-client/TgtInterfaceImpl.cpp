@@ -33,11 +33,12 @@ static uint16_t StordPort = 9876;
 using namespace std::chrono_literals;
 static size_t kMaxLatency = std::chrono::microseconds(20ms).count();
 static size_t kIdealLatency = kMaxLatency * 0.8;
-static size_t BatchSize = 32;//each tgt conn can have 32 pend
 static bool sched_early = false;
-static uint64_t kInitialBatchSize = 1;
 static bool kAdaptiveBatching = true;
 static uint64_t kBulkIODepth = 128;
+
+static uint32_t BatchIncrFraction = 1;
+static uint32_t BatchDecrFraction = 0.25;
 
 
 namespace hyc {
@@ -638,6 +639,7 @@ private:
 
 	MovingAverage<uint64_t>* latency_avg_;
 	MovingAverage<uint64_t>* bulk_depth_avg_;
+	size_t batch_size_{1}; //each tgt conn can have 32 pend
 	VmdkStats stats_;
 
 	std::atomic<RequestID> requestid_{0};
@@ -675,7 +677,7 @@ std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk) {
 StordVmdk::StordVmdk(std::string vmid, std::string vmdkid, int eventfd) :
 		vmid_(std::move(vmid)), vmdkid_(std::move(vmdkid)),
 		eventfd_(eventfd) {
-		latency_avg_ = new MovingAverage<uint64_t>(kInitialBatchSize);
+		latency_avg_ = new MovingAverage<uint64_t>(batch_size_);
 		bulk_depth_avg_ = new MovingAverage<uint64_t>(kBulkIODepth); 
 }
 
@@ -798,12 +800,12 @@ std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 	request->xfer_sz = xfer_sz;
 	request->offset = offset;
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
-	request->batch_size = BatchSize;
+	request->batch_size = batch_size_;
 
 	auto reqp = request.get();
 	requests_.pending_.emplace_back(reqp);
 	bool schedule_now = false;
-	if (requests_.pending_.size() >= BatchSize) {
+	if (requests_.pending_.size() >= batch_size_) {
 		if (RpcRequestScheduledCount() > 0) {
 			sched_early = true;
 		}
@@ -819,7 +821,7 @@ void StordVmdk::UpdateStats(Request* reqp) {
 	--stats_.pending_;
 	log_assert(stats_.rpc_requests_scheduled_ >= 0);
 	auto latency = reqp->timer.GetMicroSec();
-	if(reqp->batch_size == BatchSize) {
+	if(reqp->batch_size == batch_size_) {
 		latency_avg_->Add(latency);
 	}
 	switch (reqp->type) {
@@ -897,24 +899,24 @@ void StordVmdk::AdaptiveBatching() {
 		std::lock_guard<std::mutex> lock(requests_.mutex_);
 
 		for (auto &reqp : requests_.complete_) {
-			auto old_batch_size = BatchSize;
-			if(reqp->batch_size == BatchSize) {
+			auto old_batch_size = batch_size_;
+			if(reqp->batch_size == batch_size_) {
 				//latency_avg_->Add(latency);
 				//FIXME should we introduce new mutex?
 				if (latency_avg_->Average() <= kIdealLatency) {
 					if (sched_early == true) {
-						BatchSize *= 2;
-						LOG(ERROR) << "new incr batch size is" << BatchSize; 
+						batch_size_ += BatchIncrFraction;
+						LOG(ERROR) << "new incr batch size is" << batch_size_;
 					}
 				} else if (latency_avg_->Average() >= kMaxLatency) {
 					//need to reduce batchsize
-					BatchSize /= 2;
-					LOG(ERROR) << "new decr batch size is" << BatchSize; 
+					batch_size_ -= floor(batch_size_ * BatchDecrFraction);
+					LOG(ERROR) << "new decr batch size is" << batch_size_;
 				}
-				if (BatchSize != old_batch_size) {
+				if (batch_size_ != old_batch_size) {
 					//start new latency_avg calculation based on new batch size
 					latency_avg_->Clear();
-					latency_avg_->SetNewBatchSize(BatchSize);
+					latency_avg_->SetNewBatchSize(batch_size_);
 				}
 				sched_early = false;
 			}
@@ -922,7 +924,7 @@ void StordVmdk::AdaptiveBatching() {
 	}
 	//FIXME we may not need to check for RpcRequestScheduledCount as we already
 	//check it in ScheduleMore() just before entering this function
-	if((requests_.pending_.size() >= BatchSize) ||
+	if((requests_.pending_.size() >= batch_size_) ||
 		RpcRequestScheduledCount() == 0) {
 		ScheduleNow(connectp_->GetEventBase(), connectp_->GetRpcClient());
 	}
@@ -1539,13 +1541,16 @@ void HycDumpVmdk(VmdkHandle handle) {
 
 }
 
-void HycSetAdaptiveBatching(uint32_t batching, uint32_t latency) {
+void HycSetAdaptiveBatching(uint32_t batching, uint32_t latency, uint32_t batch_incr_val,
+		uint32_t batch_decr_val) {
 	LOG(ERROR) << "Changing adaptive batching from "
 		<< kAdaptiveBatching << " to " << batching;
-	LOG(ERROR) << "Changing expecting WAN latency from "
+	LOG(ERROR) << "Changing expected WAN latency from "
 		<< kMaxLatency << " to " << latency
 		<< " (all units in micro-seconds)";
 
 	kMaxLatency = latency;
 	batching?kAdaptiveBatching=true:kAdaptiveBatching=false;
+	BatchIncrFraction = batch_incr_val;
+	BatchDecrFraction = batch_decr_val;
 }
