@@ -31,7 +31,7 @@ static std::string StordIp = "127.0.0.1";
 static uint16_t StordPort = 9876;
 
 using namespace std::chrono_literals;
-static size_t kMaxLatency = std::chrono::microseconds(40ms).count();
+static size_t kMaxLatency = std::chrono::microseconds(20ms).count();
 static size_t kIdealLatency = kMaxLatency * 0.8;
 
 static bool kAdaptiveBatching = true;
@@ -638,7 +638,7 @@ private:
 
 	MovingAverage<uint64_t>* latency_avg_;
 	MovingAverage<uint64_t>* bulk_depth_avg_;
-	size_t batch_size_{1}; //each tgt conn can have 32 pend
+	std::atomic<size_t> batch_size_{16}; //each tgt conn can have 32 pend
 	bool sched_early{false};
 	VmdkStats stats_;
 
@@ -807,6 +807,7 @@ std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 	bool schedule_now = false;
 	if (requests_.pending_.size() >= batch_size_) {
 		if (RpcRequestScheduledCount() > 0) {
+			LOG(ERROR) << "sched_early got set for request " << reqp;
 			sched_early = true;
 		}
 		schedule_now = true;
@@ -897,24 +898,21 @@ void StordVmdk::AdaptiveBatching() {
 
 	{
 		std::lock_guard<std::mutex> lock(requests_.mutex_);
-
+		std::atomic<size_t> old_batch_size;
 		for (auto &reqp : requests_.complete_) {
-			auto old_batch_size = batch_size_;
+			atomic_store(&old_batch_size, atomic_load(&(batch_size_)));
 			if(reqp->batch_size == batch_size_) {
 				//latency_avg_->Add(latency);
 				//FIXME should we introduce new mutex?
-				LOG(ERROR) << "latency_avg is " << latency_avg_->Average();
 				if (latency_avg_->Average() <= kIdealLatency) {
 					if (sched_early == true) {
 						batch_size_ += BatchIncrFraction;
-						LOG(ERROR) << "new incr batch size is" << batch_size_;
-					} else {
-						LOG(ERROR) << "didn't find any already scheduled rpc reqs";
+						LOG(ERROR) << "new incr batch size is " << batch_size_;
 					}
 				} else if (latency_avg_->Average() >= kMaxLatency) {
 					//need to reduce batchsize
 					batch_size_ -= floor(batch_size_ * BatchDecrFraction);
-					LOG(ERROR) << "new decr batch size is" << batch_size_;
+					LOG(ERROR) << "new decr batch size is " << batch_size_;
 				}
 				if (batch_size_ != old_batch_size) {
 					//start new latency_avg calculation based on new batch size
