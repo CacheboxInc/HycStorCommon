@@ -162,6 +162,10 @@ void ActiveVmdk::RegisterRequestHandler(std::unique_ptr<RequestHandler> handler)
 	headp_->RegisterNextRequestHandler(std::move(handler));
 }
 
+RequestHandler* ActiveVmdk::GetRequestHandler(const char* namep) noexcept {
+	return headp_->GetRequestHandler(namep);
+}
+
 int ActiveVmdk::Cleanup() {
 	if (not headp_) {
 		return 0;
@@ -3012,6 +3016,10 @@ uint64_t ActiveVmdk::FlushedCheckpoints() const noexcept {
     return checkpoints_.flushed_.size();
 }
 
+::ondisk::CheckPointID ActiveVmdk::GetFlushedCheckPointID() const noexcept {
+	return checkpoints_.flushed_.back()->ID();
+}
+
 uint64_t ActiveVmdk::UnflushedCheckpoints() const noexcept {
 	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
     return checkpoints_.unflushed_.size();
@@ -3179,8 +3187,8 @@ int CheckPoint::UnionRoaringBitmaps(
 		return -ENOMEM;
 	}
 
-	blocks_bitset_ = std::move(Roaring::fastunion(roaring_bitmaps.size(),
-				(const Roaring**)roaring_bitmaps.data()));
+	blocks_bitset_ = Roaring::fastunion(roaring_bitmaps.size(),
+				(const Roaring**)roaring_bitmaps.data());
 	return 0;
 }
 

@@ -89,6 +89,25 @@ void DataCopier::SetWriteIODepth(const size_t io_depth) noexcept {
 	write_.io_depth_ = io_depth;
 }
 
+DataCopier::Stats DataCopier::GetStats() const noexcept {
+	DataCopier::Stats stats;
+
+	stats.is_read_complete = status_.read_complete_;
+	stats.is_failed = status_.failed_;
+
+	const auto& ts = ckpt_.traverser_.GetStats();
+	stats.copy_total = ts.blocks_total;
+	stats.copy_pending = ts.blocks_pending;
+	stats.copy_completed = ts.blocks_traserved;
+	stats.copy_avoided = ts.blocks_optimized;
+
+	stats.cbt_in_progress = ts.cbt_id;
+	stats.read_in_progress = read_.in_progress_.load();
+	stats.write_in_progress = write_.in_progress_.load();
+	stats.write_queue_size = WriteQueueSize();
+	return stats;
+}
+
 folly::Future<int> DataCopier::Begin() {
 	auto f = copy_promise_.getFuture();
 
@@ -143,6 +162,7 @@ DataCopier::GetBlocksToRead() {
 		to_read.emplace_back(ckpt_.traverser_.MergeConsecutiveBlocks());
 	}
 	read_.schedule_pending_ += to_read.size();
+	VLOG(5) << "DataCopier: blocks to read " << to_read.size();
 	return to_read;
 }
 
@@ -258,6 +278,11 @@ std::vector<std::unique_ptr<CopyInternalInfo>> DataCopier::GetBlocksToWrite() {
 		write_.queue_.pop();
 	}
 	write_.schedule_pending_ += to_write.size();
+	VLOG(5) << "DataCopier: blocks to write " << to_write.size()
+		<< " write_.in_progress_ " << write_.in_progress_
+		<< " write_.schedule_pending_ " << write_.schedule_pending_
+		<< " write_.io_depth_ " << write_.io_depth_
+		<< " write_.queue_.size " << write_.queue_.size();
 	return to_write;
 }
 

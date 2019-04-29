@@ -54,6 +54,7 @@ include_directories(src/include)
 include_directories(src/)
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/install/include)
+include_directories("/usr/include/hyc/hyc-vddk/vddk6.7")
 
 link_directories(${PROJECT_SOURCE_DIR}/lib)
 link_directories("/usr/local/lib")
@@ -105,6 +106,10 @@ add_compile_options(
   -DAS_USE_LIBUV
   -g
   -ggdb
+)
+
+add_compile_options(
+	"$<$<AND:$<STREQUAL:$<TARGET_PROPERTY:LINKER_LANGUAGE>,CXX>,$<CXX_COMPILER_ID:Clang>>:-Wunused-lambda-capture>"
 )
 
 set(CMAKE_EXE_LINKER_FLAGS

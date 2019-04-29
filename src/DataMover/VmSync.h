@@ -1,0 +1,88 @@
+#pragma once
+
+#include <vector>
+#include <memory>
+#include <mutex>
+
+#include "DataSync.h"
+#include "DataMoverCommonTypes.h"
+
+namespace pio {
+class VirtualMachine;
+class ActiveVmdk;
+class VmSync;
+
+class VmdkSync {
+public:
+	VmdkSync(const VmdkSync&) = delete;
+	VmdkSync(VmdkSync&&) = delete;
+	VmdkSync& operator = (const VmdkSync&) = delete;
+	VmdkSync& operator = (VmdkSync&&) = delete;
+
+	VmdkSync(ActiveVmdk* vmdkp) noexcept;
+
+	void SetSyncSource(RequestHandlerPtrVec&& source);
+	void SetSyncDest(RequestHandlerPtrVec&& dest);
+
+	DataSync::Stats GetStats() const noexcept;
+
+	friend class VmSync;
+private:
+	void SyncStatus(bool* is_stoppedp, int* resultp) const noexcept;
+	int SetCheckPointBatch(const CkptBatch& batch, bool* restartp) noexcept;
+	void GetCheckPointSummary(::ondisk::CheckPointID* donep,
+		::ondisk::CheckPointID* progressp,
+		::ondisk::CheckPointID* scheduledp) const noexcept;
+	folly::Future<int> SyncStart();
+private:
+	ActiveVmdk* vmdkp_;
+	DataSync sync_;
+};
+
+class VmSync {
+public:
+	enum class Type {
+		kSyncArm,
+		kSyncTest,
+	};
+
+protected:
+	VmSync(VirtualMachine* vmp, Type type,
+		const ::ondisk::CheckPointID base,
+		uint16_t batch_size) noexcept;
+
+	/* TODO: need constructor using SynceCookie */
+
+public:
+	virtual ~VmSync() noexcept;
+
+	virtual void SetCheckPoints(::ondisk::CheckPointID latest,
+		::ondisk::CheckPointID flushed) = 0;
+
+	const Type& GetSyncType() const noexcept;
+
+	std::vector<DataSync::Stats> GetStats() const noexcept;
+	void SyncStatus(bool* stopped, int* result) const noexcept;
+	int SyncStart();
+private:
+	bool Setup();
+	void SyncStatusLocked(bool* is_stoppedp, int* resultp) const noexcept;
+	folly::Future<int> SyncRestart();
+protected:
+	int SetVmdkToSync(std::vector<std::unique_ptr<VmdkSync>> vmdks) noexcept;
+	void SyncTill(::ondisk::CheckPointID id) noexcept;
+	int ValidateSyncProgress() noexcept;
+
+private:
+	VirtualMachine* vmp_{};
+	const Type type_{Type::kSyncArm};
+	::ondisk::CheckPointID ckpt_base_{};
+	CkptBatch ckpt_batch_{kCkptBatchInitial};
+	uint16_t ckpt_batch_size_{0};
+	::ondisk::CheckPointID ckpt_sync_till_{};
+
+	mutable std::mutex mutex_;
+	std::vector<std::unique_ptr<VmdkSync>> vmdks_;
+};
+
+}

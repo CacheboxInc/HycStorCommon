@@ -6,7 +6,9 @@
 #include "JsonConfig.h"
 #include "IDs.h"
 
-namespace pio { namespace config {
+namespace pio {
+namespace config {
+
 class VmConfig : public JsonConfig {
 public:
 	VmConfig(const std::string& config);
@@ -27,11 +29,17 @@ public:
 
 	std::string GetTargetName() const;
 
+	bool GetArmMigration() const;
+
 public:
+	static const std::string kEnabled;
 	static const std::string kVmID;
 	static const std::string kVmUUID;
 	static const std::string kTargetID;
 	static const std::string kTargetName;
 	static const std::string kAeroClusterID;
+	static const std::string kArmMigration;
 };
-}}
+
+} // namespace config.
+} // namespace pio.

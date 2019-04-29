@@ -1,7 +1,11 @@
 #pragma once
 
+#include <folly/io/async/EventBase.h>
+
 #include "RequestHandler.h"
+
 namespace pio {
+class LibAio;
 
 class FileCacheHandler : public RequestHandler {
 public:
@@ -31,10 +35,22 @@ public:
 		const std::vector<RequestBlock*>& process,
 		std::vector<RequestBlock *>& failed) override;
 	const std::string& GetFileCachePath() const;
+
 private:
+	folly::Future<int> Read(const size_t block_size,
+		const std::vector<RequestBlock*> process,
+		std::vector<RequestBlock*>& failed);
+	folly::Future<int> Write(const size_t block_size,
+		const std::vector<RequestBlock*> process,
+		std::vector<RequestBlock*>& failed);
+private:
+	folly::EventBase base_{};
 	bool enabled_{false};
 	std::string file_path_;
 	int fd_;
+
+	std::unique_ptr<std::thread> thread_;
+	std::unique_ptr<LibAio> libaio_;
 };
 
 }

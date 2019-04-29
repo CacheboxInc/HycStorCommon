@@ -18,14 +18,19 @@
 #include "RecurringTimer.h"
 #include "Analyzer.h"
 #include "Rest.h"
+#include "ArmConfig.h"
+#include "VmSync.h"
+#include "ArmSync.h"
 
 using namespace ::hyc_thrift;
 
 namespace pio {
 /* forward declaration for Pimpl */
+class VmSync;
 class VmdkCacheStats;
 namespace config {
 	class VmConfig;
+	class ArmConfig;
 }
 
 using ReqBlockVec = std::vector<RequestBlock*>;
@@ -51,6 +56,10 @@ public:
 	void NewVmdk(ActiveVmdk* vmdkp);
 	int RemoveVmdk(ActiveVmdk* vmdkp);
 	int VmdkCount();
+	const std::vector<ActiveVmdk *>& GetAllVmdks() const noexcept;
+
+	ActiveVmdk* FindVmdk(const ::ondisk::VmdkID& vmdk_id) const;
+
 	RequestID NextRequestID();
 
 	folly::Future<int> Write(ActiveVmdk* vmdkp, Request* reqp);
@@ -96,14 +105,20 @@ public:
 	int DeSerializeCheckpoint(::ondisk::CheckPointID ckpt_id);
 	int64_t GetSnapID(ActiveVmdk* vmdkp, const uint64_t& ckpt_id);
 
+	bool AddVmSync(std::unique_ptr<VmSync> sync);
+	VmSync* GetVmSync(VmSync::Type type) noexcept;
 	friend std::ostream& operator << (std::ostream& os, const VirtualMachine& vm);
 public:
 	void AddVmdk(ActiveVmdk* vmdkp);
 	folly::Future<int> StartPreload(const ::ondisk::VmdkID& id);
 	const ::ondisk::VmID& GetID() const noexcept;
 	const ::ondisk::VmUUID& GetUUID() const noexcept;
-	VmdkHandle GetHandle() const noexcept;
+	VmHandle GetHandle() const noexcept;
 	const config::VmConfig* GetJsonConfig() const noexcept;
+
+	int SetArmJsonConfig(const std::string&);
+	void UnsetArmJsonConfig();
+	const config::ArmConfig* GetArmJsonConfig() const noexcept;
 
 	Analyzer* GetAnalyzer() noexcept;
 	folly::Future<RestResponse> RestCall(_ha_instance* instancep,
@@ -119,7 +134,6 @@ public:
 	void IncCheckPointRef(CheckPointID &ckpt_id);
 	void DecCheckPointRef(CheckPointID &ckpt_id);
 private:
-	ActiveVmdk* FindVmdk(const ::ondisk::VmdkID& vmdk_id) const;
 	ActiveVmdk* FindVmdk(VmdkHandle vmdk_handle) const;
 
 private:
@@ -143,6 +157,7 @@ private:
 	::ondisk::VmUUID vm_uuid_;
 	std::atomic<RequestID> request_id_{0};
 	std::unique_ptr<config::VmConfig> config_;
+	std::unique_ptr<config::ArmConfig> armconfig_{nullptr};
 	void *ha_instancep_{nullptr};
 
 	Analyzer analyzer_;
@@ -167,6 +182,11 @@ private:
 	} vmdk_;
 
 	struct {
+		mutable std::mutex mutex_;
+		std::unordered_map<VmSync::Type, std::unique_ptr<VmSync>> list_;
+	} sync_;
+
+	struct {
 		std::atomic<uint64_t> writes_in_progress_{0};
 		std::atomic<uint64_t> reads_in_progress_{0};
 		std::atomic<uint64_t> flushs_in_progress_{0};
@@ -180,5 +200,8 @@ private:
 
 	std::atomic_flag flush_in_progress_ = ATOMIC_FLAG_INIT;
 	std::unordered_map<std::string, int64_t> snap_ckpt_map_;
+
+	std::unique_ptr<ArmSync> armsync_;
 };
+
 }

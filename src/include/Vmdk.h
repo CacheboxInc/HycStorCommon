@@ -172,6 +172,8 @@ public:
 	virtual ~ActiveVmdk();
 
 	void RegisterRequestHandler(std::unique_ptr<RequestHandler> handler);
+	RequestHandler* GetRequestHandler(const char* namep) noexcept;
+
 	int Cleanup();
 	void SetEventFd(int eventfd) noexcept;
 
@@ -227,9 +229,11 @@ public:
 	int FlushStage(::ondisk::CheckPointID check_point);
 	int MoveStage(::ondisk::CheckPointID check_point);
 	CheckPoint* GetCheckPoint(::ondisk::CheckPointID ckpt_id) const;
+
+	::ondisk::CheckPointID GetFlushedCheckPointID() const noexcept;
+
 	folly::Future<int> MoveUnflushedToFlushed(std::vector<::ondisk::CheckPointID>&);
 
-	
 	uint64_t FlushedCheckpoints() const noexcept;
 	uint64_t UnflushedCheckpoints() const noexcept;
 	uint64_t GetFlushedBlksCnt() const noexcept;

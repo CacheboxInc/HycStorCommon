@@ -426,7 +426,7 @@ int GlobalStats(ComponentStats* stats) {
 	auto vm_manager_p = SingletonHolder<pio::VmManager>::GetInstance();
 	std::vector<VirtualMachine*> vms = vm_manager_p->GetAllVMs();
 	for (auto vm : vms) {
-		AeroStats aero_cache_stats_;
+		[[maybe_unused]] AeroStats aero_cache_stats_;
 		//FIXME TODO 
 		//Find single API which can give us number of entries in given namespace
 		stats->aero_cache_stats_.dirty_cnt_ += 0;

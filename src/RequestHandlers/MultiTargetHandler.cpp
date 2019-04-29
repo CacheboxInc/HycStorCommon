@@ -86,7 +86,7 @@ MultiTargetHandler::~MultiTargetHandler() {
 }
 
 RequestHandler* MultiTargetHandler::GetRequestHandler(const char* namep) noexcept {
-	if (std::strncmp(namep, namep_, std::strlen(namep))) {
+	if (not std::strncmp(namep, namep_, std::strlen(namep))) {
 		return this;
 	}
 	for (auto& target : targets_) {

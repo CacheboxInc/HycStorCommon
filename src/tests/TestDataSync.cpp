@@ -286,7 +286,9 @@ TEST_P(TestDataSync, InitializationTests) {
 	EXPECT_EQ(rc, 0);
 	EXPECT_FALSE(start);
 
-	EXPECT_NE(sync.Start(), 0);
+	auto fut = sync.Start();
+	fut.wait(1s);
+	EXPECT_NE(fut.value(), 0);
 
 	{
 		/* now set source and destinations */
@@ -309,7 +311,10 @@ TEST_P(TestDataSync, InitializationTests) {
 		auto rc = sync.SetCheckPoints(check_points, &start);
 		EXPECT_NE(rc, 0);
 		EXPECT_FALSE(start);
-		EXPECT_EQ(sync.Start(), 0);
+
+		auto fut = sync.Start();
+		fut.wait(1s);
+		EXPECT_EQ(fut.value(), 0);
 	}
 
 	{
@@ -321,7 +326,12 @@ TEST_P(TestDataSync, InitializationTests) {
 		auto rc = sync.SetCheckPoints(check_points, &start);
 		EXPECT_EQ(rc, 0);
 		EXPECT_TRUE(start);
-		EXPECT_EQ(sync.Start(), 0);
+
+		{
+		auto fut = sync.Start();
+		fut.wait(1s);
+		EXPECT_EQ(fut.value(), 0);
+		}
 
 		check_points.clear();
 		auto ckpt3 = std::make_unique<CheckPoint>(vmdk->GetID(), 10);
@@ -331,7 +341,12 @@ TEST_P(TestDataSync, InitializationTests) {
 		rc = sync.SetCheckPoints(check_points, &start);
 		EXPECT_NE(rc, 0);
 		EXPECT_FALSE(start);
-		EXPECT_EQ(sync.Start(), 0);
+
+		{
+		auto fut = sync.Start();
+		fut.wait(1s);
+		EXPECT_EQ(fut.value(), 0);
+		}
 	}
 }
 
@@ -347,6 +362,7 @@ TEST_P(TestDataSync, DataSync) {
 	EXPECT_NO_THROW(sync.SetDataSource(srcs));
 	EXPECT_NO_THROW(sync.SetDataDestination(dsts));
 
+	std::vector<folly::Future<int>> futures;
 	for (auto& ckpt : check_points) {
 		CheckPointPtrVec ckpts;
 		ckpts.emplace_back(ckpt.second.get());
@@ -355,12 +371,10 @@ TEST_P(TestDataSync, DataSync) {
 		auto rc = sync.SetCheckPoints(ckpts, &start);
 		EXPECT_EQ(rc, 0);
 
-		if (start) {
-			rc = sync.Start();
-			EXPECT_EQ(rc, 0);
-		}
+		futures.emplace_back(sync.Start());
 	}
 
+#if 0
 	int count = 0;
 	while (true) {
 		bool is_stopped = false;
@@ -378,7 +392,25 @@ TEST_P(TestDataSync, DataSync) {
 		std::unique_lock<std::mutex> lk(m);
 		cv.wait_for(lk, 1s);
 	}
-
+#else
+	auto fut = folly::collectAll(std::move(futures))
+	.then([] (const folly::Try<std::vector<folly::Try<int>>>& tries) {
+		if (tries.hasException()) {
+			return -EIO;
+		}
+		for (const auto& trie : tries.value()) {
+			if (trie.hasException()) {
+				return -EIO;
+			}
+			if (trie.value() < 0) {
+				return trie.value();
+			}
+		}
+		return 0;
+	});
+	fut.wait();
+	EXPECT_EQ(fut.value(), 0);
+#endif
 	if (data_verification) {
 		LOG(INFO) << "Verifying data @ source ";
 		VerifyData(dynamic_cast<RamCacheHandler*>(src_handlerp), block_to_ckpt);

@@ -1,3 +1,5 @@
+#include <numeric>
+
 #include "Vmdk.h"
 #include "CheckPointTraverser.h"
 
@@ -32,6 +34,20 @@ bool CheckPointUnionTraverser::IsComplete() const noexcept {
 	return check_points_iter_ == check_points_end_;
 }
 
+const CheckPointUnionTraverser::Stats& CheckPointUnionTraverser::GetStats()
+		const noexcept {
+	return stats_;
+}
+
+uint64_t CheckPointUnionTraverser::BlocksPending(
+		CheckPointPtrVec::reverse_iterator begin,
+		CheckPointPtrVec::reverse_iterator end) const noexcept {
+	return std::accumulate(begin, end, static_cast<uint64_t>(0),
+		[] (uint64_t pending, const CheckPoint* ckptp) {
+			return pending + ckptp->GetRoaringBitMap().cardinality();
+	});
+}
+
 int CheckPointUnionTraverser::Begin() noexcept {
 	check_points_iter_ = check_points_.rbegin();
 	check_points_end_ = check_points_.rend();
@@ -41,6 +57,11 @@ int CheckPointUnionTraverser::Begin() noexcept {
 		check_points_iter_ = check_points_end_;
 		return rc;
 	}
+
+	stats_.blocks_total = BlocksPending(check_points_iter_, check_points_end_);
+	stats_.blocks_pending = stats_.blocks_total;
+	stats_.blocks_traserved = 0;
+	stats_.blocks_optimized = 0;
 	return 0;
 }
 
@@ -64,9 +85,12 @@ int CheckPointUnionTraverser::InitializeCheckPoint(bool *has_more) noexcept {
 
 	for (; check_points_iter_ != check_points_end_; ++check_points_iter_) {
 		const auto& bitmap = (*check_points_iter_)->GetRoaringBitMap();
-		if (pio_unlikely(bitmap.cardinality() == 0)) {
+		auto nbits = bitmap.cardinality();
+		if (pio_unlikely(nbits == 0)) {
 			continue;
 		}
+		VLOG(5) << "CBT " << (*check_points_iter_)->ID()
+			<< " cardinality " << nbits;
 
 		try {
 			bitmap_traversing_ = bitmap - bitmap_traversed_;
@@ -75,7 +99,10 @@ int CheckPointUnionTraverser::InitializeCheckPoint(bool *has_more) noexcept {
 			*has_more = false;
 			return -EINVAL;
 		}
-		if (bitmap_traversing_.cardinality() != 0) {
+
+		auto to_traverse = bitmap_traversing_.cardinality();
+		stats_.blocks_optimized += nbits - to_traverse;
+		if (to_traverse != 0) {
 			break;
 		}
 	}
@@ -88,6 +115,7 @@ int CheckPointUnionTraverser::InitializeCheckPoint(bool *has_more) noexcept {
 	log_assert(bitmap_traversing_.cardinality() != 0);
 	traversing_it_ = bitmap_traversing_.begin();
 	traversing_end_ = bitmap_traversing_.end();
+	stats_.cbt_id = (*check_points_iter_)->ID();
 	return 0;
 }
 
@@ -124,7 +152,11 @@ CheckPointUnionTraverser::MergeConsecutiveBlocks() noexcept {
 	} else {
 		++traversing_it_;
 	}
-	return {ckpt_id, block_start, block_end - block_start + 1};
+
+	auto count = block_end - block_start + 1;
+	stats_.blocks_traserved += count;
+	stats_.blocks_pending -= IsComplete() ? stats_.blocks_pending : count;
+	return {ckpt_id, block_start, count};
 }
 
 }

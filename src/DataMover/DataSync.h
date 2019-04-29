@@ -5,6 +5,8 @@
 #include <vector>
 #include <mutex>
 
+#include <folly/futures/Future.h>
+
 #include "DataMoverCommonTypes.h"
 #include "gen-cpp2/MetaData_constants.h"
 
@@ -14,6 +16,20 @@ class ActiveVmdk;
 class DataCopier;
 
 class DataSync {
+public:
+	struct Stats {
+		uint64_t sync_total{0};
+		uint64_t sync_pending{0};
+		uint64_t sync_completed{0};
+		uint64_t sync_avoided{0};
+
+		uint64_t cbt_sync_scheduled{0};
+		uint64_t cbt_sync_in_progress{0};
+		uint64_t cbt_sync_done{0};
+
+		bool sync_stopped{false};
+		bool sync_failed{false};
+	};
 public:
 	DataSync(DataSync&& rhs) = delete;
 	DataSync(const DataSync&) = delete;
@@ -27,17 +43,24 @@ public:
 	void SetDataDestination(RequestHandlerPtrVec dest);
 	int SetCheckPoints(CheckPointPtrVec check_points, bool* restartp);
 
-	int ReStart();
-	int Start();
+	folly::Future<int> ReStart();
+	folly::Future<int> Start();
 	void GetStatus(bool* is_stopped, int* resp) const noexcept;
+	DataSync::Stats GetStats() const noexcept;
 
 private:
-	int StartInternal();
+	void StartInternal();
 	void SetStatus(int res) noexcept;
+	void SyncComplete(std::unique_ptr<folly::Promise<int>> promise,
+		int result) const noexcept;
 
 	std::unique_ptr<DataCopier> NewDataCopier(int *errnop);
 	CheckPointPtrVec GetNextCheckPointsToSync();
 	void SortCheckPoints(CheckPointPtrVec& check_points) const;
+
+	uint64_t BlocksPending() const noexcept;
+	void UpdateDataCopierStats(std::unique_ptr<DataCopier> copier) noexcept;
+
 private:
 	ActiveVmdk* vmdkp_{};
 	const size_t kCkptPerCopy{0};
@@ -62,5 +85,9 @@ private:
 		bool failed_{false};
 		int res_{0};
 	} status_;
+
+	std::unique_ptr<folly::Promise<int>> complete_;
+
+	Stats stats_;
 };
 }

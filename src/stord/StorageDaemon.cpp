@@ -12,6 +12,9 @@
 #include <folly/init/Init.h>
 #include <thrift/lib/cpp2/server/ThriftServer.h>
 
+#include <boost/format.hpp>
+#include <boost/property_tree/ini_parser.hpp>
+
 #include "gen-cpp2/StorRpc.h"
 #include "gen-cpp2/StorRpc_constants.h"
 #include "DaemonTgtInterface.h"
@@ -25,14 +28,17 @@
 #include "TgtInterfaceImpl.h"
 #include "ScanManager.h"
 #include "VmManager.h"
-#include <boost/format.hpp>
-#include <boost/property_tree/ini_parser.hpp>
+#include "VmConfig.h"
+#include "ArmConfig.h"
 #include "JsonHelper.h"
 
 #ifdef USE_NEP
 #include <TargetManager.hpp>
 #include <TargetManagerRest.hpp>
+#include "ArmSync.h"
+#include "VddkLib.h"
 #endif
+
 
 /*
  * Max number of pending REST call requests allowed at stord
@@ -57,6 +63,8 @@ using namespace pio;
 
 static constexpr int32_t kServerPort = 9876;
 static constexpr char kServerIp[] = "0.0.0.0";
+
+[[maybe_unused]] static constexpr uint16_t kBatchSize = 4;
 
 class StorRpcSvImpl : public virtual StorRpcSvIf {
 public:
@@ -505,7 +513,15 @@ enum StordSvcErr {
 	STORD_ERR_FAILED_TO_START_PRELOAD,
 	STORD_ERR_CHECKPOINTING_FAILED,
 	STORD_ERR_NO_SUCH_CHECKPOINT,
-	STORD_ERR_CKPT_MOVE_FAILED
+	STORD_ERR_CKPT_MOVE_FAILED,
+	STORD_ERR_ARM_MIGRATION_NOT_ENABLED,
+	STORD_ERR_ARM_INVALID_INFO,
+	STORD_ERR_ARM_SYNC_START_FAILED,
+	STORD_ERR_ARM_SYNC_EXIST,
+	STORD_ERR_ARM_VCENTER_CONN,
+	STORD_ERR_CREATE_CKPT,
+	STORD_ERR_ALLOC_FAILED,
+	STORD_ERR_NOT_SUPPORTED
 };
 
 void HaHeartbeat(void *userp) {
@@ -2286,8 +2302,338 @@ static int GetMoveStatus(const _ha_request *reqp, _ha_response *resp, void *) {
 	return HA_CALLBACK_CONTINUE;
 }
 
-/************************************************************************
-REST APIs to serve RTO/RPO HA workflow -- END
+static int
+CreateCkpt(const _ha_request *reqp, _ha_response *resp, void *)
+{
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+
+	if (param_valuep  == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM, "vmid param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	// TODO: Check correctness of p_cnt_-- use here.
+	g_thread_.rest_guard.p_cnt_--;
+
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
+		std::ostringstream es;
+
+		es << "Retriving information related to VM failed. Invalid vm-id = " << vmid;
+		LOG(ERROR) << es.str();
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
+	log_assert(vmp);
+
+	auto f = vmp->TakeCheckPoint();
+	f.wait();
+	auto [id, rc] = f.value();
+	if (pio_unlikely(rc)) {
+		std::ostringstream es;
+
+		es << "Take checkpoint failed, rc = " << rc << " vm-id = " << vmid;
+		LOG(ERROR) << es.str();
+		SetErrMsg(resp, STORD_ERR_CREATE_CKPT, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	json_t *ckpt_info = json_object();
+	json_object_set_new(ckpt_info, "ckpt_id", json_integer(id));
+	auto *ckpt_info_str = json_dumps(ckpt_info, JSON_ENCODE_ANY);
+	json_object_clear(ckpt_info);
+	json_decref(ckpt_info);
+
+	ha_set_response_body(resp, HTTP_STATUS_OK, ckpt_info_str,
+			strlen(ckpt_info_str));
+	::free(ckpt_info_str);
+	return HA_CALLBACK_CONTINUE;
+}
+
+static int AddVcenterDetails(const _ha_request *reqp, _ha_response *resp, void *)
+{
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	// TODO: Check correctness of p_cnt_-- use here.
+	g_thread_.rest_guard.p_cnt_--;
+
+	auto data = ha_get_data(reqp);
+	if (data == nullptr) {
+		SetErrMsg(resp, STORD_ERR_INVALID_NO_DATA,
+			"Vcenter details not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string req_data(data);
+	LOG(INFO) << "Vcenter details " << req_data;
+	::free(data);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	namespace pt = boost::property_tree;
+	pt::ptree vc_config;
+	std::stringstream is(req_data);
+	pt::read_json(is, vc_config);
+
+	std::string vc_ip, vc_user, vc_passwd, vc_fprint1, vc_fprint256;
+
+	try {
+		vc_ip = vc_config.get<std::string>(vc_ns::kVcIp);
+		vc_user = vc_config.get<std::string>(vc_ns::kVcUser);
+		vc_passwd = vc_config.get<std::string>(vc_ns::kVcPasswd);
+		vc_fprint1 = vc_config.get<std::string>(vc_ns::kVcFprint1);
+		vc_fprint256 = vc_config.get<std::string>(vc_ns::kVcFprint256);
+	} catch (boost::exception const&  ex) {
+		SetErrMsg(resp, STORD_ERR_INVALID_NO_DATA,
+				"Vcenter details are wrong");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	pio::vc_ns::vc_info vcinfo = {
+		{vc_ns::kVcUser, std::move(vc_user)},
+		{vc_ns::kVcPasswd, std::move(vc_passwd)},
+		{vc_ns::kVcFprint1, std::move(vc_fprint1)},
+		{vc_ns::kVcFprint256, std::move(vc_fprint256)}
+	};
+	vc_ns::SetVcConfig(std::move(vc_ip), std::move(vcinfo));
+
+	const auto res = std::to_string(0);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+	return HA_CALLBACK_CONTINUE;
+}
+
+static int ArmSyncStart(const _ha_request *reqp, _ha_response *resp, void *) {
+#ifndef USE_NEP
+	(void) reqp;
+	SetErrMsg(resp, STORD_ERR_NOT_SUPPORTED, "ArmSync not supported.");
+	return HA_CALLBACK_CONTINUE;
+#else
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+	if (param_valuep  == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM, "vmid param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	// TODO: Check correctness of p_cnt_-- use here.
+	g_thread_.rest_guard.p_cnt_--;
+
+	std::ostringstream es;
+
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
+		es << "Retriving information related to VM failed. Invalid vm-id = " << vmid << std::endl;
+		LOG(ERROR) << es.str();
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
+	log_assert(vmp);
+
+	auto vmsyncp = vmp->GetVmSync(VmSync::Type::kSyncArm);
+	if (vmsyncp != nullptr) {
+		es << "ARM sync is already in progress for vm-id = " << vmid << std::endl;
+		LOG(ERROR) << es.str();
+		SetErrMsg(resp, STORD_ERR_ARM_SYNC_EXIST, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto err_msg = [&vmp, &es, &resp] (bool unset, StordSvcErr err) {
+		if (unset) {
+			vmp->UnsetArmJsonConfig();
+		}
+		LOG(ERROR) << es.str();
+		SetErrMsg(resp, err, es.str());
+	};
+
+	auto vm_config = vmp->GetJsonConfig();
+	if (not vm_config->GetArmMigration()) {
+		es << "ARM migration not enabled for vm-id = " << vmid << std::endl;
+		err_msg(false, STORD_ERR_ARM_MIGRATION_NOT_ENABLED);
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto data = ha_get_data(reqp);
+	std::string req_data(data);
+	::free(data);
+	LOG(INFO) << req_data;
+
+	auto rc = vmp->SetArmJsonConfig(req_data);
+	if (pio_unlikely(rc)) {
+		es << "Stord allocation failure rc = " << rc << " for vm-id = " << vmid << std::endl;
+		err_msg(false, STORD_ERR_ALLOC_FAILED);
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto arm_jsonconfig = const_cast<pio::config::ArmConfig *>(vmp->GetArmJsonConfig());
+
+	std::string cookie;
+	try {
+		cookie = arm_jsonconfig->GetCookie();
+	} catch (std::runtime_error const&  ex) {
+		es << "No cookie present for vm-id = " << vmid << std::endl;
+		LOG(INFO) << es.str();
+		es.str("");
+	}
+
+	ondisk::CheckPointID ckpt_id = MetaData_constants::kInvalidCheckPointID();
+	if (cookie.empty()) {
+		try {
+			ckpt_id = arm_jsonconfig->GetCkptId();
+		} catch (boost::exception const&  ex) {
+			es << "No ckpt id present for vm-id = " << vmid << std::endl;
+			LOG(INFO) << es.str();
+			es.str("");
+		}
+
+		if (pio_unlikely(ckpt_id == MetaData_constants::kInvalidCheckPointID())) {
+			es << "Neither cookie nor ckpt id provided for vm-id = " << vmid << std::endl;
+			err_msg(true, STORD_ERR_ARM_INVALID_INFO);
+			return HA_CALLBACK_CONTINUE;
+		}
+	}
+
+	auto vpath_info = arm_jsonconfig->GetVmdkPathInfo();
+	auto vc_ip = arm_jsonconfig->GetVcIp();
+	auto mo_id = arm_jsonconfig->GetMoId();
+
+	auto vcinfo_map = pio::vc_ns::vc_info {
+		{vc_ns::kVcIp, std::move(vc_ip)},
+		{vc_ns::kVcUser, arm_jsonconfig->GetVcUser()},
+		{vc_ns::kVcPasswd, arm_jsonconfig->GetVcPasswd()},
+		{vc_ns::kVcFprint1, arm_jsonconfig->GetVcFprint1()},
+		{vc_ns::kVcFprint256, arm_jsonconfig->GetVcFprint256()},
+	};
+
+	std::unique_ptr<ArmSync> armsync;
+	if (ckpt_id != MetaData_constants::kInvalidCheckPointID()) {
+		armsync = std::make_unique<ArmSync>(vmp, ckpt_id, kBatchSize);
+		if (pio_unlikely(armsync == nullptr)) {
+			es << "Stord allocation failures for vm-id = " << vmid << std::endl;
+			err_msg(true, STORD_ERR_ALLOC_FAILED);
+			return HA_CALLBACK_CONTINUE;
+		}
+	} else {
+		// TODO: Need this version with cookie.
+		//armsync = std::make_unique<ArmSync>(vmp, std::move(cookie));
+	}
+
+	rc = armsync->VCenterConnnect(std::move(mo_id),
+			std::move(vcinfo_map));
+	if (pio_unlikely(rc)) {
+		es << "Cannot connect to vcenter rc = " << rc << " for vm-id = " << vmid << std::endl;
+		err_msg(true, STORD_ERR_ARM_VCENTER_CONN);
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	rc = armsync->SyncStart(vpath_info);
+	if (pio_unlikely(rc)) {
+		es << "Stord ARM sync start failed rc = " << rc << " for vm-id = " << vmid << std::endl;
+		err_msg(true, STORD_ERR_ARM_SYNC_START_FAILED);
+		return HA_CALLBACK_CONTINUE;
+	}
+	vmp->AddVmSync(std::move(armsync));
+
+	const auto res = std::to_string(0);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+	return HA_CALLBACK_CONTINUE;
+#endif
+}
+
+
+static int ArmSyncInfo(const _ha_request *reqp, _ha_response *resp, void *)
+{
+	auto param_valuep = ha_parameter_get(reqp, "vm-id");
+
+	if (param_valuep  == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM, "vmid param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string vmid(param_valuep);
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	// TODO: Check correctness of p_cnt_-- use here.
+	g_thread_.rest_guard.p_cnt_--;
+
+	std::ostringstream es;
+
+	auto vm_handle = pio::GetVmHandle(vmid);
+	if (vm_handle == StorRpc_constants::kInvalidVmHandle()) {
+		es << "Retriving information related to VM failed. Invalid vm-id = " << vmid << std::endl;
+		LOG(ERROR) << es.str();
+		SetErrMsg(resp, STORD_ERR_INVALID_VM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	auto vmp = SingletonHolder<VmManager>::GetInstance()->GetInstance(vm_handle);
+	log_assert(vmp);
+
+	// get the arm sync object
+	auto syncp = vmp->GetVmSync(VmSync::Type::kSyncArm);
+	if (syncp  == nullptr) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM, "no arm_sync in progress");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	// now that we have a valid arm_sync object we can extract the stats
+	json_t *json_stats = json_array();
+	for (auto& stats : syncp->GetStats()) {
+		auto vmdk = json_object();
+		json_object_set_new(vmdk, "sync_total", json_integer(stats.sync_total));
+		json_object_set_new(vmdk, "sync_pending", json_integer(stats.sync_pending));
+		json_object_set_new(vmdk, "sync_completed", json_integer(stats.sync_completed));
+		json_object_set_new(vmdk, "sync_avoided", json_integer(stats.sync_avoided));
+		json_array_append_new(json_stats, vmdk);
+	}
+
+	char* jsonp = json_dumps(json_stats, JSON_ENCODE_ANY);
+	if (not jsonp) {
+		SetErrMsg(resp, STORD_ERR_ARM_SYNC_START_FAILED,
+			"creating json response failed");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::string_view json(jsonp);
+	ha_set_response_body(resp, HTTP_STATUS_OK, json.data(), json.length());
+	json_decref(json_stats);
+	std::free(reinterpret_cast<void*>(jsonp));
+	return HA_CALLBACK_CONTINUE;
+}
+
+/************************************************************************ 
+ 		REST APIs to serve RTO/RPO HA workflow -- END 
  ************************************************************************
 */
 
@@ -2300,7 +2646,7 @@ RestHandlers GetRestCallHandlers() {
 		void* datap;
 	};
 
-	static constexpr std::array<RestEndPoint, 30> kHaEndPointHandlers = {{
+	static constexpr std::array<RestEndPoint, 34> kHaEndPointHandlers = {{
 		{POST, "new_vm", NewVm, nullptr},
 		{POST, "vm_delete", RemoveVm, nullptr},
 		{POST, "new_vmdk", NewVmdk, nullptr},
@@ -2335,7 +2681,12 @@ RestHandlers GetRestCallHandlers() {
 		{GET, "move_status", GetMoveStatus, nullptr},
 		{GET, "read_ahead_stats", ReadAheadStatsReq, nullptr},
 		{GET, "get_stord_stats", GlobalStats, nullptr},
-		{POST, "new_delta_context", NewDeltaContextSet, nullptr}
+		{POST, "new_delta_context", NewDeltaContextSet, nullptr},
+
+		{POST, "create_ckpt", CreateCkpt, nullptr},
+		{POST, "add_vcenter_details", AddVcenterDetails, nullptr},
+		{POST, "arm_sync_start", ArmSyncStart, nullptr},
+		{POST, "arm_sync_info", ArmSyncInfo, nullptr}
 	}};
 
 	constexpr auto size = sizeof(ha_handlers) +

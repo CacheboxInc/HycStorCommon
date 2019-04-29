@@ -19,6 +19,8 @@ add_executable(StorageLayerTests
 	TestDataWriterReader.cpp
 	TestDataCopier.cpp
 	TestDataSync.cpp
+	TestSyncCookie.cpp
+	TestVmSync.cpp
 )
 
 if(USE_NEP)
@@ -30,6 +32,7 @@ endif(USE_NEP)
 
 target_link_libraries(StorageLayerTests
 	-Wl,--start-group
+	stdc++fs
 	CommonLib
 	StorRpcLib
 	StorageLayer

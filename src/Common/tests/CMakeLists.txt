@@ -16,6 +16,7 @@ target_link_libraries(CommonTests
 	gtest
 	CommonLib
 	${LIBRARY_LIST}
+	${HA_LIBS}
 	-Wl,--end-group
 )
 

@@ -15,6 +15,7 @@
 #include "VirtualMachine.h"
 #include "Vmdk.h"
 #include "VmConfig.h"
+#include "ArmConfig.h"
 #include "FlushManager.h"
 #include "CkptMergeManager.h"
 #include "Singleton.h"
@@ -26,6 +27,12 @@
 #include "EncryptHandler.h"
 #include "MultiTargetHandler.h"
 #include "halib.h"
+
+#include "VmSync.h"
+
+#ifdef USE_NEP
+#include "ArmSync.h"
+#endif
 
 using namespace ::hyc_thrift;
 using namespace ::ondisk;
@@ -76,6 +83,25 @@ VmHandle VirtualMachine::GetHandle() const noexcept {
 
 const config::VmConfig* VirtualMachine::GetJsonConfig() const noexcept {
 	return config_.get();
+}
+
+int VirtualMachine::SetArmJsonConfig(const std::string& config) {
+	std::lock_guard<std::mutex> lock1(vmdk_.mutex_);
+	armconfig_ = std::make_unique<config::ArmConfig>(config);
+	if (pio_unlikely(armconfig_ == nullptr)) {
+		return -ENOMEM;
+	}
+	return 0;
+}
+
+void VirtualMachine::UnsetArmJsonConfig() {
+	if (armconfig_ != nullptr) {
+		armconfig_.reset();
+	}
+}
+
+const config::ArmConfig* VirtualMachine::GetArmJsonConfig() const noexcept {
+	return armconfig_.get();
 }
 
 Analyzer* VirtualMachine::GetAnalyzer() noexcept {
@@ -201,6 +227,10 @@ int VirtualMachine::VmdkCount() {
 	return vmdk_.list_.size();
 }
 
+const std::vector<ActiveVmdk *>& VirtualMachine::GetAllVmdks() const noexcept {
+	return vmdk_.list_;
+}
+
 int VirtualMachine::RemoveVmdk(ActiveVmdk* vmdkp) {
 	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
 	auto eit = vmdk_.list_.end();
@@ -218,6 +248,42 @@ int VirtualMachine::RemoveVmdk(ActiveVmdk* vmdkp) {
 void VirtualMachine::CheckPointComplete(CheckPointID ckpt_id) {
 	log_assert(ckpt_id != MetaData_constants::kInvalidCheckPointID());
 	checkpoint_.in_progress_.clear();
+
+	CheckPointID flushed = std::numeric_limits<CheckPointID>::max();
+	{
+		std::lock_guard<std::mutex> lock(vmdk_.mutex_);
+		for (const ActiveVmdk* vmdkp : vmdk_.list_) {
+			if (vmdkp->FlushedCheckpoints()) {
+				flushed = std::min(flushed, vmdkp->GetFlushedCheckPointID());
+			}
+		}
+	}
+
+	std::lock_guard<std::mutex> lock(sync_.mutex_);
+	for (auto& sync : sync_.list_) {
+		auto thread = std::thread([ckpt_id, flushed, syncp = sync.second.get()] () mutable {
+				syncp->SetCheckPoints(ckpt_id, flushed);
+				syncp->SyncStart();
+			}
+		);
+		thread.detach();
+	}
+}
+
+bool VirtualMachine::AddVmSync(std::unique_ptr<VmSync> sync) {
+	std::lock_guard<std::mutex> lock(sync_.mutex_);
+	auto [it, inserted] = sync_.list_.emplace(sync->GetSyncType(), std::move(sync));
+	(void) it;
+	return inserted;
+}
+
+VmSync* VirtualMachine::GetVmSync(VmSync::Type type) noexcept {
+	std::lock_guard<std::mutex> lock(sync_.mutex_);
+	auto it = sync_.list_.find(type);
+	if (it == sync_.list_.end()) {
+		return nullptr;
+	}
+	return it->second.get();
 }
 
 void VirtualMachine::FlushComplete(CheckPointID ckpt_id) {
@@ -417,7 +483,7 @@ folly::Future<int> VirtualMachine::MoveUnflushedToFlushed(
 	}
 
 	return folly::collectAll(std::move(futures))
-	.then([this] (const std::vector<folly::Try<int>>& results)
+	.then([] (const std::vector<folly::Try<int>>& results)
 				-> folly::Future<int> {
 		for (auto& t : results) {
 			if (pio_likely(t.hasValue() and t.value() == 0)) {
@@ -443,7 +509,7 @@ folly::Future<int> VirtualMachine::CreateNewVmDeltaContext(int64_t snap_id) {
 	}
 
 	return folly::collectAll(std::move(futures))
-	.then([this] (const std::vector<folly::Try<int>>& results)
+	.then([] (const std::vector<folly::Try<int>>& results)
 				-> folly::Future<int> {
 		for (auto& t : results) {
 			if (pio_likely(t.hasValue() and t.value() == 0)) {

@@ -36,8 +36,11 @@ using namespace std::chrono;
 namespace pio {
 const static std::string kMetaSetName = "metaset";
 const static uint32_t kAeroWriteBlockSize = 1024 * 1024;
+
+#ifdef INJECT_AERO_READ_DELAY
 const uint64_t StartOffset = 100 * 1024 * 1024;
 const uint64_t EndOffset = 200 * 1024 * 1024;
+#endif
 
 AeroSpike::AeroSpike() {
 	instance_ = SingletonHolder<AeroFiberThreads>::GetInstance();
@@ -1485,7 +1488,7 @@ folly::Future<int> AeroSpike::AeroMetaWrite(ActiveVmdk *vmdkp,
 			}
 
 			/* Now write the final record */
-			auto w_batch_rec = std::make_unique<WriteBatch>(vmdkp->GetID(),
+			w_batch_rec = std::make_unique<WriteBatch>(vmdkp->GetID(),
 					ns, kMetaSetName);
 			if (pio_unlikely(w_batch_rec == nullptr)) {
 				LOG(ERROR) << "WriteBatch allocation failed";

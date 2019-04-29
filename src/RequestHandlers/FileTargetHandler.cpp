@@ -29,8 +29,11 @@ using namespace ::ondisk;
 
 namespace pio {
 
+#ifdef INJECT_READ_DELAY
 const uint64_t StartOffset = 100 * 1024 * 1024;
 const uint64_t EndOffset = 200 * 1024 * 1024;
+#endif
+
 struct event_data *data_ptr_;
 
 #ifdef FILETARGET_ASYNC

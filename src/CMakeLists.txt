@@ -29,6 +29,7 @@ if(USE_NEP)
     include_directories(/usr/include/hyc-net)
     link_directories(/usr/lib/x86_64-linux-gnu/hyc-net/)
     link_directories(/usr/lib/x86_64-linux-gnu/hyc-vddk/)
+    link_directories("/usr/lib/x86_64-linux-gnu/hyc/hyc-vddk/vddk6.7")
     add_definitions(-DUSE_NEP)
 endif(USE_NEP)
 
@@ -137,6 +138,7 @@ if(USE_NEP)
 	set (LIBRARY_LIST
 		${LIBRARY_LIST}
 		${NEP_LIBRARY_LIST}
+		ArmVddkAsync
 	)
 endif(USE_NEP)
 
@@ -167,12 +169,17 @@ set(StorageLayerFiles
 	ReadAhead.cpp
 	Analyzer.cpp
 	Rest.cpp
+	LibAio.cpp
+	ArmConfig.cpp
 
+	"${CMAKE_SOURCE_DIR}/src/DataMover/SyncCookie.cpp"
 	"${CMAKE_SOURCE_DIR}/src/DataMover/CheckPointTraverser.cpp"
 	"${CMAKE_SOURCE_DIR}/src/DataMover/DataReader.cpp"
 	"${CMAKE_SOURCE_DIR}/src/DataMover/DataWriter.cpp"
 	"${CMAKE_SOURCE_DIR}/src/DataMover/DataCopier.cpp"
 	"${CMAKE_SOURCE_DIR}/src/DataMover/DataSync.cpp"
+	"${CMAKE_SOURCE_DIR}/src/DataMover/VmSync.cpp"
+	"${CMAKE_SOURCE_DIR}/src/DataMover/SyncAny.cpp"
 
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/RequestHandler.cpp"
 	"${CMAKE_SOURCE_DIR}/src/RequestHandlers/UnalignedHandler.cpp"
@@ -195,6 +202,9 @@ if(USE_NEP)
 	set (StorageLayerFiles
 		${StorageLayerFiles}
 		"${CMAKE_SOURCE_DIR}/src/RequestHandlers/NetworkTargetHandler.cpp"
+		"${CMAKE_SOURCE_DIR}/src/DataMover/ArmSync.cpp"
+		"${CMAKE_SOURCE_DIR}/src/RequestHandlers/VddkTargetHandler.cpp"
+		"${CMAKE_SOURCE_DIR}/src/RequestHandlers/VddkOps.cpp"
 	)
 endif(USE_NEP)
 
