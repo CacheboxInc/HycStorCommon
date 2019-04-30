@@ -37,6 +37,7 @@ static size_t kIdealLatency = kMaxLatency * 0.8;
 static bool kAdaptiveBatching = true;
 static uint32_t BatchIncrFraction = 1;
 static float BatchDecrFraction = 0.25;
+static size_t kNumberOfSamples = 0;
 
 
 namespace hyc {
@@ -93,15 +94,19 @@ public:
 		samples_.shrink_to_fit();
 	}
 
-	void SetNewBatchSize(size_t batch_size) {
+	void SetNumberOfSamplesTo(size_t n_samples) {
 		//resize array to new size
 		std::lock_guard<std::mutex> lock(mutex_);
-		samples_.reserve(batch_size);
+		samples_.reserve(n_samples);
 	}
 
 	size_t size() {
 		std::lock_guard<std::mutex> lock(mutex_);
 		return samples_.size();
+	}
+
+	size_t GetMaxSamples() {
+		return samples_.capacity();
 	}
 
 private:
@@ -594,6 +599,7 @@ public:
 	void ScheduleMore(folly::EventBase* basep, StorRpcAsyncClient* clientp);
 	void AdaptiveBatching();
 	void SetBatchSize(uint32_t batch_size) {batch_size_ = batch_size;}
+	MovingAverage<uint64_t>* GetMovingAveragePtr() {return latency_avg_;}
 
 	friend std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
 private:
@@ -644,7 +650,7 @@ private:
 
 	MovingAverage<uint64_t>* latency_avg_;
 	MovingAverage<uint64_t>* bulk_depth_avg_;
-	std::atomic<size_t> batch_size_{16}; //each tgt conn can have 32 pend
+	std::atomic<size_t> batch_size_{1}; //each tgt conn can have 32 pend
 	bool sched_early{false};
 	VmdkStats stats_;
 
@@ -685,7 +691,10 @@ std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk) {
 StordVmdk::StordVmdk(std::string vmid, std::string vmdkid, int eventfd) :
 		vmid_(std::move(vmid)), vmdkid_(std::move(vmdkid)),
 		eventfd_(eventfd) {
-		latency_avg_ = new MovingAverage<uint64_t>(batch_size_);
+		if (kNumberOfSamples)
+			latency_avg_ = new MovingAverage<uint64_t>(kNumberOfSamples);
+		else
+			latency_avg_ = new MovingAverage<uint64_t>(batch_size_);
 		bulk_depth_avg_ = new MovingAverage<uint64_t>(128);
 }
 
@@ -912,7 +921,7 @@ void StordVmdk::AdaptiveBatching() {
 			atomic_store(&old_batch_size, atomic_load(&(batch_size_)));
 			if(reqp->batch_size == batch_size_) {
 				//latency_avg_->Add(latency);
-				if (latency_avg_->size() == batch_size_) {
+				if (latency_avg_->size() == latency_avg_->GetMaxSamples()) {
 					//FIXME should we introduce new mutex?
 					if (latency_avg_->Average() <= kIdealLatency) {
 						if (sched_early == true) {
@@ -928,7 +937,10 @@ void StordVmdk::AdaptiveBatching() {
 				if (batch_size_ != old_batch_size) {
 					//start new latency_avg calculation based on new batch size
 					latency_avg_->Clear();
-					latency_avg_->SetNewBatchSize(batch_size_);
+					if (kNumberOfSamples)
+						latency_avg_->SetNumberOfSamplesTo(kNumberOfSamples);
+					else 
+						latency_avg_->SetNumberOfSamplesTo(batch_size_);
 				}
 				sched_early = false;
 			}
@@ -1563,7 +1575,8 @@ void HycDumpVmdk(VmdkHandle handle) {
 }
 
 
-void HycSetBatchingAttributes(uint32_t batching, uint32_t latency, uint32_t batch_incr_val, float batch_decr_val, uint32_t batch_size=0) {
+void HycSetBatchingAttributes(uint32_t batching, uint32_t latency, uint32_t batch_incr_val, float batch_decr_val, uint64_t n_samples=0, uint32_t batch_size=0) {
+
 	LOG(ERROR) << "Changing adaptive batching from "
 		<< kAdaptiveBatching << " to " << batching;
 	LOG(ERROR) << "Changing expected WAN latency from "
@@ -1574,6 +1587,7 @@ void HycSetBatchingAttributes(uint32_t batching, uint32_t latency, uint32_t batc
 	LOG(ERROR) << "Changing BatchDecrFraction from "
 		<< BatchDecrFraction << " to " << batch_decr_val;
 	LOG(ERROR) << "Setting batch size to " << batch_size;
+	LOG(ERROR) << "Changing number of samples to " << n_samples;
 
 	kMaxLatency = latency;
 	batching?kAdaptiveBatching=true:kAdaptiveBatching=false;
@@ -1587,6 +1601,7 @@ void HycSetBatchingAttributes(uint32_t batching, uint32_t latency, uint32_t batc
 				std::lock_guard<std::mutex> lock(vmdk->mutex_);
 				if (batch_size) {
 					vmdk->SetBatchSize(batch_size);
+					vmdk->GetMovingAveragePtr()->SetNumberOfSamplesTo(n_samples);
 				}
 			}
 		}//end of for loop which traverses list of vmdks
