@@ -99,6 +99,11 @@ public:
 		samples_.reserve(batch_size);
 	}
 
+	size_t size() {
+		std::lock_guard<std::mutex> lock(mutex_);
+		return samples_.size();
+	}
+
 private:
 	std::mutex mutex_;
 	std::vector<T> samples_;
@@ -907,16 +912,18 @@ void StordVmdk::AdaptiveBatching() {
 			atomic_store(&old_batch_size, atomic_load(&(batch_size_)));
 			if(reqp->batch_size == batch_size_) {
 				//latency_avg_->Add(latency);
-				//FIXME should we introduce new mutex?
-				if (latency_avg_->Average() <= kIdealLatency) {
-					if (sched_early == true) {
-						batch_size_ += BatchIncrFraction;
-						LOG(ERROR) << "new incr batch size is " << batch_size_;
+				if (latency_avg_->size() == batch_size_) {
+					//FIXME should we introduce new mutex?
+					if (latency_avg_->Average() <= kIdealLatency) {
+						if (sched_early == true) {
+							batch_size_ += BatchIncrFraction;
+							LOG(ERROR) << "new incr batch size is " << batch_size_;
+						}
+					} else if (latency_avg_->Average() >= kMaxLatency) {
+						//need to reduce batchsize
+						batch_size_ -= floor(batch_size_ * BatchDecrFraction);
+						LOG(ERROR) << "new decr batch size is " << batch_size_;
 					}
-				} else if (latency_avg_->Average() >= kMaxLatency) {
-					//need to reduce batchsize
-					batch_size_ -= floor(batch_size_ * BatchDecrFraction);
-					LOG(ERROR) << "new decr batch size is " << batch_size_;
 				}
 				if (batch_size_ != old_batch_size) {
 					//start new latency_avg calculation based on new batch size
