@@ -256,7 +256,7 @@ private:
 StordConnection::StordConnection(std::string ip, uint16_t port, uint16_t cpu,
 		uint32_t ping) : ip_(std::move(ip)), port_(port), cpu_(cpu),
 		ping_{ping, nullptr}, sched_pending_(this) {
-		LOG(ERROR) <<"version 5";
+		LOG(ERROR) <<"version 8";
 }
 
 folly::EventBase* StordConnection::GetEventBase() const noexcept {
@@ -812,7 +812,6 @@ std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 	bool schedule_now = false;
 	if (requests_.pending_.size() >= batch_size_) {
 		if (RpcRequestScheduledCount() > 0) {
-			LOG(ERROR) << "sched_early got set for request " << reqp;
 			sched_early = true;
 		}
 		schedule_now = true;
@@ -1567,6 +1566,7 @@ void HycSetBatchingAttributes(uint32_t batching, uint32_t latency, uint32_t batc
 		<< BatchIncrFraction << " to " << batch_incr_val;
 	LOG(ERROR) << "Changing BatchDecrFraction from "
 		<< BatchDecrFraction << " to " << batch_decr_val;
+	LOG(ERROR) << "Setting batch size to " << batch_size;
 
 	kMaxLatency = latency;
 	batching?kAdaptiveBatching=true:kAdaptiveBatching=false;
