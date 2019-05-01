@@ -872,8 +872,8 @@ constexpr T GetErrNo(T arg1, Args... args) {
 void StordVmdk::UpdateBatchSize(Request* reqp) {
 	//don't update, if the batch size has already been updated
 	//or if there are not enough latency samples
-	if ((reqp->batch_size_ != batch_size) ||
-			(latency_avg_.GetSamples() < latency_avg_.GetMaxSamples()) {
+	if ((reqp->batch_size != batch_size_) ||
+			(latency_avg_.GetSamples() < latency_avg_.GetMaxSamples())) {
 		return;
 	}
 
@@ -881,7 +881,7 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 	if (latency_avg_.Average() >= kExpectedWanLatency) {
 		//reduce the batch size, since we have hit limit for latency
 		batch_size_ -= (batch_size_ * kBatchDecrPercent) / 100;
-		if (batch_size < kMinBatchSize) {
+		if (batch_size_ < kMinBatchSize) {
 			batch_size_ = kMinBatchSize;
 		}
 
@@ -895,7 +895,7 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 		batch_size_ += kBatchIncrValue;
 		//don't go above a high threashold.
 		//excessive batching can also destabilize the system
-		if (batch_size > kMaxBatchSize) {
+		if (batch_size_ > kMaxBatchSize) {
 			batch_size_ = kMaxBatchSize;
 		}
 	} else {
