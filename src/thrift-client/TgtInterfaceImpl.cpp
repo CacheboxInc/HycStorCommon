@@ -893,7 +893,7 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 		}
 
 		LOG(ERROR) << "Reduced batch size to " << batch_size_ <<
-			" avg_latency " latency_avg_.Average();
+			" avg_latency " << latency_avg_.Average();
 		//new smaller batch_size might have caused pending ios
 		//size to be more than new batch size. Schedule all such IOs
 		if (requests_.pending_.size() >= batch_size_) {
@@ -911,7 +911,7 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 			batch_size_ = kMaxBatchSize;
 		}
 		LOG(ERROR) << "Increased batch size to " << batch_size_ <<
-			" avg_latency " latency_avg_.Average();
+			" avg_latency " << latency_avg_.Average();
 	} else {
 		batch_changed = false;
 	}
