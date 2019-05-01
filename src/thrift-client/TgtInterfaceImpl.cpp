@@ -37,6 +37,7 @@ static size_t kMinBatchSize = 1;
 static size_t kIdealLatency = (kExpectedWanLatency * 80) / 100; //80% of max
 static size_t kBatchIncrValue = 4;
 static size_t kBatchDecrPercent = 25;
+static bool kAdaptiveBatching = true; //TODO: false not yet handled
 
 namespace hyc {
 using namespace apache::thrift;
@@ -882,12 +883,17 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 		//reduce the batch size, since we have hit limit for latency
 		batch_size_ -= (batch_size_ * kBatchDecrPercent) / 100;
 		if (batch_size < kMinBatchSize) {
+			LOG(ERROR) << "Resetting batch size " << batch_size_ <<
+				" to minimum " << kMinBatchSize;
 			batch_size_ = kMinBatchSize;
 		}
 
+		LOG(ERROR) << "Reduced batch size to " << batch_size_ <<
+			" avg_latency " latency_avg.Average();
 		//new smaller batch_size might have caused pending ios
 		//size to be more than new batch size. Schedule all such IOs
 		if (requests_.pending_.size() >= batch_size_) {
+			LOG(ERROR) << "Setting need_schedule_ due to reduced batch size" << batch_size_;
 			need_schedule_ = true;
 		}
 	} else if ((latency_avg_.Average() < kIdealLatency) && scheduled_early_) {
@@ -896,8 +902,12 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 		//don't go above a high threashold.
 		//excessive batching can also destabilize the system
 		if (batch_size > kMaxBatchSize) {
+			LOG(ERROR) << "Resetting batch size " << batch_size_ <<
+				" to maximum " << kMaxBatchSize;
 			batch_size_ = kMaxBatchSize;
 		}
+		LOG(ERROR) << "Increased batch size to " << batch_size_ <<
+			" avg_latency " latency_avg.Average();
 	} else {
 		batch_changed = false;
 	}
@@ -1537,10 +1547,20 @@ void HycDumpVmdk(VmdkHandle handle) {
 
 }
 
-void HycSetExpectedWanLatency(uint32_t latency) {
-	LOG(ERROR) << "Changing expecting WAN latency from "
-		<< kExpectedWanLatency
-		<< " to " << latency
+void HycSetBatchingAttributes(uint32_t adaptive_batch, uint32_t wan_latency,
+		uint32_t batch_incr_val, uint32_t batch_decr_pct) {
+	LOG(ERROR) << "Changing adaptive batching from "
+		<< kAdaptiveBatching << " to " << adaptive_batch;
+	LOG(ERROR) << "Changing expected WAN latency from "
+		<< kExpectedWanLatency << " to " << wan_latency
 		<< " (all units in micro-seconds)";
-	kExpectedWanLatency = latency;
+	LOG(ERROR) << "Changing kBatchIncrValue from "
+		<< kBatchIncrValue << " to " << batch_incr_val;
+	LOG(ERROR) << "Changing BatchDecrPercent from "
+		<< kBatchDecrPercent << " to " << batch_decr_pct;
+
+	kExpectedWanLatency = wan_latency;
+	kAdaptiveBatching = adaptive_batch ? true : false;
+	kBatchIncrValue = batch_incr_val;
+	kBatchDecrPercent = batch_decr_pct;
 }
