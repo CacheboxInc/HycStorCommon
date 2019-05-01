@@ -37,7 +37,7 @@ static size_t kMinBatchSize = 1;
 static size_t kIdealLatency = (kExpectedWanLatency * 80) / 100; //80% of max
 static size_t kBatchIncrValue = 4;
 static size_t kBatchDecrPercent = 25;
-static bool kAdaptiveBatching = true; //TODO: false not yet handled
+static bool kAdaptiveBatching = true;
 
 namespace hyc {
 using namespace apache::thrift;
@@ -797,14 +797,18 @@ std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 	bool schedule_now = requests_.scheduled_.empty();
 	requests_.scheduled_.emplace(request->id, std::move(request));
 	requests_.pending_.emplace_back(reqp);
-	//scheduled early is set if there is atleast one already scheduled IO
-	//and we are attempting to send more due to pending IOs size >= batch_size.
-	//scheduled early indicates that current batch sie is insufficient to
-	//absorb the application parallelism and need a change. IO callback
-	//will look at it and if latency permits, will increase the batch size
-	if (not schedule_now && requests_.pending_.size() >= batch_size_) {
-		scheduled_early_ = true;
-		schedule_now = true;
+	if (kAdaptiveBatching) {
+		//scheduled early is set if there is atleast one already scheduled IO
+		//and we are attempting to send more due to pending IOs size >= batch_size.
+		//scheduled early indicates that current batch sie is insufficient to
+		//absorb the application parallelism and need a change. IO callback
+		//will look at it and if latency permits, will increase the batch size
+		if (not schedule_now && requests_.pending_.size() >= batch_size_) {
+			scheduled_early_ = true;
+			schedule_now = true;
+		}
+	} else if (not schedule_now) {
+		schedule_now = latency_avg_.Average() > kExpectedWanLatency;
 	}
 
 	return std::make_pair(reqp, schedule_now);
@@ -814,7 +818,7 @@ void StordVmdk::UpdateStats(Request* reqp) {
 	--stats_.pending_;
 	log_assert(stats_.rpc_requests_scheduled_ >= 0);
 	auto latency = reqp->timer.GetMicroSec();
-	if (reqp->batch_size == batch_size_) {
+	if (not kAdaptiveBatching || reqp->batch_size == batch_size_) {
 		latency_avg_.Add(latency);
 	}
 	switch (reqp->type) {
@@ -933,7 +937,9 @@ void StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	reqp->result = result;
 	UpdateStats(reqp);
 
-	UpdateBatchSize(reqp);
+	if (kAdaptiveBatching) {
+		UpdateBatchSize(reqp);
+	}
 
 	requests_.scheduled_.erase(it);
 	requests_.complete_.emplace_back(std::move(req));
@@ -1559,6 +1565,8 @@ void HycSetBatchingAttributes(uint32_t adaptive_batch, uint32_t wan_latency,
 	LOG(ERROR) << "Changing BatchDecrPercent from "
 		<< kBatchDecrPercent << " to " << batch_decr_pct;
 
+	//Assumption is that system is quiesced, when these
+	//parameters are being set. No IOs should be going on.
 	kExpectedWanLatency = wan_latency;
 	kAdaptiveBatching = adaptive_batch ? true : false;
 	kBatchIncrValue = batch_incr_val;
