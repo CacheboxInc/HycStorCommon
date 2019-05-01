@@ -38,6 +38,7 @@ static size_t kIdealLatency = (kExpectedWanLatency * 80) / 100; //80% of max
 static size_t kBatchIncrValue = 4;
 static size_t kBatchDecrPercent = 25;
 static bool kAdaptiveBatching = true;
+static uint32_t kSystemLoadFactor = 6; //system load influence in batch size determination
 
 namespace hyc {
 using namespace apache::thrift;
@@ -561,6 +562,10 @@ struct VmdkStats {
 	MovingAverage<uint64_t, 128> avg_batchsize_{};
 };
 
+struct StordStats {
+	std::atomic<uint64_t> pending_{0};
+};
+
 class StordVmdk {
 public:
 	StordVmdk(const StordVmdk& rhs) = delete;
@@ -642,8 +647,12 @@ private:
 	bool need_schedule_{false};
 	VmdkStats stats_;
 
+	static StordStats stord_stats_;
+
 	std::atomic<RequestID> requestid_{0};
 };
+
+StordStats StordVmdk::stord_stats_;
 
 void SchedulePending::runLoopCallback() noexcept {
 	auto basep = connectp_->GetEventBase();
@@ -792,6 +801,7 @@ std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 	}
 
 	++stats_.pending_;
+	++stord_stats_.pending_;
 
 	request->id = ++requestid_;
 	request->type = type;
@@ -827,6 +837,7 @@ std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 
 void StordVmdk::UpdateStats(Request* reqp) {
 	--stats_.pending_;
+	--stord_stats_.pending_;
 	log_assert(stats_.rpc_requests_scheduled_ >= 0);
 	auto latency = reqp->timer.GetMicroSec();
 	if (not kAdaptiveBatching || reqp->batch_size == batch_size_) {
@@ -894,7 +905,8 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 	}
 
 	bool batch_changed = true;
-	if (latency_avg_.Average() >= kExpectedWanLatency) {
+	size_t system_load = stord_stats_.pending_ >> kSystemLoadFactor;
+	if (latency_avg_.Average() > (kExpectedWanLatency + system_load)) {
 
 		//reduce the batch size, since we have hit limit for latency
 		batch_size_ -= (batch_size_ * kBatchDecrPercent) / 100;
@@ -1335,6 +1347,7 @@ private:
 	} vmdk_;
 };
 
+
 Stord::~Stord() {
 	auto rc = Disconnect();
 	if (rc < 0) {
@@ -1570,8 +1583,9 @@ void HycDumpVmdk(VmdkHandle handle) {
 
 }
 
-void HycSetBatchingAttributes(uint32_t adaptive_batch, uint32_t wan_latency,
-		uint32_t batch_incr_val, uint32_t batch_decr_pct) {
+void HycSetBatchingAttributes(uint32_t adaptive_batch,
+		uint32_t wan_latency, uint32_t batch_incr_val,
+		uint32_t batch_decr_pct, uint32_t system_load_factor) {
 	LOG(ERROR) << "Changing adaptive batching from "
 		<< kAdaptiveBatching << " to " << adaptive_batch;
 	LOG(ERROR) << "Changing expected WAN latency from "
@@ -1579,8 +1593,10 @@ void HycSetBatchingAttributes(uint32_t adaptive_batch, uint32_t wan_latency,
 		<< " (all units in micro-seconds)";
 	LOG(ERROR) << "Changing kBatchIncrValue from "
 		<< kBatchIncrValue << " to " << batch_incr_val;
-	LOG(ERROR) << "Changing BatchDecrPercent from "
+	LOG(ERROR) << "Changing kBatchDecrPercent from "
 		<< kBatchDecrPercent << " to " << batch_decr_pct;
+	LOG(ERROR) << "Changing kSystemLoadFactor from "
+		<< kSystemLoadFactor << " to " << system_load_factor;
 
 	//Assumption is that system is quiesced, when these
 	//parameters are being set. No IOs should be going on.
@@ -1588,4 +1604,5 @@ void HycSetBatchingAttributes(uint32_t adaptive_batch, uint32_t wan_latency,
 	kAdaptiveBatching = adaptive_batch ? true : false;
 	kBatchIncrValue = batch_incr_val;
 	kBatchDecrPercent = batch_decr_pct;
+	kSystemLoadFactor = system_load_factor;
 }
