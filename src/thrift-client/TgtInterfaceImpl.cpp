@@ -38,6 +38,7 @@ static size_t kIdealLatency = (kExpectedWanLatency * 80) / 100; //80% of max
 static size_t kBatchIncrValue = 4;
 static size_t kBatchDecrPercent = 25;
 static bool kAdaptiveBatching = true;
+static size_t kLogging=0;
 
 namespace hyc {
 using namespace apache::thrift;
@@ -899,17 +900,18 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 		//reduce the batch size, since we have hit limit for latency
 		batch_size_ -= (batch_size_ * kBatchDecrPercent) / 100;
 		if (batch_size_ < kMinBatchSize) {
-			LOG(ERROR) << "Resetting batch size " << batch_size_ <<
+			kLogging && LOG(ERROR) << "Resetting batch size " << batch_size_ <<
 				" to minimum " << kMinBatchSize;
 			batch_size_ = kMinBatchSize;
 		}
 
-		LOG(ERROR) << "Reduced batch size to " << batch_size_ <<
+		kLogging && LOG(ERROR) << "Reduced batch size to " << batch_size_ <<
 			" avg_latency " << latency_avg_.Average();
 		//new smaller batch_size might have caused pending ios
 		//size to be more than new batch size. Schedule all such IOs
 		if (requests_.pending_.size() >= batch_size_) {
-			LOG(ERROR) << "Setting need_schedule_ due to reduced batch size" << batch_size_;
+			kLogging && LOG(ERROR) << "Setting need_schedule_ due to reduced batch size"
+			       << batch_size_;
 			need_schedule_ = true;
 			++stats_.need_schedule_count_;
 		}
@@ -920,11 +922,11 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 		//don't go above a high threashold.
 		//excessive batching can also destabilize the system
 		if (batch_size_ > kMaxBatchSize) {
-			LOG(ERROR) << "Resetting batch size " << batch_size_ <<
+			kLogging && LOG(ERROR) << "Resetting batch size " << batch_size_ <<
 				" to maximum " << kMaxBatchSize;
 			batch_size_ = kMaxBatchSize;
 		}
-		LOG(ERROR) << "Increased batch size to " << batch_size_ <<
+		kLogging && LOG(ERROR) << "Increased batch size to " << batch_size_ <<
 			" avg_latency " << latency_avg_.Average();
 		++stats_.batchsize_incr_;
 	} else {
