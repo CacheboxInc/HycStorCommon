@@ -553,6 +553,12 @@ struct VmdkStats {
 
 	std::atomic<int64_t> pending_{0};
 	std::atomic<int64_t> rpc_requests_scheduled_{0};
+
+	std::atomic<int64_t> batchsize_decr_{0};
+	std::atomic<int64_t> batchsize_incr_{0};
+	std::atomic<int64_t> batchsize_same_{0};
+	std::atomic<int64_t> need_schedule_count_{0};
+	MovingAverage<uint64_t, 128> avg_batchsize_{};
 };
 
 class StordVmdk {
@@ -884,6 +890,7 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 
 	bool batch_changed = true;
 	if (latency_avg_.Average() >= kExpectedWanLatency) {
+
 		//reduce the batch size, since we have hit limit for latency
 		batch_size_ -= (batch_size_ * kBatchDecrPercent) / 100;
 		if (batch_size_ < kMinBatchSize) {
@@ -899,7 +906,9 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 		if (requests_.pending_.size() >= batch_size_) {
 			LOG(ERROR) << "Setting need_schedule_ due to reduced batch size" << batch_size_;
 			need_schedule_ = true;
+			++stats_.need_schedule_count_;
 		}
+		++stats_.batchsize_decr_;
 	} else if ((latency_avg_.Average() < kIdealLatency) && scheduled_early_) {
 		//application has more parallelism(scheduled_early), increase batch size
 		batch_size_ += kBatchIncrValue;
@@ -912,8 +921,10 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 		}
 		LOG(ERROR) << "Increased batch size to " << batch_size_ <<
 			" avg_latency " << latency_avg_.Average();
+		++stats_.batchsize_incr_;
 	} else {
 		batch_changed = false;
+		++stats_.batchsize_same_;
 	}
 	//Reset scheduled_early, now that we have seen it
 	scheduled_early_ = false;
@@ -922,6 +933,7 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 	//using new batch_size
 	if (batch_changed) {
 		latency_avg_.Reset();
+		stats_.avg_batchsize_.Add(batch_size_);
 	}
 }
 
