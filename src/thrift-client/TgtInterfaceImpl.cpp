@@ -667,6 +667,11 @@ std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk) {
 		<< " VmdkHandle " << vmdk.vmdk_handle_
 		<< " eventfd " << vmdk.eventfd_
 		<< " pending " << vmdk.stats_.pending_
+		<< " batchsize_decr " << vmdk.stats_.batchsize_decr_
+		<< " batchsize_incr " << vmdk.stats_.batchsize_incr_
+		<< " batchsize_same " << vmdk.stats_.batchsize_same_
+		<< " need_schedule_count " << vmdk.stats_.need_schedule_count_
+		<< " avg_batchsize " << vmdk.stats_.avg_batchsize_.Average()
 		<< " requestid " << vmdk.requestid_
 		<< " latency avg " << vmdk.latency_avg_.Average()
 		<< " Bulk IODepth avg " << vmdk.bulk_depth_avg_.Average()
