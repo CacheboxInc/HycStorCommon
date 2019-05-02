@@ -815,7 +815,6 @@ std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 
 	auto reqp = request.get();
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
-	//if nothing is scheduled till now, schedule this io immediately
 	bool schedule_now = requests_.scheduled_.empty();
 	requests_.scheduled_.emplace(request->id, std::move(request));
 	requests_.pending_.emplace_back(reqp);
