@@ -32,6 +32,14 @@ static uint16_t StordPort = 9876;
 
 using namespace std::chrono_literals;
 static size_t kExpectedWanLatency = std::chrono::microseconds(20ms).count();
+static size_t kMaxBatchSize = 100 * 32; //100 VMDK equivalent
+static size_t kMinBatchSize = 1;
+static size_t kIdealLatency = (kExpectedWanLatency * 80) / 100; //80% of max
+static size_t kBatchIncrValue = 4;
+static size_t kBatchDecrPercent = 25;
+static bool kAdaptiveBatching = true;
+static uint32_t kSystemLoadFactor = 6; //system load influence in batch size determination
+static size_t kLogging = 0;
 
 namespace hyc {
 using namespace apache::thrift;
@@ -76,6 +84,15 @@ public:
 		}
 		return total_ / div;
 	}
+
+	void Reset() {
+		std::lock_guard<std::mutex> lock(mutex_);
+		total_ = 0;
+		nsamples_ = 0;
+	}
+
+	uint64_t GetSamples() const { return nsamples_; }
+	uint64_t GetMaxSamples() const { return N; }
 
 private:
 	std::mutex mutex_;
@@ -137,6 +154,7 @@ struct Request {
 	int32_t xfer_sz;
 	int64_t offset;
 	int32_t result;
+	size_t batch_size;
 
 	TimePoint timer;
 };
@@ -163,7 +181,8 @@ std::ostream& operator << (std::ostream& os, const Request& request) {
 		<< " bufferp " << request.bufferp
 		<< " buf_sz " << request.buf_sz
 		<< " xfer_sz " << request.xfer_sz
-		<< " offset " << request.offset;
+		<< " offset " << request.offset
+		<< " batch_size " << request.batch_size;
 	return os;
 }
 
@@ -536,6 +555,16 @@ struct VmdkStats {
 
 	std::atomic<int64_t> pending_{0};
 	std::atomic<int64_t> rpc_requests_scheduled_{0};
+
+	std::atomic<int64_t> batchsize_decr_{0};
+	std::atomic<int64_t> batchsize_incr_{0};
+	std::atomic<int64_t> batchsize_same_{0};
+	std::atomic<int64_t> need_schedule_count_{0};
+	MovingAverage<uint64_t, 128> avg_batchsize_{};
+};
+
+struct StordStats {
+	std::atomic<uint64_t> pending_{0};
 };
 
 class StordVmdk {
@@ -573,6 +602,7 @@ private:
 		const void* privatep, char* bufferp, size_t buf_sz, size_t xfer_sz,
 		int64_t offset);
 	void UpdateStats(Request* reqp);
+	void UpdateBatchSize(Request* reqp);
 	int PostRequestCompletion() const;
 	void ReadDataCopy(Request* reqp, const ReadResult& result);
 
@@ -613,10 +643,17 @@ private:
 
 	MovingAverage<uint64_t, 128> latency_avg_{};
 	MovingAverage<uint64_t, 128> bulk_depth_avg_{};
+	size_t batch_size_{1};
+	bool scheduled_early_{false};
+	bool need_schedule_{false};
 	VmdkStats stats_;
+
+	static StordStats stord_stats_;
 
 	std::atomic<RequestID> requestid_{0};
 };
+
+StordStats StordVmdk::stord_stats_;
 
 void SchedulePending::runLoopCallback() noexcept {
 	auto basep = connectp_->GetEventBase();
@@ -640,6 +677,11 @@ std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk) {
 		<< " VmdkHandle " << vmdk.vmdk_handle_
 		<< " eventfd " << vmdk.eventfd_
 		<< " pending " << vmdk.stats_.pending_
+		<< " batchsize_decr " << vmdk.stats_.batchsize_decr_
+		<< " batchsize_incr " << vmdk.stats_.batchsize_incr_
+		<< " batchsize_same " << vmdk.stats_.batchsize_same_
+		<< " need_schedule_count " << vmdk.stats_.need_schedule_count_
+		<< " avg_batchsize " << vmdk.stats_.avg_batchsize_.Average()
 		<< " requestid " << vmdk.requestid_
 		<< " latency avg " << vmdk.latency_avg_.Average()
 		<< " Bulk IODepth avg " << vmdk.bulk_depth_avg_.Average()
@@ -760,6 +802,7 @@ std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 	}
 
 	++stats_.pending_;
+	++stord_stats_.pending_;
 
 	request->id = ++requestid_;
 	request->type = type;
@@ -768,21 +811,38 @@ std::pair<Request*, bool> StordVmdk::NewRequest(Request::Type type,
 	request->buf_sz = buf_sz;
 	request->xfer_sz = xfer_sz;
 	request->offset = offset;
+	request->batch_size = batch_size_;
 
 	auto reqp = request.get();
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
-	bool schedule_now = requests_.scheduled_.empty() or
-		latency_avg_.Average() > kExpectedWanLatency;
+	bool schedule_now = requests_.scheduled_.empty();
 	requests_.scheduled_.emplace(request->id, std::move(request));
 	requests_.pending_.emplace_back(reqp);
+	if (kAdaptiveBatching) {
+		//scheduled early is set if there is atleast one already scheduled IO
+		//and we are attempting to send more due to pending IOs size >= batch_size.
+		//scheduled early indicates that current batch sie is insufficient to
+		//absorb the application parallelism and need a change. IO callback
+		//will look at it and if latency permits, will increase the batch size
+		if (not schedule_now && requests_.pending_.size() >= batch_size_) {
+			scheduled_early_ = true;
+			schedule_now = true;
+		}
+	} else if (not schedule_now) {
+		schedule_now = latency_avg_.Average() > kExpectedWanLatency;
+	}
+
 	return std::make_pair(reqp, schedule_now);
 }
 
 void StordVmdk::UpdateStats(Request* reqp) {
 	--stats_.pending_;
+	--stord_stats_.pending_;
 	log_assert(stats_.rpc_requests_scheduled_ >= 0);
 	auto latency = reqp->timer.GetMicroSec();
-	latency_avg_.Add(latency);
+	if (not kAdaptiveBatching || reqp->batch_size == batch_size_) {
+		latency_avg_.Add(latency);
+	}
 	switch (reqp->type) {
 	case Request::Type::kRead:
 		++stats_.read_requests_;
@@ -836,6 +896,65 @@ constexpr T GetErrNo(T arg1, Args... args) {
 	return arg1;
 }
 
+void StordVmdk::UpdateBatchSize(Request* reqp) {
+	//don't update, if the batch size has already been updated
+	//or if there are not enough latency samples
+	if ((reqp->batch_size != batch_size_) ||
+			(latency_avg_.GetSamples() < latency_avg_.GetMaxSamples())) {
+		return;
+	}
+
+	bool batch_changed = true;
+	size_t system_load = stord_stats_.pending_ >> kSystemLoadFactor;
+	if (latency_avg_.Average() > (kExpectedWanLatency + system_load)) {
+
+		//reduce the batch size, since we have hit limit for latency
+		batch_size_ -= (batch_size_ * kBatchDecrPercent) / 100;
+		if (batch_size_ < kMinBatchSize) {
+			kLogging && LOG(ERROR) << "Resetting batch size " << batch_size_ <<
+				" to minimum " << kMinBatchSize;
+			batch_size_ = kMinBatchSize;
+		}
+
+		kLogging && LOG(ERROR) << "Reduced batch size to " << batch_size_ <<
+			" avg_latency " << latency_avg_.Average();
+		//new smaller batch_size might have caused pending ios
+		//size to be more than new batch size. Schedule all such IOs
+		if (requests_.pending_.size() >= batch_size_) {
+			kLogging && LOG(ERROR) << "Setting need_schedule_ due to reduced batch size"
+			       << batch_size_;
+			need_schedule_ = true;
+			++stats_.need_schedule_count_;
+		}
+		++stats_.batchsize_decr_;
+	} else if ((latency_avg_.Average() < kIdealLatency) && scheduled_early_) {
+		//application has more parallelism(scheduled_early), increase batch size
+		batch_size_ += kBatchIncrValue;
+		//don't go above a high threashold.
+		//excessive batching can also destabilize the system
+		if (batch_size_ > kMaxBatchSize) {
+			kLogging && LOG(ERROR) << "Resetting batch size " << batch_size_ <<
+				" to maximum " << kMaxBatchSize;
+			batch_size_ = kMaxBatchSize;
+		}
+		kLogging && LOG(ERROR) << "Increased batch size to " << batch_size_ <<
+			" avg_latency " << latency_avg_.Average();
+		++stats_.batchsize_incr_;
+	} else {
+		batch_changed = false;
+		++stats_.batchsize_same_;
+	}
+	//Reset scheduled_early, now that we have seen it
+	scheduled_early_ = false;
+
+	//next batch change decision should consider only the new IOs
+	//using new batch_size
+	if (batch_changed) {
+		latency_avg_.Reset();
+		stats_.avg_batchsize_.Add(batch_size_);
+	}
+}
+
 void StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	auto it = requests_.scheduled_.find(id);
 	log_assert(it != requests_.scheduled_.end());
@@ -847,6 +966,10 @@ void StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	auto reqp = req.get();
 	reqp->result = result;
 	UpdateStats(reqp);
+
+	if (kAdaptiveBatching) {
+		UpdateBatchSize(reqp);
+	}
 
 	requests_.scheduled_.erase(it);
 	requests_.complete_.emplace_back(std::move(req));
@@ -1135,7 +1258,9 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp
 
 void StordVmdk::ScheduleMore(folly::EventBase* basep,
 		StorRpcAsyncClient* clientp) {
-	if (not RpcRequestScheduledCount()) {
+
+	if (not RpcRequestScheduledCount() || need_schedule_) {
+		need_schedule_ = false;
 		ScheduleNow(basep, clientp);
 	}
 }
@@ -1222,6 +1347,7 @@ private:
 		std::unordered_map<std::string, std::unique_ptr<StordVmdk>> ids_;
 	} vmdk_;
 };
+
 
 Stord::~Stord() {
 	auto rc = Disconnect();
@@ -1458,10 +1584,29 @@ void HycDumpVmdk(VmdkHandle handle) {
 
 }
 
-void HycSetExpectedWanLatency(uint32_t latency) {
-	LOG(ERROR) << "Changing expecting WAN latency from "
-		<< kExpectedWanLatency
-		<< " to " << latency
+void HycSetBatchingAttributes(uint32_t adaptive_batch, uint32_t wan_latency,
+		uint32_t batch_incr_val, uint32_t batch_decr_pct,
+		uint32_t system_load_factor, uint32_t debug_log) {
+	LOG(ERROR) << "Changing adaptive batching from "
+		<< kAdaptiveBatching << " to " << adaptive_batch;
+	LOG(ERROR) << "Changing expected WAN latency from "
+		<< kExpectedWanLatency << " to " << wan_latency
 		<< " (all units in micro-seconds)";
-	kExpectedWanLatency = latency;
+	LOG(ERROR) << "Changing kBatchIncrValue from "
+		<< kBatchIncrValue << " to " << batch_incr_val;
+	LOG(ERROR) << "Changing kBatchDecrPercent from "
+		<< kBatchDecrPercent << " to " << batch_decr_pct;
+	LOG(ERROR) << "Changing kSystemLoadFactor from "
+		<< kSystemLoadFactor << " to " << system_load_factor;
+	LOG(ERROR) << "Changing kLogging from "
+		<< kLogging << " to " << debug_log;
+
+	//Assumption is that system is quiesced, when these
+	//parameters are being set. No IOs should be going on.
+	kExpectedWanLatency = wan_latency;
+	kAdaptiveBatching = adaptive_batch ? true : false;
+	kBatchIncrValue = batch_incr_val;
+	kBatchDecrPercent = batch_decr_pct;
+	kSystemLoadFactor = system_load_factor;
+	kLogging = debug_log;
 }
