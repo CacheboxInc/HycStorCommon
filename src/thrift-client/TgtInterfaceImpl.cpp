@@ -592,6 +592,8 @@ public:
 	::hyc_thrift::VmdkHandle GetHandle() const noexcept;
 	const std::string& GetVmdkId() const noexcept;
 	void ScheduleMore(folly::EventBase* basep, StorRpcAsyncClient* clientp);
+	const VmdkStats& GetVmdkStats() const noexcept;
+	const StordStats& GetStordStats() const noexcept;
 
 	friend std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
 private:
@@ -1318,6 +1320,15 @@ RequestID StordVmdk::ScheduleWriteSame(const void* privatep, char* bufferp,
 	return reqp->id;
 }
 
+const VmdkStats& StordVmdk::GetVmdkStats() const noexcept {
+	return stats_;
+}
+
+const StordStats& StordVmdk::GetStordStats() const noexcept {
+	return stord_stats_;
+}
+
+
 class Stord {
 public:
 	~Stord();
@@ -1334,9 +1345,9 @@ public:
 		int32_t buf_sz, int64_t offset);
 	RequestID VmdkWriteSame(StordVmdk* vmdkp, const void* privatep,
 		char* bufferp, int32_t buf_sz, int32_t write_sz, int64_t offset);
+	StordVmdk* FindVmdk(const std::string& vmdkid);
 private:
 	StordVmdk* FindVmdk(::hyc_thrift::VmdkHandle handle);
-	StordVmdk* FindVmdk(const std::string& vmdkid);
 private:
 	struct {
 		std::unique_ptr<StordRpc> rpc_;
@@ -1609,4 +1620,20 @@ void HycSetBatchingAttributes(uint32_t adaptive_batch, uint32_t wan_latency,
 	kBatchDecrPercent = batch_decr_pct;
 	kSystemLoadFactor = system_load_factor;
 	kLogging = debug_log;
+}
+
+
+int HycGetVmdkStats(const char* vmdkid, vmdk_stats_t *vmdk_stats) {
+	::hyc::StordVmdk *vmdkp = g_stord.FindVmdk(std::string(vmdkid));
+	if (!vmdkp) {
+		LOG(ERROR) << "vmdk with id " << vmdkid << " is not found";
+		return -EINVAL;
+	}
+
+	const ::hyc::VmdkStats& stats = vmdkp->GetVmdkStats();
+	vmdk_stats->pending = stats.pending_;
+	vmdk_stats->stord_stats_pending = vmdkp->GetStordStats().pending_;
+	vmdk_stats->rpc_requests_scheduled = stats.rpc_requests_scheduled_;
+
+	return 0;
 }
