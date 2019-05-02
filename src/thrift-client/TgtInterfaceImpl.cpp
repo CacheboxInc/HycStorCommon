@@ -39,7 +39,7 @@ static size_t kBatchIncrValue = 4;
 static size_t kBatchDecrPercent = 25;
 static bool kAdaptiveBatching = true;
 static uint32_t kSystemLoadFactor = 6; //system load influence in batch size determination
-static size_t kLogging=0;
+static size_t kLogging = 0;
 
 namespace hyc {
 using namespace apache::thrift;
@@ -1585,9 +1585,9 @@ void HycDumpVmdk(VmdkHandle handle) {
 
 }
 
-void HycSetBatchingAttributes(uint32_t adaptive_batch,
-		uint32_t wan_latency, uint32_t batch_incr_val,
-		uint32_t batch_decr_pct, uint32_t system_load_factor) {
+void HycSetBatchingAttributes(uint32_t adaptive_batch, uint32_t wan_latency,
+		uint32_t batch_incr_val, uint32_t batch_decr_pct,
+		uint32_t system_load_factor, uint32_t debug_log) {
 	LOG(ERROR) << "Changing adaptive batching from "
 		<< kAdaptiveBatching << " to " << adaptive_batch;
 	LOG(ERROR) << "Changing expected WAN latency from "
@@ -1599,6 +1599,8 @@ void HycSetBatchingAttributes(uint32_t adaptive_batch,
 		<< kBatchDecrPercent << " to " << batch_decr_pct;
 	LOG(ERROR) << "Changing kSystemLoadFactor from "
 		<< kSystemLoadFactor << " to " << system_load_factor;
+	LOG(ERROR) << "Changing kLogging from "
+		<< kLogging << " to " << debug_log;
 
 	//Assumption is that system is quiesced, when these
 	//parameters are being set. No IOs should be going on.
@@ -1607,4 +1609,5 @@ void HycSetBatchingAttributes(uint32_t adaptive_batch,
 	kBatchIncrValue = batch_incr_val;
 	kBatchDecrPercent = batch_decr_pct;
 	kSystemLoadFactor = system_load_factor;
+	kLogging = debug_log;
 }

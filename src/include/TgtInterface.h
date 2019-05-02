@@ -24,9 +24,9 @@ RequestID HycScheduleWrite(VmdkHandle handle, const void* privatep,
 RequestID HycScheduleWriteSame(VmdkHandle handle, const void* privatep,
 		char* bufferp, int32_t buf_sz, int32_t write_sz, int64_t offset);
 void HycDumpVmdk(VmdkHandle handle);
-void HycSetBatchingAttributes(uint32_t adaptive_batch,
-		uint32_t wan_latency, uint32_t batch_incr_val,
-		uint32_t batch_decr_pct, uint32_t system_load_factor);
+void HycSetBatchingAttributes(uint32_t adaptive_batch, uint32_t wan_latency,
+		uint32_t batch_incr_val, uint32_t batch_decr_pct,
+		uint32_t system_load_factor, uint32_t debug_log);
 #ifdef __cplusplus
 }
 #endif
