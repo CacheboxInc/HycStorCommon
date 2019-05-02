@@ -1626,14 +1626,16 @@ void HycSetBatchingAttributes(uint32_t adaptive_batch, uint32_t wan_latency,
 int HycGetVmdkStats(const char* vmdkid, vmdk_stats_t *vmdk_stats) {
 	::hyc::StordVmdk *vmdkp = g_stord.FindVmdk(std::string(vmdkid));
 	if (!vmdkp) {
-		LOG(ERROR) << "vmdk with id " << vmdkid << " is not found";
 		return -EINVAL;
 	}
 
 	const ::hyc::VmdkStats& stats = vmdkp->GetVmdkStats();
-	vmdk_stats->pending = stats.pending_;
 	vmdk_stats->stord_stats_pending = vmdkp->GetStordStats().pending_;
-	vmdk_stats->rpc_requests_scheduled = stats.rpc_requests_scheduled_;
+	vmdk_stats->batchsize_decr = stats.batchsize_decr_;
+	vmdk_stats->batchsize_incr = stats.batchsize_incr_;
+	vmdk_stats->batchsize_same = stats.batchsize_same_;
+	vmdk_stats->need_schedule_count = stats.need_schedule_count_;
+	vmdk_stats->avg_batchsize = stats.avg_batchsize_.Average();
 
 	return 0;
 }

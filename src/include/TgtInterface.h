@@ -11,9 +11,12 @@ extern "C"  {
 
 typedef struct vmdk_stats
 {
-	int64_t rpc_requests_scheduled;
-	int64_t pending;
+	int64_t batchsize_decr;
+	int64_t batchsize_incr;
+	int64_t batchsize_same;
+	int64_t need_schedule_count;
 	int64_t stord_stats_pending;
+	int64_t avg_batchsize;
 } vmdk_stats_t;
 
 
