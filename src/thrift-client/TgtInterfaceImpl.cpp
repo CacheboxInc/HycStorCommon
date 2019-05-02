@@ -653,6 +653,8 @@ private:
 	static StordStats stord_stats_;
 
 	std::atomic<RequestID> requestid_{0};
+public:
+	std::mutex mutex_;
 };
 
 StordStats StordVmdk::stord_stats_;
@@ -751,6 +753,7 @@ int StordVmdk::CloseVmdk() {
 	if (vmdk_handle_ == kInvalidVmdkHandle) {
 		return 0;
 	}
+	std::lock_guard<std::mutex> lock(mutex_);
 
 	if (PendingOperations() != 0) {
 		LOG(ERROR) << "Close VMDK Failed" << *this;
@@ -1629,6 +1632,7 @@ int HycGetVmdkStats(const char* vmdkid, vmdk_stats_t *vmdk_stats) {
 		return -EINVAL;
 	}
 
+	std::lock_guard<std::mutex> lock(vmdkp->mutex_);
 	const ::hyc::VmdkStats& stats = vmdkp->GetVmdkStats();
 	vmdk_stats->stord_stats_pending = vmdkp->GetStordStats().pending_;
 	vmdk_stats->batchsize_decr = stats.batchsize_decr_;
