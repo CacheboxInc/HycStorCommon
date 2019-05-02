@@ -27,7 +27,7 @@ public:
 		std::atomic<uint64_t>	stats_rh_random_pattern_{0};
 		std::atomic<uint64_t>	stats_rh_strided_pattern_{0};
 		std::atomic<uint64_t>	stats_rh_correlated_pattern_{0};
-		std::atomic<uint64_t>	stats_rh_unlocked_reads_{0};
+		std::atomic<uint64_t>	stats_rh_dropped_reads_{0};
 	};
 	
 	// Methods
@@ -44,13 +44,14 @@ public:
 	void ForceDisableReadAhead() {
 		force_disable_read_ahead_ = true;
 	}
-	static int64_t MinDiskSizeSupported() {
+	static uint64_t MinDiskSizeSupported() {
 		return MIN_DISK_SIZE_SUPPORTED;
 	}
 	
 	// Stats getter methods
 	uint64_t StatsTotalReadAheadBlocks() const {
-		return st_read_ahead_stats_.stats_rh_blocks_size_;
+		return (st_read_ahead_stats_.stats_rh_blocks_size_ 
+			- st_read_ahead_stats_.stats_rh_dropped_reads_);
 	}
 	uint64_t StatsTotalReadMissBlocks() const {
 		return st_read_ahead_stats_.stats_rh_read_misses_;
@@ -64,8 +65,8 @@ public:
 	uint64_t StatsTotalCorrelatedPatterns() const {
 		return st_read_ahead_stats_.stats_rh_correlated_pattern_;
 	}
-	uint64_t StatsTotalUnlockedReads() const {
-		return st_read_ahead_stats_.stats_rh_unlocked_reads_;
+	uint64_t StatsTotalDroppedReads() const {
+		return st_read_ahead_stats_.stats_rh_dropped_reads_;
 	}
 	void GetReadAheadStats(ReadAheadStats& st_rh_stats) const {
 		st_rh_stats.stats_rh_blocks_size_ 		= st_read_ahead_stats_.stats_rh_blocks_size_
@@ -78,11 +79,11 @@ public:
 													.load(std::memory_order_relaxed);
 		st_rh_stats.stats_rh_correlated_pattern_= st_read_ahead_stats_.stats_rh_correlated_pattern_
 													.load(std::memory_order_relaxed);
-		st_rh_stats.stats_rh_unlocked_reads_	= st_read_ahead_stats_.stats_rh_unlocked_reads_
+		st_rh_stats.stats_rh_dropped_reads_		= st_read_ahead_stats_.stats_rh_dropped_reads_
 													.load(std::memory_order_relaxed);
 	}
 	// The only publicly visible stat updater
-	void UpdateTotalUnlockedReads(int reads);
+	void UpdateTotalDroppedReads(uint32_t reads);
 
 private:
 	// Absolute Config, controls ReadAhead behaviour, pace & quantum
@@ -105,7 +106,7 @@ private:
 	int			start_index_ = 0;
 	int			loopback_ = 8;
 	int			n_history_ = 1024;
-	int64_t		max_offset_ = 0;
+	uint64_t	max_offset_ = 0;
 	// Pattern stability variables
 	int 		random_pattern_occurrences_ = 0;
 	int			total_io_count_ = 0;
@@ -141,16 +142,16 @@ private:
 	ReadAhead() {}
 	void InitializeGHB();
 	folly::Future<std::unique_ptr<ReadResultVec>>
-	Read(std::set<int64_t>& predictions);
+	Read(std::set<uint64_t>& predictions);
 	folly::Future<std::unique_ptr<ReadResultVec>>
 	RunPredictions(ReqBlockVec& req_blocks, uint32_t io_block_count);
-	void CoalesceRequests(/*[In]*/std::set<int64_t>& predictions, 
+	void CoalesceRequests(/*[In]*/std::set<uint64_t>& predictions, 
 			/*[Out]*/ReadRequestVec& requests, size_t mergeability); 
 	bool ShouldPrefetch(uint32_t miss_count, uint32_t io_block_count);
 	int UpdatePrefetchDepth(int n_prefetch, bool is_strided);
 	void InitializeEssentials();
-	void UpdateReadMissStats(int64_t size);
-	void UpdateReadAheadStats(int64_t size);
+	void UpdateReadMissStats(uint32_t size);
+	void UpdateReadAheadStats(uint32_t size);
 	void UpdatePatternStats(PatternType pattern, int count);
 	void LogEssentials();
 };

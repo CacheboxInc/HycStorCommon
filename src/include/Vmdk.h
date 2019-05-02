@@ -156,13 +156,13 @@ public:
 	virtual ~Vmdk();
 	const ::ondisk::VmdkID& GetID() const noexcept;
 	VmdkHandle GetHandle() const noexcept;
-	int64_t GetDiskSize() const {
+	uint64_t GetDiskSize() const {
 		return disk_size_bytes_;
 	}
 protected:
 	VmdkHandle handle_;
 	::ondisk::VmdkID id_;
-	int64_t disk_size_bytes_;
+	uint64_t disk_size_bytes_;
 };
 
 class ActiveVmdk : public Vmdk {
@@ -310,6 +310,8 @@ private:
 		iter::Range<BlockID>::iterator begin,
 		iter::Range<BlockID>::iterator end,
 		std::vector<BlockID>& removed);
+	int32_t SetCompletionResults(const std::vector<std::unique_ptr<Request>>& requests, 
+		const std::vector<RequestBlock*>& failedp, folly::Try<int>& result); 
 public:
 	void SetReadCheckPointId(const std::vector<RequestBlock*>& blockps,
 		const CheckPoints& min_max) const;
@@ -382,33 +384,20 @@ private:
 		Func&& func) {
 		assert(locked_process.empty());
 		assert(!process.empty());
-		(void)locked_process;
-		(void)process;
 		auto g = std::make_unique<RangeLock::LockGuard>(range_lock_.get(), Ranges(requests));
 		std::vector<pio::RangeLock::range_t> ranges;
 		bool full_lock = g->SelectiveLock(ranges);
 		
-		// Temporary code to prove that two reads on same offset works
-		// After several successful CHO runs on master this code and related
-		// stats in ReadAhead class may be safely removed.
-		// Moreover, once dropping off unlocked message works we will no longer require
-		// this code and related stats
 		if(!full_lock && requests[0]->IsReadAheadRequest()) {
-			int unlocked_reads = process.size() - ranges.size();
-			assert(unlocked_reads > 0);
-			assert(this->read_aheadp_ != NULL);
-			this->read_aheadp_->UpdateTotalUnlockedReads(unlocked_reads);	
+			int dropped_reads = process.size() - ranges.size();
+			assert(dropped_reads > 0);
+			assert(read_aheadp_ != NULL);
+			read_aheadp_->UpdateTotalDroppedReads(dropped_reads);	
 		}
 		if(pio_unlikely(not g->IsLocked() || ranges.empty())) {
 			LOG(WARNING) << "Couldn't acquire lock on even a single block";
 			return folly::makeFuture(-EINVAL);
 		}
-		
-		// Dropping of messages does not work right now and hence is postponed till next iteration
-		// Dropping of messages encounters a crash and the traces depict that in AeroOps.cpp
-		// while actually submitting the batch request we hit count mismatch which is not yet fully
-		// analyzed.
-#if 0
 		try {
 			locked_process.reserve(ranges.size());
 		} 
@@ -420,7 +409,6 @@ private:
 			auto block_id = block->GetBlockID();
 			if(full_lock || std::find(ranges.begin(), ranges.end(), 
 				pio::RangeLock::range_t(block_id, block_id)) != ranges.end()) {
-				LOG(ERROR) << "Pushing into locked_process, block ID = " << block_id;
 				locked_process.emplace_back(block);
 			}
 		}
@@ -430,10 +418,9 @@ private:
 			&& (full_lock ? (l_size == p_size) : (l_size < p_size)));
 		(void)l_size;
 		(void)p_size;
-#endif
+		
 		return func()
-		.then([g = std::move(g) 
-		/*,locked_process = std::move(locked_process)*/] (int rc) {
+		.then([g = std::move(g)] (int rc) {
 			return rc;
 		});
 	}

@@ -777,11 +777,11 @@ bool VmdkConfig::IsReadAheadEnabled() const {
 	return rc and enabled;
 }
 
-void VmdkConfig::SetDiskSize(int64_t size) {
+void VmdkConfig::SetDiskSize(uint64_t size) {
     JsonConfig::SetKey(kDiskSizeBytes, size);
 }
 
-bool VmdkConfig::GetDiskSize(int64_t& size) const {
+bool VmdkConfig::GetDiskSize(uint64_t& size) const {
     return JsonConfig::GetKey(kDiskSizeBytes, size);
 }
 
