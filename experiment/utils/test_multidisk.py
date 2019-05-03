@@ -58,14 +58,13 @@ def new_vm(VmId, TargetName):
 
 def create_vmdk(VmId, LunID, DevName, DevPath, VmdkID, target, createfile = "false"):
     TargetID = VmId
-
     vmdk_data = {"TargetID":"%s" %TargetID,"LunID":"%s" %LunID,"DevPath":"%s" %DevPath,"VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID,"BlockSize":"16384","Compression":{"Enabled":"false"},"Encryption":{"Enabled":"false"},"RamCache":{"Enabled":"false","MemoryInMB":"1024"},"FileCache":{"Enabled":"false"},"SuccessHandler":{"Enabled":"false"}, "FileTarget":{"Enabled":"true", "CreateFile":"%s" %createfile, "TargetFilePath":"%s" %target, "TargetFileSize":"%s" %FileSize, "DeltaTargetFilePath" :"/mnt"}, 'VmUUID': '%s' %VmId, 'VmdkUUID': '%s' %VmdkID, "DeltaTargetFilePath" :"/mnt", "ReadAhead":{"Enabled":"false"}}
 
     r = requests.post("%s://%s/stord_svc/v1.0/new_vmdk/?vm-id=%s&vmdk-id=%s" % (h, StordUrl, VmId, VmdkID), data=json.dumps(vmdk_data), headers=headers, cert=cert, verify=False)
     assert (r.status_code == 200)
     print ("STORD: New VMDK: %s added for VM: %s" %(VmdkID, VmId))
 
-    data2 = {"DevName": "%s" %(DevName), "VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID, "LunSize":"%s" %size_in_bytes}
+    data2 = {"DevName": "%s" %(DevName), "VmID":"%s" %VmId, "VmdkID":"%s" %VmdkID, "LunSize":"%s" %size_in_gb}
     r = requests.post("%s://%s/tgt_svc/v1.0/lun_create/?tid=%s&lid=%s" % (h, TgtUrl, TargetID, LunID), data=json.dumps(data2), headers=headers, cert=cert, verify=False)
     assert (r.status_code == 200)
     print ("TGT: New VMDK: %s added for VM: %s" %(VmdkID, VmId))

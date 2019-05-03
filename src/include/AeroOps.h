@@ -19,16 +19,11 @@
 #include "VmdkConfig.h"
 #include <aerospike/aerospike_info.h>
 
-typedef struct as_batch_read_records_s as_batch_read_records;
-typedef struct as_batch_read_record_s as_batch_read_record;
 
 namespace pio {
-const std::string kAsNamespaceMeta = "META";
-const std::string kAsCacheBin = "data_map";
-const std::string kAsMetaBin = "meta_bin";
-const std::string kAsMetaBinExt = "meta_bin_ext";
-const std::string kAsMetaSet = "metaset";
-const auto kMaxRetryCnt = 3;
+typedef struct as_batch_read_records_s as_batch_read_records;
+typedef struct as_batch_read_record_s as_batch_read_record;
+extern const int kMaxRetryCnt;
 
 struct WriteBatch;
 struct WriteRecord {

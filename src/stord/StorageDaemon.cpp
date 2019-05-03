@@ -1240,6 +1240,66 @@ static int NewFlushReq(const _ha_request *reqp, _ha_response *resp, void *) {
 	return HA_CALLBACK_CONTINUE;
 }
 
+static int NewVmdkScanReq(const _ha_request *reqp, _ha_response *resp, void *) {
+
+	auto param_valuep = ha_parameter_get(reqp, "aero-cluster-id");
+	if (param_valuep == NULL) {
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM,
+			"aero-cluster-id param not given");
+		return HA_CALLBACK_CONTINUE;
+	}
+	std::string clusterid(param_valuep);
+
+	auto data = ha_get_data(reqp);
+	std::string req_data;
+	if (data != nullptr) {
+		req_data.assign(data);
+		::free(data);
+	} else {
+		req_data.clear();
+	}
+
+	if (GuardHandler()) {
+		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
+			"Too many requests already pending");
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	std::lock_guard<std::mutex> lock(g_thread_.rest_guard.lock_);
+	g_thread_.rest_guard.p_cnt_--;
+	std::vector<VmdkID> vec_ids;
+	pio::JsonHelper json_helper(req_data);
+
+	auto ret = json_helper.GetVmdkVector("vmdk-ids", vec_ids);
+	if(not ret) {
+		std::ostringstream es;
+		LOG(ERROR) << "Failed to extract vmdk-ids from the supplied json: " << req_data;
+		es << "Failed to extract vmdk-ids from the supplied json: " << req_data;
+		SetErrMsg(resp, STORD_ERR_INVALID_PARAM, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	for (auto it = vec_ids.begin(); it != vec_ids.end(); it++) {
+		VLOG(5) << __func__ << "Vmdk found is :" << *it;
+	}
+
+	ret = pio::NewVmdkScanReq(vec_ids, clusterid, 0);
+	if (ret) {
+		std::ostringstream es;
+		LOG(ERROR) << "Starting Scan request for Failed";
+		es << "Starting flush request Failed";
+		SetErrMsg(resp, STORD_ERR_INVALID_SCAN, es.str());
+		return HA_CALLBACK_CONTINUE;
+	}
+
+	LOG(INFO) << "Scan request started successfully. Please run "
+		"scan_status to get the progress";
+
+	const auto res = std::to_string(ret);
+	ha_set_response_body(resp, HTTP_STATUS_OK, res.c_str(), res.size());
+	return HA_CALLBACK_CONTINUE;
+}
+
 static int
 NewPrepareCkpt(const _ha_request *reqp, _ha_response *resp, void *) {
 
@@ -1685,20 +1745,20 @@ static int GlobalStats([[maybe_unused]] const _ha_request *reqp, _ha_response *r
 
 	json_t *stat_params = json_array();
 
-	json_array_append_new(stat_params, GetElement("read_miss", 
+	json_array_append_new(stat_params, GetElement("read_miss",
 		g_stats.vmdk_cache_stats_.read_miss_, "number of read miss across of all vmdks"));
 	json_array_append_new(stat_params, GetElement("read_populates",
 		g_stats.vmdk_cache_stats_.read_populates_, "number of read populated into cache"));
 	json_array_append_new(stat_params, GetElement("total_blk_reads",
 		g_stats.vmdk_cache_stats_.total_blk_reads_, "total blocks read"));
 
-	json_array_append_new(stat_params, GetElement("read_hits", 
+	json_array_append_new(stat_params, GetElement("read_hits",
 		g_stats.vmdk_cache_stats_.read_hits_, "number of read hits across of all vmdks"));
 	json_array_append_new(stat_params, GetElement("nw_bytes_read",
 		g_stats.vmdk_cache_stats_.nw_bytes_read_, "network read bytes"));
 	json_array_append_new(stat_params, GetElement("nw_bytes_write",
 		g_stats.vmdk_cache_stats_.nw_bytes_write_, "network write bytes"));
-	
+
 	json_array_append_new(stat_params, GetElement("total_reads",
 		g_stats.vmdk_cache_stats_.total_reads_, "total number of reads across vmdks"));
 	json_array_append_new(stat_params, GetElement("total_writes",
@@ -1707,15 +1767,15 @@ static int GlobalStats([[maybe_unused]] const _ha_request *reqp, _ha_response *r
 		g_stats.vmdk_cache_stats_.total_bytes_reads_, "total bytes read across vmdks"));
 	json_array_append_new(stat_params, GetElement("total_writes_in_bytes",
 		g_stats.vmdk_cache_stats_.total_bytes_writes_, "total bytes written across vmdks"));
-	
 
-	json_array_append_new(stat_params, GetElement("read_failed", 
+
+	json_array_append_new(stat_params, GetElement("read_failed",
 		g_stats.vmdk_cache_stats_.read_failed_, "number of read failed across all vmdks"));
-	json_array_append_new(stat_params, GetElement("write_failed", 
+	json_array_append_new(stat_params, GetElement("write_failed",
 		g_stats.vmdk_cache_stats_.write_failed_, "number of write failed across all vmdks"));
-	json_array_append_new(stat_params, GetElement("reads_in_progress", 
+	json_array_append_new(stat_params, GetElement("reads_in_progress",
 		g_stats.vmdk_cache_stats_.reads_in_progress_, "reads in progress across of all vmdks"));
-	json_array_append_new(stat_params, GetElement("writes_in_progress_", 
+	json_array_append_new(stat_params, GetElement("writes_in_progress_",
 		g_stats.vmdk_cache_stats_.writes_in_progress_, "writes in progress across of all vmdks"));
 
 
@@ -2646,7 +2706,7 @@ RestHandlers GetRestCallHandlers() {
 		void* datap;
 	};
 
-	static constexpr std::array<RestEndPoint, 34> kHaEndPointHandlers = {{
+	static constexpr std::array<RestEndPoint, 35> kHaEndPointHandlers = {{
 		{POST, "new_vm", NewVm, nullptr},
 		{POST, "vm_delete", RemoveVm, nullptr},
 		{POST, "new_vmdk", NewVmdk, nullptr},
@@ -2659,6 +2719,7 @@ RestHandlers GetRestCallHandlers() {
 		{POST, "del_aero", DelAeroCluster, nullptr},
 		{GET, "aero_stat", NewAeroCacheStatReq, nullptr},
 		{POST, "scan_del_req", NewScanReq, nullptr},
+		{POST, "vmdk_scan_del_req", NewVmdkScanReq, nullptr},
 		{POST, "scan_status", NewScanStatusReq, nullptr},
 		{POST, "merge_req", NewMergeReq, nullptr},
 		{GET, "merge_status", NewMergeStatusReq, nullptr},

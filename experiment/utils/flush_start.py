@@ -44,12 +44,26 @@ def flush_running():
 # POST call 1 to stord_svc
 if not RTO:
 
+     r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/get_unflushed_checkpoints/?vm-id=%s" %(h, VmID))
+     assert (r.status_code == 200)
+     ckpt_ids = r.json()["unflushed_checkpoints"]
+
      data1 = {"vmid": "%s" %VmID , "FlushAllowed" : "true", "MoveAllowed" : "false"}
      print ("Send POST stord_svc flush_req %s" %VmID)
      r = requests.post("%s://127.0.0.1:9000/stord_svc/v1.0/flush_req/?vm-id=%s" % (h, VmID), data=json.dumps(data1), headers=headers, cert=cert, verify=False)
 
      while(flush_running()):
         time.sleep(3)
+
+     snapshot_id = 0
+     print ("Serialize : %s" %ckpt_ids)
+     data = {"checkpoint-ids": "%s" %ckpt_ids, "snapshot-id": "%s" %snapshot_id}
+     r = requests.post("http://127.0.0.1:9000/stord_svc/v1.0/serialize_checkpoints/?vm-id=1",
+               data=json.dumps(data), headers=headers, cert=None, verify=False)
+     if r.status_code == 200:
+           print("moving ahead")
+     else:
+           print("error")
 
      data1 = {"vmid": "%s" %VmID , "FlushAllowed" : "false", "MoveAllowed" : "true"}
      print ("Send POST stord_svc flush_req %s" %VmID)
@@ -59,22 +73,14 @@ if not RTO:
         time.sleep(3)
 
 else:
-    for i in range(2, 10):
-        seek_offset = 10* i*1024
-        seek_offset = 0
+    merge_no = 2
+    for i in range(2, 30):
+        print ("Sleeping............")
+        time.sleep(30)
 
-	# Create input file with pattern
-        filename = "/tmp/input_%s" %i
-        print (filename)
-        f = open(filename, "w")
-        for j in range(0, 16384):
-              f.write(str(i))
-        f.flush()
-        f.close()
-
-        cmd = "dd if=%s of=/dev/sdf bs=16k count=1 oflag=direct seek=%s" %(filename, seek_offset)
-        print (cmd)
-        os.system(cmd)
+        r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/get_unflushed_checkpoints/?vm-id=%s" %(h, VmID))
+        assert (r.status_code == 200)
+        ckpt_ids = r.json()["unflushed_checkpoints"]
 
         data1 = {"vmid": "%s" %VmID , "FlushAllowed" : "true", "MoveAllowed" : "false"}
         print ("Send POST stord_svc flush_req %s" %VmID)
@@ -83,15 +89,8 @@ else:
         while(flush_running()):
             time.sleep(3)
 
-        data1 = {"vmid": "%s" %VmID , "FlushAllowed" : "false", "MoveAllowed" : "true"}
-        print ("Send POST stord_svc flush_req %s" %VmID)
-        r = requests.post("%s://127.0.0.1:9000/stord_svc/v1.0/flush_req/?vm-id=%s" % (h, VmID), data=json.dumps(data1), headers=headers, cert=cert, verify=False)
-
-        while(flush_running()):
-            time.sleep(3)
-
-        ckpt_ids = [i]
-        snapshot_id = i
+        snapshot_id = 0
+        print ("Serialize : %s" %ckpt_ids)
         data = {"checkpoint-ids": "%s" %ckpt_ids, "snapshot-id": "%s" %snapshot_id}
         r = requests.post("http://127.0.0.1:9000/stord_svc/v1.0/serialize_checkpoints/?vm-id=1",
                 data=json.dumps(data), headers=headers, cert=None, verify=False)
@@ -100,6 +99,16 @@ else:
         else:
             print("error")
 
-        si = i + 1
-        url = "http://127.0.0.1:9000/stord_svc/v1.0/new_delta_context/?vm-id=1&snap-id=%s" %si
-        r = requests.post(url, headers=headers, cert=None, verify=False)
+        data1 = {"vmid": "%s" %VmID , "FlushAllowed" : "false", "MoveAllowed" : "true"}
+        print ("Send POST stord_svc flush_req %s" %VmID)
+        r = requests.post("%s://127.0.0.1:9000/stord_svc/v1.0/flush_req/?vm-id=%s" % (h, VmID), data=json.dumps(data1), headers=headers, cert=cert, verify=False)
+
+        while(flush_running()):
+            time.sleep(3)
+
+        if i >= 5:
+            print ("Starting merge for ckpt_id : %s..." %merge_no)
+            cmd = "python3 ckpt_merge.py %s %s" %(VmID, merge_no)
+            print ("Cmd: %s" %cmd)
+            os.system(cmd)
+            merge_no = merge_no + 1

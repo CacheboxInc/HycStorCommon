@@ -101,6 +101,10 @@ else:
         while(flush_running()):
             time.sleep(3)
 
+        print ("Send POST stord_svc flush_history %s" %VmID)
+        r = requests.get("%s://127.0.0.1:9000/stord_svc/v1.0/flush_status/?vm-id=%s&get_history=1" % (h, VmID), headers=headers, cert=cert, verify=False)
+        print (r.text)
+
         snapshot_id = i
         data = {"checkpoint-ids": "%s" %ckpt_ids, "snapshot-id": "%s" %snapshot_id}
         r = requests.post("http://127.0.0.1:9000/stord_svc/v1.0/serialize_checkpoints/?vm-id=1",

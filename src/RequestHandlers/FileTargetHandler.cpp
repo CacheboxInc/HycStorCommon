@@ -394,11 +394,16 @@ folly::Future<int> FileTargetHandler::Read(ActiveVmdk *vmdkp, Request *,
 			return -EINVAL;
 		}
 
-		auto delta_fd = Getfd(vmdkp, snap_id);
-		if (pio_unlikely(delta_fd < 0)) {
-			LOG(ERROR) << __func__ << "Got invalid fd: "
+		int delta_fd = -1;
+		if (snap_id == 0) {
+			delta_fd = vmdkp->delta_fd_;
+		} else {
+			delta_fd = Getfd(vmdkp, snap_id);
+			if (pio_unlikely(delta_fd < 0)) {
+				LOG(ERROR) << __func__ << "Got invalid fd: "
 				<< delta_fd << " after lookup for snap id:" << snap_id;
-			return -EINVAL;
+				return -EINVAL;
+			}
 		}
 
 		VLOG(5) << __func__ << "::Create Req blocks offset ::"

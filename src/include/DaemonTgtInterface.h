@@ -27,6 +27,8 @@ int PrepareCkpt(::hyc_thrift::VmdkHandle vm_handle);
 int CommitCkpt(ondisk::VmID vmid, std::string& ckpt_id);
 int NewFlushReq(ondisk::VmID vmid, const std::string& config);
 int NewScanReq(ondisk::VmID vmid, ondisk::CheckPointID ckptid);
+int NewVmdkScanReq(std::vector<::ondisk::VmdkID>& ids,
+                AeroClusterID cluster_id, CheckPointID ckptid);
 int NewMergeReq(ondisk::VmID vmid, ondisk::CheckPointID ckptid);
 int NewDataCkptMergeReq(ondisk::VmID vmid, ondisk::CheckPointID ckptid);
 int NewFlushStatusReq(ondisk::VmID vmid, FlushStats &flush_stat);

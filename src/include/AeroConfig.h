@@ -4,8 +4,10 @@
 
 #include "IDs.h"
 #include "JsonConfig.h"
+#define STORE_KEY_IN_BIN 1
 
-namespace pio { namespace config {
+namespace pio {
+namespace config {
 class AeroConfig : public JsonConfig {
 public:
 	AeroConfig(const std::string& config);

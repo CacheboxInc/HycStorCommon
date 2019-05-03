@@ -9,6 +9,8 @@ namespace pio {
 const auto kMaxVmdkstoScan = 32;
 const std::string kUdfModuleName = "hyc_delete_rec_module";
 const std::string kUdffnName = "hyc_delete_rec";
+const std::string kUdffnNameBinExt = "hyc_delete_rec_bin_ext";
+extern const std::string kAsKeyBinExt;
 
 ScanInstance::ScanInstance(AeroClusterID cluster_id):cluster_id_(cluster_id) {
 	start_time_ = std::chrono::steady_clock::now();
@@ -106,8 +108,12 @@ int ScanInstance::ScanTask() {
 	scan = as_scan_new(kAsNamespaceCacheClean.c_str(), NULL);
 	as_monitor_init(&monitor);
 
-	/* We don't require any bin data */
-	as_scan_set_nobins(scan, true);
+	#if 0
+	/* Just ask for data from kAsKeyBinExt bin */
+	as_scan_select_init(scan, 1);
+	LOG(ERROR) << __func__ << "Bin name is :" << kAsKeyBinExt.c_str();
+	as_scan_select(scan, (const char *) kAsKeyBinExt.c_str());
+	#endif
 
 	/* Create argument list (VMDKids) for UDF */
 	as_arraylist arglist;
@@ -127,8 +133,13 @@ int ScanInstance::ScanTask() {
 	as_arraylist_append_list(&arg_c, (as_list *) &arglist);
 
 	/* Apply UDF so that record will be deleted on server itself */
+	#ifdef STORE_KEY_IN_BIN
+	as_scan_apply_each(scan, kUdfModuleName.c_str(), kUdffnNameBinExt.c_str(),
+					(as_list *) &arg_c);
+	#else
 	as_scan_apply_each(scan, kUdfModuleName.c_str(), kUdffnName.c_str(),
 					(as_list *) &arg_c);
+	#endif
 
 	auto ret = 0;
 	if (aerospike_scan_background(&aero_conn_->as_, &err,
@@ -189,6 +200,7 @@ void ScanInstance::Scanfn(void) {
 	auto managerp = SingletonHolder<ScanManager>::GetInstance();
 	auto rc = 0;
 
+	int retry_count = 5;
 	std::unique_lock<std::mutex> scan_lock(managerp->lock_);
 	while(true) {
 
@@ -207,7 +219,7 @@ void ScanInstance::Scanfn(void) {
 		scan_lock.unlock();
 		rc = ScanTask();
 		scan_lock.lock();
-		if (pio_unlikely(!rc)) {
+		if (pio_likely(!rc)) {
 			/* SUCCESS, remove working_list entries from pending_list */
 			std::sort(pending_list_.begin(), pending_list_.end());
 			std::sort(working_list_.begin(), working_list_.end());
@@ -217,12 +229,15 @@ void ScanInstance::Scanfn(void) {
 				working_list_.end(), std::back_inserter(tmp_list));
 			pending_list_.clear();
 			pending_list_ = tmp_list;
+		} else {
+			retry_count--;
+			LOG(ERROR) << __func__ << "Retry count is:" << retry_count;
 		}
 
 		working_list_.clear();
 		/* Do we have remaining entry to process or previous scan failed
 		 * then start all over again */
-		if (pio_unlikely(!pending_list_.size())) {
+		if (pio_unlikely(!pending_list_.size()) || (rc && !retry_count)) {
 			LOG(ERROR) << __func__ << " Calling FreeInstance...";
 			managerp->FreeInstance(cluster_id_);
 			scan_lock.unlock();

@@ -444,7 +444,7 @@ folly::Future<int> DirtyHandler::BulkWrite(ActiveVmdk* vmdkp,
 			return 0;
 		}
 
-		return aero_obj_->AeroDelCmdProcess(vmdkp, ckpt, process, failed,
+		return aero_obj_->AeroDelCmdProcess(vmdkp, ckpt - 1, process, failed,
 			kAsNamespaceCacheClean, set_, connect)
 		.then([&process, &failed]  (int rc) mutable {
 			if (pio_unlikely(rc != 0)) {

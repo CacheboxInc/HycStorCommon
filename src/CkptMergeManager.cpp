@@ -63,6 +63,7 @@ void CkptMergeManager::FreeInstance(const VmID& vmid) {
 	std::lock_guard<SpinLock> lock(mutex_);
 	auto it = instances_.find(vmid);
 	if (it != instances_.end()) {
+		it->second.reset();
 		instances_.erase(it);
 	}
 }

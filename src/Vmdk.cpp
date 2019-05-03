@@ -2977,12 +2977,65 @@ folly::Future<int> ActiveVmdk::CommitCheckPoint(CheckPointID ckpt_id) {
 
 CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
 	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
+	for (auto it = checkpoints_.unflushed_.begin();
+		it != checkpoints_.unflushed_.end() ; ++it) {
+		auto ckptp = it->get();
+		if (pio_likely(ckptp->ID() == ckpt_id)) {
+			return ckptp;
+		}
+	}
+
+	for (auto it = checkpoints_.flushed_.begin();
+		it != checkpoints_.flushed_.end() ; ++it) {
+		auto ckptp = it->get();
+		if (pio_likely(ckptp->ID() == ckpt_id)) {
+			return ckptp;
+		}
+	}
+
+	return nullptr;
+}
+
+#if 0
+CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
+	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
+	CheckPoint* found_ckptp = nullptr;
+	int where = 0;
+	for (auto it = checkpoints_.unflushed_.begin();
+		it != checkpoints_.unflushed_.end() ; ++it) {
+			auto ckptp = it->get();
+			if (ckptp->ID() == ckpt_id) {
+				found_ckptp = ckptp;
+				where = 1;
+				break;
+			}
+	}
+
+	if (found_ckptp == nullptr) {
+		for (auto it = checkpoints_.flushed_.begin();
+			it != checkpoints_.flushed_.end() ; ++it) {
+				auto ckptp = it->get();
+				if (ckptp->ID() == ckpt_id) {
+					found_ckptp = ckptp;
+					where = 2;
+					break;
+				}
+		}
+	}
+
 	auto it1 = pio::BinarySearch(checkpoints_.unflushed_.begin(),
 		checkpoints_.unflushed_.end(), ckpt_id, []
 				(const std::unique_ptr<CheckPoint>& ckpt, CheckPointID ckpt_id) {
 			return ckpt->ID() < ckpt_id;
 		});
 	if (it1 != checkpoints_.unflushed_.end()) {
+		if (it1->get() != found_ckptp) {
+			LOG(ERROR) << __func__ << GetID()
+				<< "::Mismatch in search in unflushed checkpoint list.."
+				"it->get : " << it1->get() << ", found_ckptp:" << found_ckptp <<
+				"where:" << where;
+			log_assert(0);
+		}
 		return it1->get();
 	}
 
@@ -2992,10 +3045,19 @@ CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
 			return ckpt->ID() < ckpt_id;
 		});
 	if (it2 != checkpoints_.flushed_.end()) {
+		if (it2->get() != found_ckptp) {
+			LOG(ERROR) << __func__ << GetID()
+				<< "::Mismatch in search in flushed checkpoint list.."
+				"it->get : " << it2->get() << ", found_ckptp:" << found_ckptp <<
+				"where:" << where;
+			log_assert(0);
+		}
 		return it2->get();
 	}
+
 	return nullptr;
 }
+#endif
 
 folly::Future<int> ActiveVmdk::MoveUnflushedToFlushed(
 		std::vector<::ondisk::CheckPointID>& vec_ckpts) {

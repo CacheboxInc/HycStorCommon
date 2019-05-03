@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include "AeroConn.h"
+#include "AeroConfig.h"
 
 namespace pio {
 

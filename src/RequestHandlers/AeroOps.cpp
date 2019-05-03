@@ -36,6 +36,15 @@ using namespace std::chrono;
 namespace pio {
 const static std::string kMetaSetName = "metaset";
 const static uint32_t kAeroWriteBlockSize = 1024 * 1024;
+const std::string kAsKeyBinExt = "key_bin";
+
+const std::string kAsNamespaceMeta = "META";
+const std::string kAsCacheBin = "data_map";
+const std::string kAsMetaBin = "meta_bin";
+const std::string kAsMetaBinExt = "meta_bin_ext";
+const std::string kAsMetaSet = "metaset";
+const int kMaxRetryCnt = 3;
+
 
 #ifdef INJECT_AERO_READ_DELAY
 const uint64_t StartOffset = 100 * 1024 * 1024;
@@ -62,7 +71,11 @@ int AeroSpike::CacheIoWriteKeySet(ActiveVmdk *, WriteRecord* wrecp,
 	log_assert(kp1 == kp);
 
 	auto rp = &wrecp->record_;
+#ifdef STORE_KEY_IN_BIN
+	as_record_init(rp, 2);
+#else
 	as_record_init(rp, 1);
+#endif
 
 	auto srcp = wrecp->rq_block_->GetRequestBufferAtBack();
 	auto s = as_record_set_raw(rp, kAsCacheBin.c_str(),
@@ -72,6 +85,14 @@ int AeroSpike::CacheIoWriteKeySet(ActiveVmdk *, WriteRecord* wrecp,
 		return -EINVAL;
 	}
 
+#ifdef STORE_KEY_IN_BIN
+	if (as_record_set_str(rp, kAsKeyBinExt.c_str(),
+		(const char *) wrecp->key_val_.c_str()) == false) {
+		LOG(ERROR) << __func__<< "Error in storing key with record's value";
+		return -EINVAL;
+	}
+
+#endif
 	return 0;
 }
 
@@ -1142,7 +1163,8 @@ WriteRecord::WriteRecord(RequestBlock* blockp, WriteBatch* batchp,
 			os << ":" << std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
 		} else {
 			auto pvmdkid = vmdkp->GetParentDiskVmdkId();
-			os << pvmdkid << ":" << std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
+			os << pvmdkid << ":" << "0" << ":"
+				<< std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
 		}
 		setp_ = bset;
 	} else {
@@ -1186,7 +1208,8 @@ ReadRecord::ReadRecord(RequestBlock* blockp, ReadBatch* batchp, const std::strin
 			std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
 		} else {
 			auto pvmdkid = vmdkp->GetParentDiskVmdkId();
-			os << pvmdkid << ":" << std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
+			os << pvmdkid << ":" << "0" << ":" <<
+			std::to_string(blockp->GetAlignedOffset() >> kSectorShift);
 		}
 		setp_ = bset;
 	} else {

@@ -161,12 +161,15 @@ int AeroSpikeConn::Connect() {
 
 	LOG(ERROR) << __func__ << "Max async commands limit:"
 		<< cfg.async_max_conns_per_node;
+
 	/* Setting this policy so that key get stored in records */
+	#ifndef STORE_KEY_IN_BIN
 	cfg.policies.write.key = AS_POLICY_KEY_SEND;
 	cfg.policies.read.key = AS_POLICY_KEY_SEND;
 	cfg.policies.operate.key = AS_POLICY_KEY_SEND;
 	cfg.policies.remove.key = AS_POLICY_KEY_SEND;
 	cfg.policies.apply.key = AS_POLICY_KEY_SEND;
+	#endif
 
 	cfg.policies.read.replica = AS_POLICY_REPLICA_SEQUENCE; 
 	cfg.policies.write.replica = AS_POLICY_REPLICA_SEQUENCE; //default is MASTER 
