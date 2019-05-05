@@ -32,7 +32,7 @@ public:
 			handles_.insert(std::make_pair(handle, vmdk.get()));
 			ids_.insert(std::make_pair(std::move(vmdkid), std::move(vmdk)));
 			return handle;
-		} catch (const std::bad_alloc& e) {
+		} catch (const std::exception& e) {
 			return ::hyc_thrift::StorRpc_constants::kInvalidVmdkHandle();
 		}
 		return ::hyc_thrift::StorRpc_constants::kInvalidVmdkHandle();

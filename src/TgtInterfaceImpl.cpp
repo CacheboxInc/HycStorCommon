@@ -263,61 +263,6 @@ int NewMergeReq(VmID vmid, CheckPointID ckpt_id) {
 	return 0;
 }
 
-int NewVmdkScanReq(std::vector<::ondisk::VmdkID>& ids,
-		AeroClusterID cluster_id,
-		CheckPointID ckptid) {
-
-	auto managerp = SingletonHolder<ScanManager>::GetInstance();
-	/* Check if a scan task is already running for the given cluster ID */
-	std::unique_lock<std::mutex> scan_lock(managerp->lock_);
-	auto start_instance = false;
-	auto si = managerp->GetInstance(cluster_id);
-	if (pio_likely(si == nullptr)) {
-		LOG(ERROR) << __func__ << " No instance found, creating a new one";
-		auto rc = managerp->NewInstance(cluster_id);
-		if (pio_unlikely(rc)) {
-			return -ENOMEM;
-		}
-
-		si = managerp->GetInstance(cluster_id);
-		start_instance = true;
-	} else {
-		LOG(ERROR) << __func__ << " Scan Instance found, scan is already running" <<
-			" for given cluster";
-	}
-
-	/* Add VMDKIDs for given VM into the pending list */
-	for (const auto& id : ids){
-		LOG(INFO) << __func__ << "Adding ID in pending list::" << id.c_str();
-		if (pio_unlikely(ckptid == MetaData_constants::kInvalidCheckPointID())) {
-			/* Remove any previously added ckpt elements from pending list */
-			si->pending_list_.erase(std::remove_if
-				(si->pending_list_.begin(), si->pending_list_.end(),
-					[& id] (const scan_param& value) {
-					 return (value.first.compare(id) == 0
-							&& value.second != 0);
-				}), si->pending_list_.end());
-		}
-		si->pending_list_.emplace_back(std::make_pair(id, ckptid));
-	}
-
-	scan_lock.unlock();
-	if (pio_unlikely(!start_instance)) {
-		return 0;
-	}
-
-	auto aero_conn = AeroSpikeConnFromClusterID(cluster_id);
-	if (pio_unlikely(not aero_conn)) {
-		LOG(ERROR) << __func__ <<
-			" Unable to get the aerospike connection info";
-		return -EINVAL;
-	}
-
-	/* Start a new scan thread for given aerospike cluster */
-	si->aero_conn_ = aero_conn.get();
-	return si->StartScanThread();
-}
-
 int NewScanReq(VmID vmid, CheckPointID ckptid) {
 
 	auto managerp = SingletonHolder<ScanManager>::GetInstance();
@@ -669,6 +614,98 @@ int ReadAheadStatsReq(const std::string& vmdkid, pio::ReadAhead::ReadAheadStats&
 	vmdkp->read_aheadp_->GetReadAheadStats(rh_stats);
 
 	return 0;
+}
+
+int SetReadAheadGlobalConfig(const std::string& config) {
+	config::VmdkConfig vmdk_config(config);
+	bool enable = vmdk_config.IsReadAheadEnabled();
+	if(enable) { 
+		if(!ReadAhead::SetGlobalConfig(config)) {
+			return -EINVAL;
+		}
+	}
+	ReadAhead::SetReadAheadGlobally(enable);
+	auto vm_manager_p = SingletonHolder<pio::VmManager>::GetInstance();
+	std::vector<VirtualMachine*> vms = vm_manager_p->GetAllVMs();
+	for(auto vm : vms) {
+		std::vector ondisk_vmdk_ids = vm->GetVmdkIDs();
+		for(auto vmdkid : ondisk_vmdk_ids) {
+			auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdkid);
+			auto vmdkp = dynamic_cast<ActiveVmdk*>(p);
+			if(vmdkp != nullptr) {
+				if(vmdkp->read_aheadp_ != nullptr) {
+					vmdkp->read_aheadp_.reset(nullptr);
+					vmdkp->read_aheadp_ = nullptr;
+				}
+				if(enable) {
+					vmdkp->read_aheadp_ = std::make_unique<ReadAhead>(vmdkp);
+					if(vmdkp->read_aheadp_ == nullptr) {
+						LOG(ERROR) << "Failed to allocate object. Memory crunch!!!";
+						return -ENOMEM;
+					}
+				}
+			} else {
+				LOG(ERROR) << "vmdk object not found for vmdkid: " << vmdkid;
+			}
+		}
+	}
+	return 0;
+}
+
+void GetReadAheadDefaultConfig(config::VmdkConfig& config) {
+	ReadAhead::GetDefaultConfig(config);
+}
+
+void GetReadAheadGlobalConfig(config::VmdkConfig& config) {
+	ReadAhead::GetGlobalConfig(config);
+}
+
+int SetReadAheadLocalConfig(const std::string& config, const std::string& vmdkid) {
+	auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdkid);
+	if (pio_unlikely(not p)) {
+		LOG(ERROR) << "Given VmdkId is not present";
+		return -EINVAL;
+	}
+	auto vmdkp = dynamic_cast<ActiveVmdk*>(p);
+	assert(vmdkp);
+	config::VmdkConfig vmdk_config(config);
+	if(vmdkp->read_aheadp_ != nullptr) {
+		vmdkp->read_aheadp_.reset(nullptr);
+		vmdkp->read_aheadp_ = nullptr;
+	}
+	if(vmdk_config.IsReadAheadEnabled()) {
+		vmdkp->read_aheadp_ = std::make_unique<ReadAhead>(vmdkp);
+		if(vmdkp->read_aheadp_ == nullptr) {
+			LOG(ERROR) << "Failed to allocate object. Memory crunch!!!";
+			return -ENOMEM;
+		}
+		// Ignore MinDiskSizeSupportedBytes param for local config, user should not pass this
+		// but if passed we just ignore and set it to corresponding GlobalConfig param
+		uint64_t disk_size;
+		if(vmdk_config.GetReadAheadMinDiskSize(disk_size)) {
+			vmdk_config.SetReadAheadMinDiskSize(ReadAhead::GetMinDiskSizeSupported());
+		}
+		if(!vmdkp->read_aheadp_->SetLocalConfig(vmdk_config)) {
+			return -EINVAL;
+		}
+	}
+	return 0;
+}
+
+int GetReadAheadLocalConfig(config::VmdkConfig& config, const std::string& vmdkid) {
+	config::VmdkConfig vmdk_config(config);
+	auto p = SingletonHolder<VmdkManager>::GetInstance()->GetInstance(vmdkid);
+	if (pio_unlikely(not p)) {
+		LOG(ERROR) << "Given VmdkId is not present";
+		return -EINVAL;
+	}
+	auto vmdkp = dynamic_cast<ActiveVmdk*>(p);
+	assert(vmdkp);
+	if(vmdkp->read_aheadp_ != nullptr) {
+		vmdkp->read_aheadp_->GetLocalConfig(config);
+		return 0;
+	}
+	return -EPERM;
 }
 
 int UpdatefdMap(const std::string& vmdkid, const int64_t& snap_id, const int32_t& fd) {

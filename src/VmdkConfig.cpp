@@ -74,12 +74,26 @@ const std::string VmdkConfig::kMetaDataKV = "MetaDataKV";
 const std::string VmdkConfig::kParentDiskName = "ParentDiskName";
 const std::string VmdkConfig::kParentDiskVmdkID = "ParentDiskVmdkID";
 const std::string VmdkConfig::kCleanupOnWrite = "CleanupOnWrite";
-const std::string VmdkConfig::kReadAhead = "ReadAhead";
 const std::string VmdkConfig::kPreload = "Preload";
 const std::string VmdkConfig::kOffset = "Offsets";
-const std::string VmdkConfig::kDiskSizeBytes = "DiskSizeBytes";
 
 const std::string VmdkConfig::kAeroCache = "AeroSpikeCache";
+
+// ReadAhead stuff
+const std::string VmdkConfig::kReadAhead = "ReadAhead";
+const std::string VmdkConfig::kReadAheadAggRandomPatternCount = "AggRandomPatternOccurrences";
+const std::string VmdkConfig::kReadAheadMaxPatternStability = "MaxPatternStability";
+const std::string VmdkConfig::kReadAheadIoMissWindow = "IoMissWindow";
+const std::string VmdkConfig::kReadAheadIoMissThreshold = "IoMissThresholdPercent";
+const std::string VmdkConfig::kReadAheadPatternStability = "PatternStabilityPercent";
+const std::string VmdkConfig::kReadAheadGhbHistoryLength = "GhbHistoryLength";
+const std::string VmdkConfig::kReadAheadMaxPredictionSize = "MaxPredictionSize";
+const std::string VmdkConfig::kReadAheadMinPredictionSize = "MinPredictionSize"; 
+const std::string VmdkConfig::kReadAheadMaxPacketSize = "MaxPacketSizeBytes"; 
+const std::string VmdkConfig::kReadAheadMinDiskSize = "MinDiskSizeSupportedBytes"; 
+const std::string VmdkConfig::kReadAheadMaxIoSize = "MaxIoSizeBytes";
+const std::string VmdkConfig::kDiskSizeBytes = "DiskSizeBytes";
+
 
 VmdkConfig::VmdkConfig(const std::string& config) : JsonConfig(config) {
 }
@@ -756,6 +770,17 @@ bool VmdkConfig::GetCleanupOnWrite(bool& val) const {
 	return JsonConfig::GetKey(kCleanupOnWrite, val);
 }
 
+/***************************************************************
+ 			ReadAhead Config Functions
+ ***************************************************************
+*/
+
+bool VmdkConfig::GetReadAheadParam(const std::string& param, uint32_t& value) const {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, param});
+	return JsonConfig::GetKey(key, value);
+}
+
 void VmdkConfig::EnableReadAhead() {
 	std::string key;
 	StringDelimAppend(key, '.', {kReadAhead, kEnabled});
@@ -777,12 +802,123 @@ bool VmdkConfig::IsReadAheadEnabled() const {
 	return rc and enabled;
 }
 
-void VmdkConfig::SetDiskSize(uint64_t size) {
-    JsonConfig::SetKey(kDiskSizeBytes, size);
+void VmdkConfig::SetAggregateRandomOccurrences(uint32_t value) {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, kReadAheadAggRandomPatternCount});
+	JsonConfig::SetKey(key, value);
 }
 
-bool VmdkConfig::GetDiskSize(uint64_t& size) const {
-    return JsonConfig::GetKey(kDiskSizeBytes, size);
+bool VmdkConfig::GetAggregateRandomOccurrences(uint32_t& value) const {
+	return GetReadAheadParam(kReadAheadAggRandomPatternCount, value);
 }
 
+void VmdkConfig::SetReadAheadMaxPatternStability(uint32_t value) {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, kReadAheadMaxPatternStability});
+	JsonConfig::SetKey(key, value);
+}
+
+bool VmdkConfig::GetReadAheadMaxPatternStability(uint32_t& value) const {
+	return GetReadAheadParam(kReadAheadMaxPatternStability, value);
+}
+
+void VmdkConfig::SetReadAheadIoMissWindow(uint32_t value) {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, kReadAheadIoMissWindow});
+	JsonConfig::SetKey(key, value);
+}
+
+bool VmdkConfig::GetReadAheadIoMissWindow(uint32_t& value) const {
+	return GetReadAheadParam(kReadAheadIoMissWindow, value);
+}
+
+void VmdkConfig::SetReadAheadIoMissThreshold(uint32_t value) {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, kReadAheadIoMissThreshold});
+	JsonConfig::SetKey(key, value);
+}
+
+bool VmdkConfig::GetReadAheadIoMissThreshold(uint32_t& value) const {
+	return GetReadAheadParam(kReadAheadIoMissThreshold, value);
+}
+
+void VmdkConfig::SetReadAheadPatternStability(uint32_t value) {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, kReadAheadPatternStability});
+	JsonConfig::SetKey(key, value);
+}
+
+bool VmdkConfig::GetReadAheadPatternStability(uint32_t& value) const {
+	return GetReadAheadParam(kReadAheadPatternStability, value);
+}
+
+void VmdkConfig::SetReadAheadGhbHistoryLength(uint32_t value) {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, kReadAheadGhbHistoryLength});
+	JsonConfig::SetKey(key, value);
+}
+
+bool VmdkConfig::GetReadAheadGhbHistoryLength(uint32_t& value) const {
+	return GetReadAheadParam(kReadAheadGhbHistoryLength, value);
+}
+
+void VmdkConfig::SetReadAheadMaxPredictionSize(uint32_t value) {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, kReadAheadMaxPredictionSize});
+	JsonConfig::SetKey(key, value);
+}
+
+bool VmdkConfig::GetReadAheadMaxPredictionSize(uint32_t& value) const {
+	return GetReadAheadParam(kReadAheadMaxPredictionSize, value);
+}
+
+void VmdkConfig::SetReadAheadMinPredictionSize(uint32_t value) {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, kReadAheadMinPredictionSize});
+	JsonConfig::SetKey(key, value);
+}
+
+bool VmdkConfig::GetReadAheadMinPredictionSize(uint32_t& value) const {
+	return GetReadAheadParam(kReadAheadMinPredictionSize, value);
+}
+
+void VmdkConfig::SetReadAheadMaxPacketSize(uint32_t value) {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, kReadAheadMaxPacketSize});
+	JsonConfig::SetKey(key, value);
+}
+
+bool VmdkConfig::GetReadAheadMaxPacketSize(uint32_t& value) const {
+	return GetReadAheadParam(kReadAheadMaxPacketSize, value);
+}
+
+void VmdkConfig::SetReadAheadMaxIoSize(uint32_t value) {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, kReadAheadMaxIoSize});
+	JsonConfig::SetKey(key, value);
+}
+
+bool VmdkConfig::GetReadAheadMaxIoSize(uint32_t& value) const {
+	return GetReadAheadParam(kReadAheadMaxIoSize, value);
+}
+
+void VmdkConfig::SetReadAheadMinDiskSize(uint64_t value) {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, kReadAheadMinDiskSize});
+	JsonConfig::SetKey(key, value);
+}
+
+bool VmdkConfig::GetReadAheadMinDiskSize(uint64_t& value) const {
+	std::string key;
+	StringDelimAppend(key, '.', {kReadAhead, kReadAheadMinDiskSize});
+	return JsonConfig::GetKey(key, value);
+}
+
+void VmdkConfig::SetDiskSize(uint64_t value) {
+	JsonConfig::SetKey(kDiskSizeBytes, value);
+}
+
+bool VmdkConfig::GetDiskSize(uint64_t& value) const {
+    return JsonConfig::GetKey(kDiskSizeBytes, value);
+}
 }}

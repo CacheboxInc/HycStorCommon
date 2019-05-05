@@ -142,8 +142,42 @@ static void ConfigureReadAhead(VmdkConfig& config) {
 		config.DisableReadAhead();
 		return;
 	}
-
 	config.EnableReadAhead();
+
+	uint32_t value;
+	std::cout << "Aggregate How Many Random Pattern Occurrences?: ";
+	std::cin >> value;
+	config.SetAggregateRandomOccurrences(value);
+	std::cout << "Maximum Pattern Stability Count: ";
+	std::cin >> value;
+	config.SetReadAheadMaxPatternStability(value);
+	std::cout << "IO Miss Window Size: ";
+	std::cin >> value;
+	config.SetReadAheadIoMissWindow(value);
+	std::cout << "IO Miss Threshold Percentage: ";
+	std::cin >> value;
+	config.SetReadAheadIoMissThreshold(value);
+	std::cout << "Pattern Stability Percentage: ";
+	std::cin >> value;
+	config.SetReadAheadPatternStability(value);
+	std::cout << "GHB History Length In Bytes: ";
+	std::cin >> value;
+	config.SetReadAheadGhbHistoryLength(value);
+	std::cout << "Maximum Prediction Size In Bytes: ";
+	std::cin >> value;
+	config.SetReadAheadMaxPredictionSize(value);
+	std::cout << "Minimum Prediction Size In Bytes: ";
+	std::cin >> value;
+	config.SetReadAheadMinPredictionSize(value);
+	std::cout << "Maximum Packet Size In Bytes: ";
+	std::cin >> value;
+	config.SetReadAheadMaxPacketSize(value);
+	std::cout << "Maximum Qualifying IO size In Bytes : ";
+	std::cin >> value;
+	config.SetReadAheadMaxIoSize(value);
+	std::cout << "Minimum Disk Size In Bytes: ";
+	std::cin >> value;
+	config.SetReadAheadMinDiskSize(value);
 }
 
 int main(int, char*[]) {

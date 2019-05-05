@@ -27,8 +27,6 @@ int PrepareCkpt(::hyc_thrift::VmdkHandle vm_handle);
 int CommitCkpt(ondisk::VmID vmid, std::string& ckpt_id);
 int NewFlushReq(ondisk::VmID vmid, const std::string& config);
 int NewScanReq(ondisk::VmID vmid, ondisk::CheckPointID ckptid);
-int NewVmdkScanReq(std::vector<::ondisk::VmdkID>& ids,
-                AeroClusterID cluster_id, CheckPointID ckptid);
 int NewMergeReq(ondisk::VmID vmid, ondisk::CheckPointID ckptid);
 int NewDataCkptMergeReq(ondisk::VmID vmid, ondisk::CheckPointID ckptid);
 int NewFlushStatusReq(ondisk::VmID vmid, FlushStats &flush_stat);
@@ -56,4 +54,10 @@ void RemoveVmdk(hyc_thrift::VmdkHandle handle);
 
 int AeroSetDelete(ondisk::VmID vmid);
 int AeroSetCleanup(pio::AeroClusterID cluster_id, const std::string& config);
+
+int SetReadAheadGlobalConfig(const std::string& config);
+void GetReadAheadGlobalConfig(config::VmdkConfig& config);
+void GetReadAheadDefaultConfig(config::VmdkConfig& config);
+int SetReadAheadLocalConfig(const std::string& config, const std::string& vmdkid);
+int GetReadAheadLocalConfig(config::VmdkConfig& config, const std::string& vmdkid);
 }

@@ -143,13 +143,11 @@ folly::Future<int> MultiTargetHandler::Read(ActiveVmdk *vmdkp, Request *reqp,
 		failed.clear();
 
 		/* Initiate ReadAhead and populate cache if ghb sees a pattern based on history */
-		if(pio_likely(vmdkp->read_aheadp_ != NULL
-                  && vmdkp->read_aheadp_->IsReadAheadEnabled()
-                  && !reqp->IsReadAheadRequest())) {
+		if(pio_likely(vmdkp->read_aheadp_ != NULL && !reqp->IsReadAheadRequest())) {
               vmdkp->read_aheadp_->Run(*read_missed, reqp);
         }     
 
-		if(pio_likely(vmdkp->read_aheadp_ != NULL && vmdkp->read_aheadp_->IsReadAheadEnabled())) {
+		if(pio_likely(vmdkp->read_aheadp_ != NULL)) {
 			vmdkp->read_aheadp_->Run(*read_missed, reqp);
 		}
 
@@ -375,9 +373,7 @@ folly::Future<int> MultiTargetHandler::BulkReadComplete(ActiveVmdk* vmdkp,
 	missed->swap(failed);
 	
 	/* Initiate ReadAhead and populate cache if ghb sees a pattern based on history */
-	if(pio_likely(vmdkp->read_aheadp_ != NULL 
-                  && vmdkp->read_aheadp_->IsReadAheadEnabled()
-                  && !requests[0]->IsReadAheadRequest())) {
+	if(pio_likely(vmdkp->read_aheadp_ != NULL && !requests[0]->IsReadAheadRequest())) {
           vmdkp->read_aheadp_->Run(*missed, requests);
     }     
 

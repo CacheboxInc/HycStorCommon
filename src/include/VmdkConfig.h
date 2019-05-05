@@ -71,6 +71,28 @@ public:
 	void EnableReadAhead();
 	void DisableReadAhead();
 	bool IsReadAheadEnabled() const;
+	void SetAggregateRandomOccurrences(uint32_t value);
+	bool GetAggregateRandomOccurrences(uint32_t& value) const;
+	void SetReadAheadMaxPatternStability(uint32_t value);
+	bool GetReadAheadMaxPatternStability(uint32_t& value) const;
+	void SetReadAheadIoMissWindow(uint32_t value);
+	bool GetReadAheadIoMissWindow(uint32_t& value) const;
+	void SetReadAheadIoMissThreshold(uint32_t value);
+	bool GetReadAheadIoMissThreshold(uint32_t& value) const;
+	void SetReadAheadPatternStability(uint32_t value);
+	bool GetReadAheadPatternStability(uint32_t& value) const;
+	void SetReadAheadGhbHistoryLength(uint32_t value);
+	bool GetReadAheadGhbHistoryLength(uint32_t& value) const;
+	void SetReadAheadMaxPredictionSize(uint32_t value);
+	bool GetReadAheadMaxPredictionSize(uint32_t& value) const;
+	void SetReadAheadMinPredictionSize(uint32_t value);
+	bool GetReadAheadMinPredictionSize(uint32_t& value) const;
+	void SetReadAheadMaxPacketSize(uint32_t value);
+	bool GetReadAheadMaxPacketSize(uint32_t& value) const;
+	void SetReadAheadMaxIoSize(uint32_t value);
+	bool GetReadAheadMaxIoSize(uint32_t& value) const;
+	void SetReadAheadMinDiskSize(uint64_t value);
+	bool GetReadAheadMinDiskSize(uint64_t& value) const;
 
 	enum class ErrorType {
 		kThrow,
@@ -165,7 +187,7 @@ public:
 
 		tree_.add_child(kPreload, child);
 	}
-
+	
 public:
 	static const std::string kEnabled;
 	static const std::string kVmdkID;
@@ -221,12 +243,25 @@ public:
 	static const std::string kParentDiskName;
 	static const std::string kParentDiskVmdkID;
 	static const std::string kCleanupOnWrite;
-	static const std::string kReadAhead;
 
 	static const std::string kPreload;
 	static const std::string kOffset;
 
+	static const std::string kReadAhead;
+	static const std::string kReadAheadAggRandomPatternCount;
+	static const std::string kReadAheadMaxPatternStability;
+	static const std::string kReadAheadIoMissWindow;
+	static const std::string kReadAheadIoMissThreshold;
+	static const std::string kReadAheadPatternStability;
+	static const std::string kReadAheadGhbHistoryLength;
+	static const std::string kReadAheadMaxPredictionSize;
+	static const std::string kReadAheadMinPredictionSize; 
+	static const std::string kReadAheadMaxPacketSize; 
+	static const std::string kReadAheadMinDiskSize; 
+	static const std::string kReadAheadMaxIoSize;
 	static const std::string kDiskSizeBytes;
+private:
+	bool GetReadAheadParam(const std::string& param, uint32_t& value) const;
 };
 
 std::ostream& operator <<(std::ostream& os, const VmdkConfig::ErrorType& type);

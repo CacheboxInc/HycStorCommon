@@ -96,30 +96,36 @@ ActiveVmdk::ActiveVmdk(VmdkHandle handle, VmdkID id, VirtualMachine *vmp,
 	}
 
 	ComputePreloadBlocks();
+	
+	stats_ = new VmdkCacheStats();
+	delta_file_path_ = config_->GetDeltaFileTargetPath();
+	if (delta_file_path_.length()) {
+		delta_file_path_ += "/deltadisk_";
+		delta_file_path_ += ":" ;
+		delta_file_path_ += GetID();
+	}
 
 	config_->GetDiskSize(disk_size_bytes_);
 	LOG(INFO) << "VmdkID =  " << id << " Disk Size = " << disk_size_bytes_;
 	// Let this always be the last code block, pulling it up does not harm anything
 	// but just for the sake of rule, let this be the last code block
 	read_aheadp_ = NULL;
-	if(config_->IsReadAheadEnabled()
-	&& disk_size_bytes_ >= ReadAhead::MinDiskSizeSupported()) {
-		read_aheadp_ = std::make_unique<ReadAhead>(this);
-		if (not read_aheadp_) {
-			throw std::bad_alloc();
+	auto disk_size_supported = ReadAhead::GetMinDiskSizeSupported();
+	if(config_->IsReadAheadEnabled()) {
+		if(disk_size_supported <= disk_size_bytes_) {
+			read_aheadp_ = std::make_unique<ReadAhead>(this);
+			if(not read_aheadp_) {
+				throw std::bad_alloc();
+			}
+			LOG(INFO) << "ReadAhead is enabled";
 		}
-		LOG(INFO) << "ReadAhead is enabled";
+		else {
+			LOG(WARNING) << "ReadAhead is disabled because DiskSize: " << disk_size_bytes_ 
+				<< " is less than DiskSizeSupported: " << disk_size_supported;
+		}
 	}
 	else {
 		LOG(INFO) << "ReadAhead is disabled";
-	}
-	stats_ = new VmdkCacheStats();
-
-	delta_file_path_ = config_->GetDeltaFileTargetPath();
-	if (delta_file_path_.length()) {
-		delta_file_path_ += "/deltadisk_";
-		delta_file_path_ += ":" ;
-		delta_file_path_ += GetID();
 	}
 }
 
@@ -254,7 +260,7 @@ void ActiveVmdk::ComputePreloadBlocks() {
 
 void ActiveVmdk::GetCacheStats(VmdkCacheStats* vmdk_stats) const noexcept {
 
-	if (pio_likely(read_aheadp_ && read_aheadp_->IsReadAheadEnabled())) {
+	if (pio_likely(read_aheadp_)) {
 		vmdk_stats->read_ahead_blks_ = read_aheadp_->StatsTotalReadAheadBlocks();
 		vmdk_stats->rh_random_patterns_ = read_aheadp_->StatsTotalRandomPatterns();
 		vmdk_stats->rh_strided_patterns_ = read_aheadp_->StatsTotalStridedPatterns();
@@ -2977,65 +2983,12 @@ folly::Future<int> ActiveVmdk::CommitCheckPoint(CheckPointID ckpt_id) {
 
 CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
 	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
-	for (auto it = checkpoints_.unflushed_.begin();
-		it != checkpoints_.unflushed_.end() ; ++it) {
-		auto ckptp = it->get();
-		if (pio_likely(ckptp->ID() == ckpt_id)) {
-			return ckptp;
-		}
-	}
-
-	for (auto it = checkpoints_.flushed_.begin();
-		it != checkpoints_.flushed_.end() ; ++it) {
-		auto ckptp = it->get();
-		if (pio_likely(ckptp->ID() == ckpt_id)) {
-			return ckptp;
-		}
-	}
-
-	return nullptr;
-}
-
-#if 0
-CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
-	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
-	CheckPoint* found_ckptp = nullptr;
-	int where = 0;
-	for (auto it = checkpoints_.unflushed_.begin();
-		it != checkpoints_.unflushed_.end() ; ++it) {
-			auto ckptp = it->get();
-			if (ckptp->ID() == ckpt_id) {
-				found_ckptp = ckptp;
-				where = 1;
-				break;
-			}
-	}
-
-	if (found_ckptp == nullptr) {
-		for (auto it = checkpoints_.flushed_.begin();
-			it != checkpoints_.flushed_.end() ; ++it) {
-				auto ckptp = it->get();
-				if (ckptp->ID() == ckpt_id) {
-					found_ckptp = ckptp;
-					where = 2;
-					break;
-				}
-		}
-	}
-
 	auto it1 = pio::BinarySearch(checkpoints_.unflushed_.begin(),
 		checkpoints_.unflushed_.end(), ckpt_id, []
 				(const std::unique_ptr<CheckPoint>& ckpt, CheckPointID ckpt_id) {
 			return ckpt->ID() < ckpt_id;
 		});
 	if (it1 != checkpoints_.unflushed_.end()) {
-		if (it1->get() != found_ckptp) {
-			LOG(ERROR) << __func__ << GetID()
-				<< "::Mismatch in search in unflushed checkpoint list.."
-				"it->get : " << it1->get() << ", found_ckptp:" << found_ckptp <<
-				"where:" << where;
-			log_assert(0);
-		}
 		return it1->get();
 	}
 
@@ -3045,19 +2998,10 @@ CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
 			return ckpt->ID() < ckpt_id;
 		});
 	if (it2 != checkpoints_.flushed_.end()) {
-		if (it2->get() != found_ckptp) {
-			LOG(ERROR) << __func__ << GetID()
-				<< "::Mismatch in search in flushed checkpoint list.."
-				"it->get : " << it2->get() << ", found_ckptp:" << found_ckptp <<
-				"where:" << where;
-			log_assert(0);
-		}
 		return it2->get();
 	}
-
 	return nullptr;
 }
-#endif
 
 folly::Future<int> ActiveVmdk::MoveUnflushedToFlushed(
 		std::vector<::ondisk::CheckPointID>& vec_ckpts) {
