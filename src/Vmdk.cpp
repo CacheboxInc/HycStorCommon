@@ -344,7 +344,7 @@ CheckPointID ActiveVmdk::GetModifiedCheckPoint(BlockID block,
 	for (auto ckpt = max; min <= ckpt; --ckpt) {
 		auto ckptp = GetCheckPoint(ckpt);
 		if (not ckptp) {
-			log_assert(ckpt == min_max.second);
+			//log_assert(ckpt == min_max.second);
 			continue;
 		}
 		const auto& bitmap = ckptp->GetRoaringBitMap();
@@ -453,7 +453,7 @@ folly::Future<int> ActiveVmdk::Read(Request* reqp, const CheckPoints& min_max) {
 	});
 }
 
-int32_t ActiveVmdk::SetCompletionResults(const std::vector<std::unique_ptr<Request>>& requests, 
+int32_t ActiveVmdk::SetCompletionResults(const std::vector<std::unique_ptr<Request>>& requests,
 	const std::vector<RequestBlock*>& failed, folly::Try<int>& result) {
 	auto Fail = [&requests, &failed] (int rc = -ENXIO, bool all = true) {
 	if (all) {
@@ -496,7 +496,7 @@ folly::Future<int> ActiveVmdk::BulkRead(const CheckPoints& min_max,
 		// Emits locked_process which contains only those blocks for which a lock
 		// was successfully acquired without blocking
 		auto locked_process = std::make_unique<std::vector<RequestBlock*>>();
-		return TryLockAndBulkInvoke(requests, process, *locked_process, 
+		return TryLockAndBulkInvoke(requests, process, *locked_process,
 			[this, &requests, &locked_process, min_max = std::move(min_max)]() {
         	SetReadCheckPointId(*locked_process, min_max);
         	stats_->reads_in_progress_ += requests.size();
@@ -1903,6 +1903,7 @@ folly::Future<int> ActiveVmdk::CkptBitmapMerge(CheckPointID ckpt_id) {
 		return rc;
 	}
 
+	checkpoint->SetFlushed();
 	auto json = checkpoint->Serialize();
 	auto key = checkpoint->SerializationKey();
 
@@ -2983,12 +2984,65 @@ folly::Future<int> ActiveVmdk::CommitCheckPoint(CheckPointID ckpt_id) {
 
 CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
 	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
+	for (auto it = checkpoints_.unflushed_.begin();
+		it != checkpoints_.unflushed_.end() ; ++it) {
+		auto ckptp = it->get();
+		if (pio_likely(ckptp->ID() == ckpt_id)) {
+			return ckptp;
+		}
+	}
+
+	for (auto it = checkpoints_.flushed_.begin();
+		it != checkpoints_.flushed_.end() ; ++it) {
+		auto ckptp = it->get();
+		if (pio_likely(ckptp->ID() == ckpt_id)) {
+			return ckptp;
+		}
+	}
+
+	return nullptr;
+}
+
+#if 0
+CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
+	std::lock_guard<std::mutex> lock(checkpoints_.mutex_);
+	CheckPoint* found_ckptp = nullptr;
+	int where = 0;
+	for (auto it = checkpoints_.unflushed_.begin();
+		it != checkpoints_.unflushed_.end() ; ++it) {
+			auto ckptp = it->get();
+			if (ckptp->ID() == ckpt_id) {
+				found_ckptp = ckptp;
+				where = 1;
+				break;
+			}
+	}
+
+	if (found_ckptp == nullptr) {
+		for (auto it = checkpoints_.flushed_.begin();
+			it != checkpoints_.flushed_.end() ; ++it) {
+				auto ckptp = it->get();
+				if (ckptp->ID() == ckpt_id) {
+					found_ckptp = ckptp;
+					where = 2;
+					break;
+				}
+		}
+	}
+
 	auto it1 = pio::BinarySearch(checkpoints_.unflushed_.begin(),
 		checkpoints_.unflushed_.end(), ckpt_id, []
 				(const std::unique_ptr<CheckPoint>& ckpt, CheckPointID ckpt_id) {
 			return ckpt->ID() < ckpt_id;
 		});
 	if (it1 != checkpoints_.unflushed_.end()) {
+		if (it1->get() != found_ckptp) {
+			LOG(ERROR) << __func__ << GetID()
+				<< "::Mismatch in search in unflushed checkpoint list.."
+				"it->get : " << it1->get() << ", found_ckptp:" << found_ckptp <<
+				"where:" << where;
+			log_assert(0);
+		}
 		return it1->get();
 	}
 
@@ -2998,33 +3052,45 @@ CheckPoint* ActiveVmdk::GetCheckPoint(CheckPointID ckpt_id) const {
 			return ckpt->ID() < ckpt_id;
 		});
 	if (it2 != checkpoints_.flushed_.end()) {
+		if (it2->get() != found_ckptp) {
+			LOG(ERROR) << __func__ << GetID()
+				<< "::Mismatch in search in flushed checkpoint list.."
+				"it->get : " << it2->get() << ", found_ckptp:" << found_ckptp <<
+				"where:" << where;
+			log_assert(0);
+		}
 		return it2->get();
 	}
+
 	return nullptr;
 }
+#endif
 
 folly::Future<int> ActiveVmdk::MoveUnflushedToFlushed(
 		std::vector<::ondisk::CheckPointID>& vec_ckpts) {
+
+	std::lock_guard<std::mutex> guard(checkpoints_.mutex_);
 	if (pio_unlikely(checkpoints_.unflushed_.empty())) {
-		LOG(INFO) << "Unflushed checkpoint list is empty.";
-		return 0;
+		LOG(ERROR) << "Unflushed checkpoint list is empty.";
+		return ENOENT;
 	}
 
 	for (auto& elem : vec_ckpts) {
-		auto it1 = pio::BinarySearch(checkpoints_.unflushed_.begin(),
+		auto it = pio::BinarySearch(checkpoints_.unflushed_.begin(),
 			checkpoints_.unflushed_.end(), elem, []
-					(const std::unique_ptr<CheckPoint>& ckpt, CheckPointID ckpt_id) {
+					(const std::unique_ptr<CheckPoint>& ckpt,
+					CheckPointID ckpt_id) {
 				return ckpt->ID() < ckpt_id;
 			});
-		if (it1 == checkpoints_.unflushed_.end()) {
+		if (it == checkpoints_.unflushed_.end()) {
 			//error case should not be here
 			log_assert(0);
-			return folly::makeFuture(1);
+			return folly::makeFuture(ENOENT);
 		}
-		it1->get()->SetFlushed();
 
-		checkpoints_.flushed_.emplace_back(std::move(*it1));
-		checkpoints_.unflushed_.erase(it1);
+		it->get()->SetFlushed();
+		checkpoints_.flushed_.emplace_back(std::move(*it));
+		checkpoints_.unflushed_.erase(it);
 	}
 
 	return folly::makeFuture(0);

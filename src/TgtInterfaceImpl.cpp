@@ -263,6 +263,61 @@ int NewMergeReq(VmID vmid, CheckPointID ckpt_id) {
 	return 0;
 }
 
+int NewVmdkScanReq(std::vector<::ondisk::VmdkID>& ids,
+		AeroClusterID cluster_id,
+		CheckPointID ckptid) {
+
+	auto managerp = SingletonHolder<ScanManager>::GetInstance();
+	/* Check if a scan task is already running for the given cluster ID */
+	std::unique_lock<std::mutex> scan_lock(managerp->lock_);
+	auto start_instance = false;
+	auto si = managerp->GetInstance(cluster_id);
+	if (pio_likely(si == nullptr)) {
+		LOG(ERROR) << __func__ << " No instance found, creating a new one";
+		auto rc = managerp->NewInstance(cluster_id);
+		if (pio_unlikely(rc)) {
+			return -ENOMEM;
+		}
+
+		si = managerp->GetInstance(cluster_id);
+		start_instance = true;
+	} else {
+		LOG(ERROR) << __func__ << " Scan Instance found, scan is already running" <<
+			" for given cluster";
+	}
+
+	/* Add VMDKIDs for given VM into the pending list */
+	for (const auto& id : ids){
+		LOG(INFO) << __func__ << "Adding ID in pending list::" << id.c_str();
+		if (pio_unlikely(ckptid == MetaData_constants::kInvalidCheckPointID())) {
+			/* Remove any previously added ckpt elements from pending list */
+			si->pending_list_.erase(std::remove_if
+				(si->pending_list_.begin(), si->pending_list_.end(),
+					[& id] (const scan_param& value) {
+					 return (value.first.compare(id) == 0
+							&& value.second != 0);
+				}), si->pending_list_.end());
+		}
+		si->pending_list_.emplace_back(std::make_pair(id, ckptid));
+	}
+
+	scan_lock.unlock();
+	if (pio_unlikely(!start_instance)) {
+		return 0;
+	}
+
+	auto aero_conn = AeroSpikeConnFromClusterID(cluster_id);
+	if (pio_unlikely(not aero_conn)) {
+		LOG(ERROR) << __func__ <<
+			" Unable to get the aerospike connection info";
+		return -EINVAL;
+	}
+
+	/* Start a new scan thread for given aerospike cluster */
+	si->aero_conn_ = aero_conn.get();
+	return si->StartScanThread();
+}
+
 int NewScanReq(VmID vmid, CheckPointID ckptid) {
 
 	auto managerp = SingletonHolder<ScanManager>::GetInstance();
