@@ -32,8 +32,9 @@ static uint16_t StordPort = 9876;
 
 using namespace std::chrono_literals;
 static size_t kExpectedWanLatency = std::chrono::microseconds(20ms).count();
-static size_t kMaxBatchSize = 100 * 32; //100 VMDK equivalent
-static size_t kMinBatchSize = 1;
+static size_t kMaxBatchSize = 32; //tgt limit of outstanding IOs
+static size_t kMinBatchSize = 4;
+static size_t kMaxBatchSizeJump = kMaxBatchSize >> 1;
 static size_t kIdealLatency = (kExpectedWanLatency * 80) / 100; //80% of max
 static size_t kBatchIncrValue = 4;
 static size_t kBatchDecrPercent = 25;
@@ -644,16 +645,22 @@ private:
 	MovingAverage<uint64_t, 128> latency_avg_{};
 	MovingAverage<uint64_t, 128> bulk_depth_avg_{};
 	size_t batch_size_{1};
+	size_t batch_size_jump_{0};
+	int32_t batch_dir_{1};
+	uint64_t bottom_latency_{0};
+	bool batch_hit_bottom_{false};
 	bool scheduled_early_{false};
 	bool need_schedule_{false};
 	VmdkStats stats_;
 
 	static StordStats stord_stats_;
+	static MovingAverage<uint64_t, 128> stord_load_avg_;
 
 	std::atomic<RequestID> requestid_{0};
 };
 
 StordStats StordVmdk::stord_stats_;
+MovingAverage<uint64_t, 128> StordVmdk::stord_load_avg_;
 
 void SchedulePending::runLoopCallback() noexcept {
 	auto basep = connectp_->GetEventBase();
@@ -905,19 +912,41 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 	}
 
 	bool batch_changed = true;
-	size_t system_load = stord_stats_.pending_ >> kSystemLoadFactor;
-	if (latency_avg_.Average() > (kExpectedWanLatency + system_load)) {
+	uint64_t avg_latency = latency_avg_.Average();
+	size_t system_load = stord_load_avg_.Average();
 
+	if (batch_hit_bottom_) {
+		batch_hit_bottom_ = false;
+		if (bottom_latency_) {
+			if (avg_latency < bottom_latency_) {
+				batch_size_jump_ += batch_dir_;
+				kLogging && LOG(ERROR) << "New batch size jump positive " << batch_size_jump_;
+			} else {
+				batch_dir_ = (-1) * batch_dir_;
+				batch_size_jump_ += batch_dir_;
+				kLogging && LOG(ERROR) << "New batch size jump negative " << batch_size_jump_;
+			}
+		}
+		if (batch_size_jump_ == 0) {
+			batch_size_jump_ = 1;
+		} else if (batch_size_jump_ >= kMaxBatchSizeJump) {
+			batch_size_jump_ = kMaxBatchSizeJump;
+		}
+		bottom_latency_ = avg_latency;
+	}
+
+	if (avg_latency > (kExpectedWanLatency + system_load)) {
 		//reduce the batch size, since we have hit limit for latency
 		batch_size_ -= (batch_size_ * kBatchDecrPercent) / 100;
-		if (batch_size_ < kMinBatchSize) {
+		if (batch_size_ <= kMinBatchSize) {
 			kLogging && LOG(ERROR) << "Resetting batch size " << batch_size_ <<
 				" to minimum " << kMinBatchSize;
-			batch_size_ = kMinBatchSize;
+			batch_size_ = kMinBatchSize + batch_size_jump_;
+			batch_hit_bottom_ = true;
 		}
 
 		kLogging && LOG(ERROR) << "Reduced batch size to " << batch_size_ <<
-			" avg_latency " << latency_avg_.Average();
+			" avg_latency " << avg_latency;
 		//new smaller batch_size might have caused pending ios
 		//size to be more than new batch size. Schedule all such IOs
 		if (requests_.pending_.size() >= batch_size_) {
@@ -950,6 +979,7 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 	//next batch change decision should consider only the new IOs
 	//using new batch_size
 	if (batch_changed) {
+		stord_load_avg_.Add(stord_stats_.pending_ >> kSystemLoadFactor);
 		latency_avg_.Reset();
 		stats_.avg_batchsize_.Add(batch_size_);
 	}
