@@ -915,6 +915,11 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 	uint64_t avg_latency = latency_avg_.Average();
 	size_t system_load = stord_load_avg_.Average();
 
+	//If batch size has hit the bottom, adjust the batch_size_jump.
+	//batch_size_jump is the amount that the batch size will be
+	//moved up, the next time it hits the bottom.
+	//Up or down is determined by the batch_dir. Batch_dir is positive
+	//if moving up is giving the latency benefit, else it is negative.
 	if (batch_hit_bottom_) {
 		batch_hit_bottom_ = false;
 		if (bottom_latency_) {
