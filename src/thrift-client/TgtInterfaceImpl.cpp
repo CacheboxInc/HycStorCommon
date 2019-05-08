@@ -927,7 +927,7 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 				batch_size_jump_ += batch_dir_;
 				kLogging && LOG(ERROR) << "New batch size jump positive " << batch_size_jump_;
 			} else {
-				batch_dir_ = (-1) * batch_dir_;
+				batch_dir_ *= -1;
 				batch_size_jump_ += batch_dir_;
 				kLogging && LOG(ERROR) << "New batch size jump negative " << batch_size_jump_;
 			}
