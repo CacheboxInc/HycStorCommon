@@ -547,8 +547,8 @@ private:
 	void ScheduleNow(folly::EventBase* basep, StorRpcAsyncClient* clientp);
 	int64_t RpcRequestScheduledCount() const noexcept;
 	uint64_t PendingOperations() const noexcept;
-	bool PrepareRequest(std::shared_ptr<SyncRequest> request);
-	bool PrepareRequest(std::shared_ptr<Request> request);
+	bool PrepareRequest(std::unique_ptr<SyncRequest> request);
+	bool PrepareRequest(std::unique_ptr<Request> request);
 	void UpdateStats(Request* reqp);
 	int PostRequestCompletion() const;
 	void ReadDataCopy(Request* reqp, const ReadResult& result);
@@ -591,10 +591,10 @@ private:
 
 	struct {
 		mutable std::mutex mutex_;
-		std::unordered_map<RequestID, std::shared_ptr<Request>> scheduled_;
+		std::unordered_map<RequestID, std::unique_ptr<Request>> scheduled_;
 		std::vector<Request*> rpc_pending_;
-		std::vector<std::shared_ptr<RequestBase>> complete_;
-		std::unordered_map<RequestID, std::shared_ptr<SyncRequest>> sync_pending_;
+		std::vector<std::unique_ptr<RequestBase>> complete_;
+		std::unordered_map<RequestID, std::unique_ptr<SyncRequest>> sync_pending_;
 	} requests_;
 
 	mutable std::mutex send_rpc_mutex_;
@@ -746,7 +746,7 @@ int64_t StordVmdk::RpcRequestScheduledCount() const noexcept {
 }
 
 /* Prepare a sync request for completion */
-bool StordVmdk::PrepareRequest(std::shared_ptr<SyncRequest> request) {
+bool StordVmdk::PrepareRequest(std::unique_ptr<SyncRequest> request) {
 	bool prepared = true;
 	auto nreqp = request.get();
 
@@ -760,7 +760,7 @@ bool StordVmdk::PrepareRequest(std::shared_ptr<SyncRequest> request) {
 		if ((req_ptr->type == Request::Type::kWrite or
 			req_ptr->type == Request::Type::kWriteSame) &&
 			req_ptr->IsOverlapped(nreqp->offset, nreqp->length)) {
-				req_ptr->sync_req = request;
+				req_ptr->sync_req = nreqp;
 				++nreqp->count;
 				++stats_.sync_ongoing_writes_;
 				/* Do not complete a sync request as overlapping writes on
@@ -774,7 +774,7 @@ bool StordVmdk::PrepareRequest(std::shared_ptr<SyncRequest> request) {
 }
 
 /* Prepare a request for RPC */
-bool StordVmdk::PrepareRequest(std::shared_ptr<Request> request) {
+bool StordVmdk::PrepareRequest(std::unique_ptr<Request> request) {
 	bool prepared = true;
 	auto nreqp = request.get();
 
@@ -789,7 +789,7 @@ bool StordVmdk::PrepareRequest(std::shared_ptr<Request> request) {
 		for (auto& sync_req : requests_.sync_pending_) {
 			SyncRequest *syncp = sync_req.second.get();
 			if (nreqp->IsOverlapped(syncp->offset, syncp->length)) {
-				syncp->write_pending.emplace_back(request);
+				syncp->write_pending.emplace_back(nreqp);
 				overlapped_write = true;
 				prepared = false;
 				++stats_.sync_hold_new_writes_;
@@ -970,7 +970,7 @@ bool StordVmdk::SyncRequestComplete(RequestID id, int32_t result) {
 
 	for (auto write_req : sync_req->write_pending) {
 		pending_ios = true;
-		Request *reqp = reinterpret_cast<Request *>(write_req.get());
+		Request *reqp = reinterpret_cast<Request *>(write_req);
 		requests_.rpc_pending_.emplace_back(reqp);
 		--stats_.sync_hold_new_writes_;
 	}
@@ -1009,8 +1009,7 @@ bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	/* Special handling for sync completion */
 	if ((reqp->type == RequestBase::Type::kWrite ||
 		reqp->type == RequestBase::Type::kWriteSame) && reqp->sync_req) {
-		auto sync_req = std::move(reqp->sync_req);
-		SyncRequest *sync_reqp = reinterpret_cast<SyncRequest *>(sync_req.get());
+		SyncRequest *sync_reqp = reinterpret_cast<SyncRequest *>(reqp->sync_req);
 
 		--stats_.sync_ongoing_writes_;
 		--sync_reqp->count;
@@ -1464,7 +1463,7 @@ void StordVmdk::ScheduleMore(folly::EventBase* basep,
 RequestID StordVmdk::ScheduleRead(const void* privatep, char* bufferp,
 		int32_t buf_sz, int64_t offset) {
 	log_assert(vmdk_handle_ != kInvalidVmdkHandle);
-	auto req = std::make_shared<Request>(++requestid_, Request::Type::kRead,
+	auto req = std::make_unique<Request>(++requestid_, Request::Type::kRead,
 		privatep, bufferp, buf_sz, buf_sz, offset);
 	if (hyc_unlikely(not req)) {
 		return kInvalidRequestID;
@@ -1491,7 +1490,7 @@ int32_t StordVmdk::AbortScheduledRequest(const void* privatep) {
 RequestID StordVmdk::ScheduleWrite(const void* privatep, char* bufferp,
 		int32_t buf_sz, int64_t offset) {
 	log_assert(vmdk_handle_ != kInvalidVmdkHandle);
-	auto req = std::make_shared<Request>(++requestid_, Request::Type::kWrite,
+	auto req = std::make_unique<Request>(++requestid_, Request::Type::kWrite,
 		privatep, bufferp, buf_sz, buf_sz, offset);
 	if (hyc_unlikely(not req)) {
 		return kInvalidRequestID;
@@ -1510,7 +1509,7 @@ RequestID StordVmdk::ScheduleWrite(const void* privatep, char* bufferp,
 RequestID StordVmdk::ScheduleWriteSame(const void* privatep, char* bufferp,
 		int32_t buf_sz, int32_t write_sz, int64_t offset) {
 	log_assert(vmdk_handle_ != kInvalidVmdkHandle);
-	auto req = std::make_shared<Request>(++requestid_, Request::Type::kWrite,
+	auto req = std::make_unique<Request>(++requestid_, Request::Type::kWrite,
 		privatep, bufferp, buf_sz, write_sz, offset);
 	if (hyc_unlikely(not req)) {
 		return kInvalidRequestID;
@@ -1532,7 +1531,7 @@ RequestID StordVmdk::ScheduleTruncate(const void* privatep, char* bufferp,
 		return kInvalidRequestID;
 	}
 
-	auto req = std::make_shared<Request>(++requestid_, Request::Type::kTruncate,
+	auto req = std::make_unique<Request>(++requestid_, Request::Type::kTruncate,
 		privatep, bufferp, buf_sz, buf_sz, 0);
 	if (hyc_unlikely(not req)) {
 		return kInvalidRequestID;
@@ -1553,7 +1552,7 @@ RequestID StordVmdk::ScheduleSyncCache(const void* privatep, uint64_t offset,
 		return kInvalidRequestID;
 	}
 
-	auto sync_req = std::make_shared<SyncRequest>(++requestid_,
+	auto sync_req = std::make_unique<SyncRequest>(++requestid_,
 		Request::Type::kSync, privatep, length, offset);
 	if (hyc_unlikely(not sync_req)) {
 		return kInvalidRequestID;
