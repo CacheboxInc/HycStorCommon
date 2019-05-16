@@ -6,10 +6,11 @@
 
 namespace pio {
 
-const auto kMaxVmdkstoScan = 32;
+const auto kMaxVmdkstoScan = 64;
 const std::string kUdfModuleName = "hyc_delete_rec_module";
 const std::string kUdffnName = "hyc_delete_rec";
 const std::string kUdffnNameBinExt = "hyc_delete_rec_bin_ext";
+const uint16_t kWaitTime = 30;
 extern const std::string kAsKeyBinExt;
 
 ScanInstance::ScanInstance(AeroClusterID cluster_id):cluster_id_(cluster_id) {
@@ -205,7 +206,14 @@ void ScanInstance::Scanfn(void) {
 	while(true) {
 
 		/* Create a working list for this instance,
-		 * max 32 VMDKs to process in one go */
+		 * max 64 VMDKs to process in one go */
+		if (pending_list_.size() < kMaxVmdkstoScan) {
+			/* Wait for some time so that more entries can accumulate */
+			scan_lock.unlock();
+			sleep(kWaitTime);
+			scan_lock.lock();
+		}
+
 		auto count = kMaxVmdkstoScan - working_list_.size();
 		if (count > pending_list_.size()) {
 			count = pending_list_.size();

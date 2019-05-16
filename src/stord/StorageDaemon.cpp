@@ -1043,6 +1043,15 @@ static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *) {
 	}
 	std::string vmid(param_valuep);
 
+	auto data = ha_get_data(reqp);
+	std::string req_data;
+	if (data != nullptr) {
+		req_data.assign(data);
+		::free(data);
+	} else {
+		req_data.clear();
+	}
+
 	if (GuardHandler()) {
 		SetErrMsg(resp, STORD_ERR_MAX_LIMIT,
 			"Too many requests already pending");
@@ -1060,7 +1069,15 @@ static int NewScanReq(const _ha_request *reqp, _ha_response *resp, void *) {
 		return HA_CALLBACK_CONTINUE;
 	}
 
-	auto ret = pio::NewScanReq(vmid, MetaData_constants::kInvalidCheckPointID());
+	pio::JsonHelper json_helper(req_data);
+	uint64_t ckpt_id = 0;
+	auto ret = json_helper.GetScalar<uint64_t>("checkpoint-id", ckpt_id);
+	if (pio_likely(not ret)) {
+		ckpt_id = MetaData_constants::kInvalidCheckPointID();
+	}
+
+	VLOG(5) << __func__ << "Ckpt id::"  << ckpt_id;
+	ret = pio::NewScanReq(vmid, ckpt_id);
 	if (ret) {
 		std::ostringstream es;
 		LOG(ERROR) << "Starting Scan request for VMID::"  << vmid << "Failed";
@@ -1283,7 +1300,15 @@ static int NewVmdkScanReq(const _ha_request *reqp, _ha_response *resp, void *) {
 		VLOG(5) << __func__ << "Vmdk found is :" << *it;
 	}
 
-	ret = pio::NewVmdkScanReq(vec_ids, clusterid, 0);
+	uint64_t ckpt_id = 0;
+	ret = json_helper.GetScalar<uint64_t>("checkpoint-id", ckpt_id);
+	if (pio_likely(not ret)) {
+		ckpt_id = MetaData_constants::kInvalidCheckPointID();
+	}
+
+	LOG(ERROR) << __func__ << "Ckpt id::"  << ckpt_id;
+
+	ret = pio::NewVmdkScanReq(vec_ids, clusterid, ckpt_id);
 	if (ret) {
 		std::ostringstream es;
 		LOG(ERROR) << "Starting Scan request for Failed";
@@ -1745,20 +1770,20 @@ static int GlobalStats([[maybe_unused]] const _ha_request *reqp, _ha_response *r
 
 	json_t *stat_params = json_array();
 
-	json_array_append_new(stat_params, GetElement("read_miss", 
+	json_array_append_new(stat_params, GetElement("read_miss",
 		g_stats.vmdk_cache_stats_.read_miss_, "number of read miss across of all vmdks"));
 	json_array_append_new(stat_params, GetElement("read_populates",
 		g_stats.vmdk_cache_stats_.read_populates_, "number of read populated into cache"));
 	json_array_append_new(stat_params, GetElement("total_blk_reads",
 		g_stats.vmdk_cache_stats_.total_blk_reads_, "total blocks read"));
 
-	json_array_append_new(stat_params, GetElement("read_hits", 
+	json_array_append_new(stat_params, GetElement("read_hits",
 		g_stats.vmdk_cache_stats_.read_hits_, "number of read hits across of all vmdks"));
 	json_array_append_new(stat_params, GetElement("nw_bytes_read",
 		g_stats.vmdk_cache_stats_.nw_bytes_read_, "network read bytes"));
 	json_array_append_new(stat_params, GetElement("nw_bytes_write",
 		g_stats.vmdk_cache_stats_.nw_bytes_write_, "network write bytes"));
-	
+
 	json_array_append_new(stat_params, GetElement("total_reads",
 		g_stats.vmdk_cache_stats_.total_reads_, "total number of reads across vmdks"));
 	json_array_append_new(stat_params, GetElement("total_writes",
@@ -1767,15 +1792,15 @@ static int GlobalStats([[maybe_unused]] const _ha_request *reqp, _ha_response *r
 		g_stats.vmdk_cache_stats_.total_bytes_reads_, "total bytes read across vmdks"));
 	json_array_append_new(stat_params, GetElement("total_writes_in_bytes",
 		g_stats.vmdk_cache_stats_.total_bytes_writes_, "total bytes written across vmdks"));
-	
 
-	json_array_append_new(stat_params, GetElement("read_failed", 
+
+	json_array_append_new(stat_params, GetElement("read_failed",
 		g_stats.vmdk_cache_stats_.read_failed_, "number of read failed across all vmdks"));
-	json_array_append_new(stat_params, GetElement("write_failed", 
+	json_array_append_new(stat_params, GetElement("write_failed",
 		g_stats.vmdk_cache_stats_.write_failed_, "number of write failed across all vmdks"));
-	json_array_append_new(stat_params, GetElement("reads_in_progress", 
+	json_array_append_new(stat_params, GetElement("reads_in_progress",
 		g_stats.vmdk_cache_stats_.reads_in_progress_, "reads in progress across of all vmdks"));
-	json_array_append_new(stat_params, GetElement("writes_in_progress_", 
+	json_array_append_new(stat_params, GetElement("writes_in_progress_",
 		g_stats.vmdk_cache_stats_.writes_in_progress_, "writes in progress across of all vmdks"));
 
 
@@ -1852,7 +1877,7 @@ static int NewVmdkStatsReq(const _ha_request *reqp, _ha_response *resp, void *) 
   	json_object_set_new(stat_params, "read_ahead_strided_patterns", json_integer(vmdk_stats_p->rh_strided_patterns_));
   	json_object_set_new(stat_params, "read_ahead_correlated_patterns", json_integer(vmdk_stats_p->rh_correlated_patterns_));
   	json_object_set_new(stat_params, "read_ahead_dropped_reads", json_integer(vmdk_stats_p->rh_dropped_reads_));
-	
+
 	json_object_set_new(stat_params, "flushes_in_progress", json_integer(vmdk_stats_p->flushes_in_progress_));
 	json_object_set_new(stat_params, "moves_in_progress", json_integer(vmdk_stats_p->moves_in_progress_));
 	json_object_set_new(stat_params, "block_size", json_integer(vmdk_stats_p->block_size_));
@@ -2692,8 +2717,8 @@ static int ArmSyncInfo(const _ha_request *reqp, _ha_response *resp, void *)
 	return HA_CALLBACK_CONTINUE;
 }
 
-/************************************************************************ 
- 		REST APIs to serve RTO/RPO HA workflow -- END 
+/************************************************************************
+ 		REST APIs to serve RTO/RPO HA workflow -- END
  ************************************************************************
 */
 
@@ -2721,7 +2746,7 @@ static int SetReadAheadGlobalConfig(const _ha_request *reqp, _ha_response *resp,
 
 	int rc = pio::SetReadAheadGlobalConfig(req_data);
 	if (rc) {
-		SetErrMsg(resp, STORD_ERR_INVALID_VMDK, 
+		SetErrMsg(resp, STORD_ERR_INVALID_VMDK,
 		"Failed to configure global read ahead config. Please check stord logs for detailed errors.");
 		return HA_CALLBACK_CONTINUE;
 	}
@@ -2744,50 +2769,50 @@ static int GetReadAheadGlobalConfig(const _ha_request *reqp, _ha_response *resp,
 
 	config::VmdkConfig vmdk_config;
 	pio::GetReadAheadGlobalConfig(vmdk_config);
-	
+
 	uint32_t value;
 	uint64_t disk_size;
 	json_t *config_params = json_object();
 	if(ReadAhead::IsReadAheadGloballyEnabled()) {
 		json_object_set_new(config_params,
-		config::VmdkConfig::kReadAhead.c_str(), json_string("true")); 
+		config::VmdkConfig::kReadAhead.c_str(), json_string("true"));
 		vmdk_config.GetAggregateRandomOccurrences(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadAggRandomPatternCount.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadMaxPatternStability(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadMaxPatternStability.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadIoMissWindow(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadIoMissWindow.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadIoMissThreshold(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadIoMissThreshold.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadPatternStability(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadPatternStability.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadGhbHistoryLength(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadGhbHistoryLength.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadMaxPredictionSize(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadMaxPredictionSize.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadMinPredictionSize(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadMinPredictionSize.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadMaxPacketSize(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadMaxPacketSize.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadMaxIoSize(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadMaxIoSize.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadMinDiskSize(disk_size);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadMinDiskSize.c_str(), json_integer(disk_size));
 	}
 	else {
 		json_object_set_new(config_params,
-		config::VmdkConfig::kReadAhead.c_str(), json_string("false")); 
+		config::VmdkConfig::kReadAhead.c_str(), json_string("false"));
 	}
 	auto *config_params_str = json_dumps(config_params, JSON_ENCODE_ANY);
 
@@ -2813,46 +2838,46 @@ static int GetReadAheadDefaultConfig(const _ha_request *reqp, _ha_response *resp
 
 	config::VmdkConfig vmdk_config;
 	pio::GetReadAheadDefaultConfig(vmdk_config);
-	
+
 	uint32_t value;
 	uint64_t disk_size;
 	json_t *config_params = json_object();
 	json_object_set_new(config_params,
-	config::VmdkConfig::kReadAhead.c_str(), json_string("false")); 
+	config::VmdkConfig::kReadAhead.c_str(), json_string("false"));
 	vmdk_config.GetAggregateRandomOccurrences(value);
-	json_object_set_new(config_params, 
+	json_object_set_new(config_params,
 	config::VmdkConfig::kReadAheadAggRandomPatternCount.c_str(), json_integer(value));
 	vmdk_config.GetReadAheadMaxPatternStability(value);
-	json_object_set_new(config_params, 
+	json_object_set_new(config_params,
 	config::VmdkConfig::kReadAheadMaxPatternStability.c_str(), json_integer(value));
 	vmdk_config.GetReadAheadIoMissWindow(value);
-	json_object_set_new(config_params, 
+	json_object_set_new(config_params,
 	config::VmdkConfig::kReadAheadIoMissWindow.c_str(), json_integer(value));
 	vmdk_config.GetReadAheadIoMissThreshold(value);
-	json_object_set_new(config_params, 
+	json_object_set_new(config_params,
 	config::VmdkConfig::kReadAheadIoMissThreshold.c_str(), json_integer(value));
 	vmdk_config.GetReadAheadPatternStability(value);
-	json_object_set_new(config_params, 
+	json_object_set_new(config_params,
 	config::VmdkConfig::kReadAheadPatternStability.c_str(), json_integer(value));
 	vmdk_config.GetReadAheadGhbHistoryLength(value);
-	json_object_set_new(config_params, 
+	json_object_set_new(config_params,
 	config::VmdkConfig::kReadAheadGhbHistoryLength.c_str(), json_integer(value));
 	vmdk_config.GetReadAheadMaxPredictionSize(value);
-	json_object_set_new(config_params, 
+	json_object_set_new(config_params,
 	config::VmdkConfig::kReadAheadMaxPredictionSize.c_str(), json_integer(value));
 	vmdk_config.GetReadAheadMinPredictionSize(value);
-	json_object_set_new(config_params, 
+	json_object_set_new(config_params,
 	config::VmdkConfig::kReadAheadMinPredictionSize.c_str(), json_integer(value));
 	vmdk_config.GetReadAheadMaxPacketSize(value);
-	json_object_set_new(config_params, 
+	json_object_set_new(config_params,
 	config::VmdkConfig::kReadAheadMaxPacketSize.c_str(), json_integer(value));
 	vmdk_config.GetReadAheadMaxIoSize(value);
-	json_object_set_new(config_params, 
+	json_object_set_new(config_params,
 	config::VmdkConfig::kReadAheadMaxIoSize.c_str(), json_integer(value));
 	vmdk_config.GetReadAheadMinDiskSize(disk_size);
-	json_object_set_new(config_params, 
+	json_object_set_new(config_params,
 	config::VmdkConfig::kReadAheadMinDiskSize.c_str(), json_integer(disk_size));
-	
+
 	auto *config_params_str = json_dumps(config_params, JSON_ENCODE_ANY);
 
 	json_object_clear(config_params);
@@ -2892,7 +2917,7 @@ static int SetReadAheadLocalConfig(const _ha_request *reqp, _ha_response *resp, 
 
 	int rc = pio::SetReadAheadLocalConfig(req_data, vmdkid);
 	if (rc) {
-		SetErrMsg(resp, STORD_ERR_INVALID_VMDK, 
+		SetErrMsg(resp, STORD_ERR_INVALID_VMDK,
 		"Failed to configure local read ahead config. Please check stord logs for detailed errors.");
 		return HA_CALLBACK_CONTINUE;
 	}
@@ -2928,41 +2953,41 @@ static int GetReadAheadLocalConfig(const _ha_request *reqp, _ha_response *resp, 
 	json_t *config_params = json_object();
 	if(!rc) {
 		json_object_set_new(config_params,
-		config::VmdkConfig::kReadAhead.c_str(), json_string("true")); 
+		config::VmdkConfig::kReadAhead.c_str(), json_string("true"));
 		vmdk_config.GetAggregateRandomOccurrences(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadAggRandomPatternCount.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadMaxPatternStability(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadMaxPatternStability.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadIoMissWindow(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadIoMissWindow.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadIoMissThreshold(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadIoMissThreshold.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadPatternStability(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadPatternStability.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadGhbHistoryLength(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadGhbHistoryLength.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadMaxPredictionSize(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadMaxPredictionSize.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadMinPredictionSize(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadMinPredictionSize.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadMaxPacketSize(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadMaxPacketSize.c_str(), json_integer(value));
 		vmdk_config.GetReadAheadMaxIoSize(value);
-		json_object_set_new(config_params, 
+		json_object_set_new(config_params,
 		config::VmdkConfig::kReadAheadMaxIoSize.c_str(), json_integer(value));
 	}
 	else if(rc == -EPERM){
 		json_object_set_new(config_params,
-		config::VmdkConfig::kReadAhead.c_str(), json_string("false")); 
+		config::VmdkConfig::kReadAhead.c_str(), json_string("false"));
 	}
 	else {
 		std::ostringstream es;
@@ -3037,7 +3062,7 @@ RestHandlers GetRestCallHandlers() {
 		{POST, "add_vcenter_details", AddVcenterDetails, nullptr},
 		{POST, "arm_sync_start", ArmSyncStart, nullptr},
 		{POST, "arm_sync_info", ArmSyncInfo, nullptr},
-		
+
 		// For internal testing & debugging purposes only
 		{POST, "set_read_ahead_global_config", SetReadAheadGlobalConfig, nullptr},
 		{GET, "get_read_ahead_global_config", GetReadAheadGlobalConfig, nullptr},

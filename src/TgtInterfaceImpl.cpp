@@ -351,7 +351,8 @@ int NewScanReq(VmID vmid, CheckPointID ckptid) {
 
 	/* Add VMDKIDs for given VM into the pending list */
 	for (const auto& id : vmp->GetVmdkIDs()){
-		LOG(INFO) << __func__ << "Adding ID in pending list::" << id.c_str();
+		LOG(INFO) << __func__ << "Adding ID in pending list::"
+				<< id.c_str() << ", ckptid::" << ckptid;
 		if (pio_unlikely(ckptid == MetaData_constants::kInvalidCheckPointID())) {
 			/* Remove any previously added ckpt elements from pending list */
 			si->pending_list_.erase(std::remove_if
@@ -482,7 +483,7 @@ int GlobalStats(ComponentStats* stats) {
 	std::vector<VirtualMachine*> vms = vm_manager_p->GetAllVMs();
 	for (auto vm : vms) {
 		[[maybe_unused]] AeroStats aero_cache_stats_;
-		//FIXME TODO 
+		//FIXME TODO
 		//Find single API which can give us number of entries in given namespace
 		stats->aero_cache_stats_.dirty_cnt_ += 0;
 		stats->aero_cache_stats_.clean_cnt_ += 0;
@@ -497,29 +498,29 @@ int GlobalStats(ComponentStats* stats) {
 				continue;
 			}
 			vmdkp->GetCacheStats(&vmdk_stats);
-			//Global read miss count for every single vmdk, its retrieved 
+			//Global read miss count for every single vmdk, its retrieved
 			//from read ahead if its enabled
 			stats->vmdk_cache_stats_.read_miss_ += vmdk_stats.read_miss_;
-			stats->vmdk_cache_stats_.read_populates_ += 
+			stats->vmdk_cache_stats_.read_populates_ +=
 				vmdk_stats.read_populates_;
 			stats->vmdk_cache_stats_.total_blk_reads_ += vmdk_stats.total_blk_reads_;
 
 			stats->vmdk_cache_stats_.read_hits_ += vmdk_stats.read_hits_;
-			stats->vmdk_cache_stats_.total_reads_ += 
+			stats->vmdk_cache_stats_.total_reads_ +=
 				vmdk_stats.total_reads_;
-			stats->vmdk_cache_stats_.total_writes_ += 
+			stats->vmdk_cache_stats_.total_writes_ +=
 				vmdk_stats.total_writes_;
-			stats->vmdk_cache_stats_.total_bytes_reads_ += 
+			stats->vmdk_cache_stats_.total_bytes_reads_ +=
 				vmdk_stats.total_bytes_reads_;
-			stats->vmdk_cache_stats_.total_bytes_writes_ += 
+			stats->vmdk_cache_stats_.total_bytes_writes_ +=
 				vmdk_stats.total_bytes_writes_;
-			stats->vmdk_cache_stats_.read_failed_ += 
+			stats->vmdk_cache_stats_.read_failed_ +=
 				vmdk_stats.read_failed_;
-			stats->vmdk_cache_stats_.write_failed_ += 
+			stats->vmdk_cache_stats_.write_failed_ +=
 				vmdk_stats.write_failed_;
-			stats->vmdk_cache_stats_.reads_in_progress_ += 
+			stats->vmdk_cache_stats_.reads_in_progress_ +=
 				vmdk_stats.reads_in_progress_;
-			stats->vmdk_cache_stats_.writes_in_progress_ += 
+			stats->vmdk_cache_stats_.writes_in_progress_ +=
 				vmdk_stats.writes_in_progress_;
 
 			stats->vmdk_cache_stats_.nw_bytes_read_ += vmdk_stats.nw_bytes_read_;
@@ -674,7 +675,7 @@ int ReadAheadStatsReq(const std::string& vmdkid, pio::ReadAhead::ReadAheadStats&
 int SetReadAheadGlobalConfig(const std::string& config) {
 	config::VmdkConfig vmdk_config(config);
 	bool enable = vmdk_config.IsReadAheadEnabled();
-	if(enable) { 
+	if(enable) {
 		if(!ReadAhead::SetGlobalConfig(config)) {
 			return -EINVAL;
 		}
