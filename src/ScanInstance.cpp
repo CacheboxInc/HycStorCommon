@@ -107,7 +107,15 @@ int ScanInstance::ScanTask() {
 
 	/* Scanning whole namespace */
 	scan = as_scan_new(kAsNamespaceCacheClean.c_str(), NULL);
+	as_scan_set_priority(scan, AS_SCAN_PRIORITY_HIGH);
+	as_scan_set_concurrent(scan, true);
 	as_monitor_init(&monitor);
+
+	#ifndef STORE_KEY_IN_BIN
+	/* We don't require any bin data */
+	LOG(ERROR) << __func__ << "No bin in scan";
+	as_scan_set_nobins(scan, true);
+	#endif
 
 	#if 0
 	/* Just ask for data from kAsKeyBinExt bin */
