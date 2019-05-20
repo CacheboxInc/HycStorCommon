@@ -10,7 +10,7 @@ const auto kMaxVmdkstoScan = 64;
 const std::string kUdfModuleName = "hyc_delete_rec_module";
 const std::string kUdffnName = "hyc_delete_rec";
 const std::string kUdffnNameBinExt = "hyc_delete_rec_bin_ext";
-const uint16_t kWaitTime = 30;
+const uint16_t kWaitTime = 60;
 extern const std::string kAsKeyBinExt;
 
 ScanInstance::ScanInstance(AeroClusterID cluster_id):cluster_id_(cluster_id) {
