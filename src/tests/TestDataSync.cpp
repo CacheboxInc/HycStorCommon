@@ -309,21 +309,6 @@ TEST_P(TestDataSync, InitializationTests) {
 		check_points.emplace_back(ckpt1.get());
 		check_points.emplace_back(ckpt2.get());
 		auto rc = sync.SetCheckPoints(check_points, &start);
-		EXPECT_NE(rc, 0);
-		EXPECT_FALSE(start);
-
-		auto fut = sync.Start();
-		fut.wait(1s);
-		EXPECT_EQ(fut.value(), 0);
-	}
-
-	{
-		auto ckpt1 = std::make_unique<CheckPoint>(vmdk->GetID(), 1);
-		auto ckpt2 = std::make_unique<CheckPoint>(vmdk->GetID(), 2);
-		CheckPointPtrVec check_points;
-		check_points.emplace_back(ckpt1.get());
-		check_points.emplace_back(ckpt2.get());
-		auto rc = sync.SetCheckPoints(check_points, &start);
 		EXPECT_EQ(rc, 0);
 		EXPECT_TRUE(start);
 
@@ -334,13 +319,13 @@ TEST_P(TestDataSync, InitializationTests) {
 		}
 
 		check_points.clear();
-		auto ckpt3 = std::make_unique<CheckPoint>(vmdk->GetID(), 10);
-		auto ckpt4 = std::make_unique<CheckPoint>(vmdk->GetID(), 11);
+		auto ckpt3 = std::make_unique<CheckPoint>(vmdk->GetID(), 12);
+		auto ckpt4 = std::make_unique<CheckPoint>(vmdk->GetID(), 14);
 		check_points.emplace_back(ckpt3.get());
 		check_points.emplace_back(ckpt4.get());
 		rc = sync.SetCheckPoints(check_points, &start);
-		EXPECT_NE(rc, 0);
-		EXPECT_FALSE(start);
+		EXPECT_EQ(rc, 0);
+		EXPECT_TRUE(start);
 
 		{
 		auto fut = sync.Start();

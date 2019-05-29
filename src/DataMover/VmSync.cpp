@@ -27,7 +27,7 @@ int VmdkSync::SetCheckPointBatch(const CkptBatch& batch, bool* restart) noexcept
 	for (auto b = begin; b <= end; ++b) {
 		CheckPoint* ckptp = vmdkp_->GetCheckPoint(b);
 		if (pio_unlikely(not ckptp)) {
-			return -EINVAL;
+			continue;
 		}
 		ckpts.emplace_back(ckptp);
 	}
