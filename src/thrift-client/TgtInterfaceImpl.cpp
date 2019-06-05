@@ -481,28 +481,28 @@ StordConnection* StordRpc::GetStordConnection() const noexcept {
 }
 
 struct VmdkStats {
-	std::atomic<int64_t> read_requests_{0};
-	std::atomic<int64_t> read_failed_{0};
-	std::atomic<int64_t> read_bytes_{0};
-	std::atomic<int64_t> read_latency_{0};
+	int64_t read_requests_{0};
+	int64_t read_failed_{0};
+	int64_t read_bytes_{0};
+	int64_t read_latency_{0};
 
-	std::atomic<int64_t> write_requests_{0};
-	std::atomic<int64_t> write_failed_{0};
-	std::atomic<int64_t> write_same_requests_{0};
-	std::atomic<int64_t> write_same_failed_{0};
-	std::atomic<int64_t> write_bytes_{0};
-	std::atomic<int64_t> write_latency_{0};
+	int64_t write_requests_{0};
+	int64_t write_failed_{0};
+	int64_t write_same_requests_{0};
+	int64_t write_same_failed_{0};
+	int64_t write_bytes_{0};
+	int64_t write_latency_{0};
 
-	std::atomic<int64_t> truncate_requests_{0};
-	std::atomic<int64_t> truncate_failed_{0};
-	std::atomic<int64_t> truncate_latency_{0};
+	int64_t truncate_requests_{0};
+	int64_t truncate_failed_{0};
+	int64_t truncate_latency_{0};
 
-	std::atomic<int64_t> sync_requests_;
-	std::atomic<int64_t> sync_ongoing_writes_;
-	std::atomic<int64_t> sync_hold_new_writes_;
+	int64_t sync_requests_;
+	int64_t sync_ongoing_writes_;
+	int64_t sync_hold_new_writes_;
 
-	std::atomic<int64_t> pending_{0};
-	std::atomic<int64_t> rpc_requests_scheduled_{0};
+	int64_t pending_{0};
+	int64_t rpc_requests_scheduled_{0};
 };
 
 class StordVmdk {
@@ -573,8 +573,8 @@ private:
 private:
 	bool SyncRequestComplete(RequestID id, int32_t result);
 	bool RequestComplete(RequestID id, int32_t result);
-	template <typename T>
-	void RequestComplete(T* reqp);
+	void RequestComplete(Request* reqp);
+	void RequestComplete(SyncRequest* reqp);
 	template <typename T, typename... ErrNo>
 	void RequestComplete(const std::vector<T>& requests, ErrNo&&... no);
 	void BulkReadComplete(const std::vector<Request*>& requests,
@@ -775,41 +775,41 @@ bool StordVmdk::PrepareRequest(std::shared_ptr<SyncRequest> request) {
 
 /* Prepare a request for RPC */
 bool StordVmdk::PrepareRequest(std::shared_ptr<Request> request) {
-	bool prepared = true;
+	bool sync_pending = false;
 	auto nreqp = request.get();
 
-	++stats_.pending_;
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
+	++stats_.pending_;
 
-	/* Effective for new writes overlapping on sync */
-	bool overlapped_write = false;
-	if ((nreqp->type == Request::Type::kWrite or
-		nreqp->type == Request::Type::kWriteSame) &&
-		requests_.sync_pending_.size()) {
-		for (auto& sync_req : requests_.sync_pending_) {
-			SyncRequest *syncp = sync_req.second.get();
-			if (nreqp->IsOverlapped(syncp->offset, syncp->length)) {
-				syncp->write_pending.emplace_back(request);
-				overlapped_write = true;
-				prepared = false;
-				++stats_.sync_hold_new_writes_;
+	if (hyc_unlikely(not requests_.sync_pending_.empty())) {
+		switch (nreqp->type) {
+		default:
+			break;
+		case Request::Type::kWrite:
+		case Request::Type::kWriteSame:
+			for (auto& sync_req : requests_.sync_pending_) {
+				auto syncp = sync_req.second.get();
+				if (nreqp->IsOverlapped(syncp->offset, syncp->length)) {
+					syncp->write_pending.emplace_back(request);
+					sync_pending = true;
+					++stats_.sync_hold_new_writes_;
+				}
 			}
+			break;
 		}
 	}
 
-	if (prepared) {
-		prepared = requests_.scheduled_.empty() or
-			latency_avg_.Average() > kExpectedWanLatency;
-	}
+	bool now = not sync_pending and (
+		requests_.scheduled_.empty() or
+		latency_avg_.Average() > kExpectedWanLatency
+	);
 
 	requests_.scheduled_.emplace(request->id, std::move(request));
 
-	/* Do RPC only if write is not overlapping on sync */
-	if (!overlapped_write) {
+	if (hyc_likely(not sync_pending)) {
 		requests_.rpc_pending_.emplace_back(nreqp);
 	}
-
-	return prepared;
+	return now;
 }
 
 void StordVmdk::UpdateStats(Request* reqp) {
@@ -994,7 +994,7 @@ bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	bool post = false;
 	auto it = requests_.scheduled_.find(id);
 	log_assert(it != requests_.scheduled_.end());
-	if (result) {
+	if (hyc_unlikely(result)) {
 		VLOG(5) << "reqid " << id << " has nonzero res: " << result;
 	}
 
@@ -1006,22 +1006,25 @@ bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	requests_.scheduled_.erase(it);
 	requests_.complete_.emplace_back(std::move(req));
 
-	/* Special handling for sync completion */
-	if ((reqp->type == RequestBase::Type::kWrite ||
-		reqp->type == RequestBase::Type::kWriteSame) && reqp->sync_req) {
-		auto sync_req = std::move(reqp->sync_req);
-		SyncRequest *sync_reqp = reinterpret_cast<SyncRequest *>(sync_req.get());
-
-		--stats_.sync_ongoing_writes_;
-		--sync_reqp->count;
-		if (!sync_reqp->count) {
-			sync_reqp->result = 0;
-			lock.unlock();
-			/* Complete sync request */
-			RequestComplete(sync_reqp);
-			lock.lock();
-		}
-		return false;
+	if (hyc_unlikely(reqp->sync_req)) {
+		switch (reqp->type) {
+		default:
+			break;
+		case RequestBase::Type::kWrite:
+		case RequestBase::Type::kWriteSame: {
+			auto sync = std::move(reqp->sync_req);
+			auto sync_reqp = reinterpret_cast<SyncRequest*>(sync.get());
+			--stats_.sync_ongoing_writes_;
+			--sync_reqp->count;
+			if (!sync_reqp->count) {
+				sync_reqp->result = 0;
+				lock.unlock();
+				/* Complete sync request */
+				RequestComplete(sync_reqp);
+				lock.lock();
+			}
+			return false;
+		}}
 	}
 
 	post = requests_.scheduled_.empty() or
@@ -1030,16 +1033,16 @@ bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	return post;
 }
 
-template <typename T>
-void StordVmdk::RequestComplete(T* reqp) {
-	bool post = false;
-
-	if (reqp->type == RequestBase::Type::kSync) {
-		post = SyncRequestComplete(reqp->id, reqp->result);
-	} else {
-		post = RequestComplete(reqp->id, reqp->result);
+void StordVmdk::RequestComplete(Request* reqp) {
+	bool post = RequestComplete(reqp->id, reqp->result);
+	if (post) {
+		auto rc = PostRequestCompletion();
+		(void) rc;
 	}
+}
 
+void StordVmdk::RequestComplete(SyncRequest* reqp) {
+	bool post = SyncRequestComplete(reqp->id, reqp->result);
 	if (post) {
 		auto rc = PostRequestCompletion();
 		(void) rc;

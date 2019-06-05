@@ -2,7 +2,9 @@
 
 namespace hyc {
 
-TimePoint::TimePoint() : start_(Clock::time_point::min()) {
+constexpr auto kTimePointMin = TimePoint::Clock::time_point::min();
+
+TimePoint::TimePoint() : start_(kTimePointMin) {
 
 }
 
@@ -11,11 +13,11 @@ void TimePoint::Start() noexcept {
 }
 
 void TimePoint::Clear() noexcept {
-	start_ = Clock::time_point::min();
+	start_ = kTimePointMin;
 }
 
 bool TimePoint::IsStarted() const noexcept {
-	return start_ != Clock::time_point::min();
+	return start_ != kTimePointMin;
 }
 
 int64_t TimePoint::GetMicroSec() const noexcept {
