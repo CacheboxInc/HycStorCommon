@@ -919,7 +919,7 @@ bool RequestBase::IsOverlapped(uint64_t req_offset,
 
 Request::Request(RequestID id, Type t, const void* privatep, char *bufferp,
 	int32_t buf_sz, uint64_t length, int64_t offset) : RequestBase(id, t,
-	privatep, length, offset), bufferp(bufferp), buf_sz(buf_sz) {
+	privatep, length, offset), bufferp(bufferp), buf_sz(buf_sz), sync_req(NULL) {
 }
 
 Request::~Request() {
@@ -927,7 +927,7 @@ Request::~Request() {
 
 SyncRequest::SyncRequest(RequestID id, Type t, const void* privatep,
 	uint64_t length, int64_t offset) :
-	RequestBase(id, t, privatep, length, offset) {
+	RequestBase(id, t, privatep, length, offset), count(0) {
 }
 
 SyncRequest::~SyncRequest() {
