@@ -202,7 +202,7 @@ folly::EventBase* StordConnection::GetEventBase() const noexcept {
 }
 
 StorRpcAsyncClient* StordConnection::GetRpcClient() noexcept {
-	auto l = clients_.last_used_ % clients_.list_.size();
+	auto l = ++clients_.last_used_ % clients_.list_.size();
 	return clients_.list_[l].get();
 }
 
