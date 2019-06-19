@@ -27,11 +27,12 @@ public:
 	uint64_t length;
 	uint64_t offset;
 	int32_t result;
+	size_t batch_size;
 	mutable std::mutex mutex_;
 
 public:
 	RequestBase(RequestID id, Type t, const void* privatep, uint64_t length,
-		int64_t offset);
+		int64_t offset, size_t batch_size);
 	~RequestBase();
 
 	const RequestBase::Type& GetType() const noexcept;
@@ -47,7 +48,7 @@ public:
 
 public:
 	Request(RequestID id, Type t, const void* privatep, char *bufferp,
-		int32_t buf_sz, uint64_t length, int64_t offset);
+		int32_t buf_sz, uint64_t length, int64_t offset, size_t batch_size);
 
 	~Request();
 };
@@ -58,7 +59,7 @@ public:
 	std::vector<RequestBase*> write_pending;
 
 	SyncRequest(RequestID id, Type t, const void* privatep, uint64_t length,
-		int64_t offset);
+		int64_t offset, size_t batch_size);
 	~SyncRequest();
 };
 
