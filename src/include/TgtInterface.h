@@ -9,6 +9,18 @@ extern "C"  {
 #include <stdbool.h>
 #endif
 
+typedef struct vmdk_stats
+{
+	int64_t batchsize_decr;
+	int64_t batchsize_incr;
+	int64_t batchsize_same;
+	int64_t need_schedule_count;
+	int64_t stord_stats_pending;
+	int64_t avg_batchsize;
+} vmdk_stats_t;
+
+
+
 void HycStorInitialize(int argc, char *argv[], char *stord_ip, uint16_t stord_port);
 int32_t HycStorRpcServerConnect(void);
 int32_t HycStorRpcServerDisconnect(void);
@@ -27,6 +39,7 @@ void HycDumpVmdk(VmdkHandle handle);
 void HycSetBatchingAttributes(uint32_t adaptive_batch, uint32_t wan_latency,
 		uint32_t batch_incr_val, uint32_t batch_decr_pct,
 		uint32_t system_load_factor, uint32_t debug_log);
+int HycGetVmdkStats(const char* vmdkid, vmdk_stats_t *vmdk_stats);
 #ifdef __cplusplus
 }
 #endif
