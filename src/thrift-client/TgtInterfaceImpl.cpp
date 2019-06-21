@@ -963,9 +963,8 @@ std::ostream& operator << (std::ostream& os, const Request& request) {
 }
 
 RequestBase::RequestBase(RequestID id, Type t, const void* privatep,
-	uint64_t length, int64_t offset, size_t batch_size) : id(id), type(t),
-	privatep(privatep), length(length), offset(offset), 
-	batch_size(batch_size) {
+	uint64_t length, int64_t offset) : id(id), type(t),
+	privatep(privatep), length(length), offset(offset) {
 }
 
 RequestBase::~RequestBase() {
@@ -983,16 +982,16 @@ bool RequestBase::IsOverlapped(uint64_t req_offset,
 
 Request::Request(RequestID id, Type t, const void* privatep, char *bufferp,
 	int32_t buf_sz, uint64_t length, int64_t offset, size_t batch_size) : 
-	RequestBase(id, t, privatep, length, offset, batch_size), 
-	bufferp(bufferp), buf_sz(buf_sz), sync_req(NULL) {
+	RequestBase(id, t, privatep, length, offset), 
+	bufferp(bufferp), buf_sz(buf_sz), sync_req(NULL), batch_size(batch_size) {
 }
 
 Request::~Request() {
 }
 
 SyncRequest::SyncRequest(RequestID id, Type t, const void* privatep,
-	uint64_t length, int64_t offset, size_t batch_size) :
-	RequestBase(id, t, privatep, length, offset, batch_size), count(0) {
+	uint64_t length, int64_t offset) :
+	RequestBase(id, t, privatep, length, offset), count(0) {
 }
 
 SyncRequest::~SyncRequest() {
@@ -1711,7 +1710,7 @@ RequestID StordVmdk::ScheduleSyncCache(const void* privatep, uint64_t offset,
 	}
 
 	auto sync_req = std::make_unique<SyncRequest>(++requestid_,
-		Request::Type::kSync, privatep, length, offset, batch_size_);
+		Request::Type::kSync, privatep, length, offset);
 	if (hyc_unlikely(not sync_req)) {
 		return kInvalidRequestID;
 	}
