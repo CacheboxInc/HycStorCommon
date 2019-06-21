@@ -44,10 +44,11 @@ public:
 	int32_t buf_sz;
 	TimePoint timer;
 	RequestBase* sync_req;
+	size_t batch_size;
 
 public:
 	Request(RequestID id, Type t, const void* privatep, char *bufferp,
-		int32_t buf_sz, uint64_t length, int64_t offset);
+		int32_t buf_sz, uint64_t length, int64_t offset, size_t batch_size);
 
 	~Request();
 };
