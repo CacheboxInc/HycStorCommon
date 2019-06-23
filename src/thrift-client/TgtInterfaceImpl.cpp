@@ -32,6 +32,7 @@
 
 static std::string StordIp = "127.0.0.1";
 static uint16_t StordPort = 9876;
+static bool StordLocal = true;
 
 using namespace std::chrono_literals;
 static size_t kExpectedWanLatency = std::chrono::microseconds(20ms).count();
@@ -1763,6 +1764,10 @@ void HycStorInitialize(int argc, char *argv[], char *stord_ip,
 
 	StordIp.assign(stord_ip);
 	StordPort = stord_port;
+
+	auto ips = hyc::GetLocalIPs();
+	auto it = std::find(ips.begin(), ips.end(), StordIp);
+	StordLocal = not (it == ips.end());
 }
 
 int32_t HycStorRpcServerConnect(void) {
