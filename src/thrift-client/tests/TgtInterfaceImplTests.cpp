@@ -8,6 +8,7 @@
 
 #include "gen-cpp2/StorRpc.h"
 #include "TgtInterface.h"
+#include "SharedMemory.h"
 
 using namespace apache::thrift;
 using namespace apache::thrift::async;
@@ -15,6 +16,7 @@ using namespace ::hyc_thrift;
 
 static constexpr int32_t kServerPort = 9876;
 static const std::string kServerIp = "127.0.0.1";
+static const std::string kVmdkId = "vmdkid";
 
 extern std::string StordIp;
 extern uint16_t StordPort;
@@ -50,28 +52,40 @@ public:
 	}
 
 	void async_tm_OpenVmdk(
-			std::unique_ptr<HandlerCallback<::hyc_thrift::VmdkHandle>> cb,
+			std::unique_ptr<HandlerCallback<std::unique_ptr<::hyc_thrift::OpenResult>>> cb,
 			std::unique_ptr<std::string> vmid,
-			std::unique_ptr<std::string> vmdkid) override {
-		cb->result(++vmdk_handle_);
+			std::unique_ptr<std::string> vmdkid, bool is_local,
+			int64_t max_io_size) override {
+		EXPECT_TRUE(is_local);
+		EXPECT_EQ(nopen_vmdk_, 0);
+		EXPECT_EQ(shm_.Create(*vmdkid, max_io_size), 0);
+		OpenResult result;
+		result.set_handle(++vmdk_handle_);
+		result.set_shm_id(*vmdkid);
+		cb->result(std::move(result));
 		++nopen_vmdk_;
 	}
 
 	void async_tm_CloseVmdk(std::unique_ptr<HandlerCallback<int32_t>> cb,
 			::hyc_thrift::VmdkHandle vmdk) override {
+		EXPECT_EQ(nclose_vmdk_, 0);
+		EXPECT_TRUE(shm_.Destroy());
 		cb->result(0);
 		++nclose_vmdk_;
 	}
 
 	void async_tm_Read(
-			std::unique_ptr<HandlerCallback<std::unique_ptr<ReadResult>>> cb,
-			::hyc_thrift::VmdkHandle vmdk, RequestID reqid, int32_t size,
-			int64_t offset) override {
-		auto iobuf = folly::IOBuf::create(size);
-		::memset(iobuf->writableTail(), 'A', size);
-		iobuf->append(size);
+				std::unique_ptr<HandlerCallback<std::unique_ptr<ReadResult>>> cb,
+				::hyc_thrift::VmdkHandle vmdk,
+				ShmHandle shm,
+				RequestID reqid,
+				int32_t size,
+				int64_t offset
+			) override {
+		EXPECT_NE(shm, 0);
+		void* addrp = shm_.HandleToAddress(shm);
+		::memset(addrp, 'A', size);
 		auto read = std::make_unique<ReadResult>();
-		read->set_data(std::move(iobuf));
 		read->set_reqid(reqid);
 		read->set_result(0);
 		cb->result(std::move(read));
@@ -79,10 +93,15 @@ public:
 	}
 
 	void async_tm_Write(
-			std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
-			::hyc_thrift::VmdkHandle vmdk, RequestID reqid,
-			std::unique_ptr<IOBufPtr> data, int32_t size, int64_t offset)
-			override {
+				std::unique_ptr<HandlerCallback<std::unique_ptr< WriteResult>>> cb,
+				::hyc_thrift::VmdkHandle vmdk,
+				::hyc_thrift::ShmHandle shm,
+				::hyc_thrift::RequestID reqid,
+				std::unique_ptr<IOBufPtr> data,
+				int32_t size,
+				int64_t offset) override {
+		EXPECT_NE(shm, 0);
+		EXPECT_FALSE(data);
 		auto write = std::make_unique<WriteResult>();
 		write->set_reqid(reqid);
 		write->set_result(0);
@@ -91,10 +110,16 @@ public:
 	}
 
 	void async_tm_WriteSame(
-			std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
-			::hyc_thrift::VmdkHandle vmdk, RequestID reqid,
-			std::unique_ptr<IOBufPtr> data, int32_t data_size,
-			int32_t write_size, int64_t offset) override {
+				std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
+				::hyc_thrift::VmdkHandle vmdk,
+				::hyc_thrift::ShmHandle shm,
+				::hyc_thrift::RequestID reqid,
+				std::unique_ptr<::hyc_thrift::IOBufPtr> data,
+				int32_t data_size,
+				int32_t write_size,
+				int64_t offset) override {
+		EXPECT_NE(shm, 0);
+		EXPECT_FALSE(data);
 		auto write = std::make_unique<WriteResult>();
 		write->set_reqid(reqid);
 		write->set_result(0);
@@ -143,9 +168,11 @@ public:
 private:
 	std::atomic<VmHandle> vm_handle_{0};
 	std::atomic<::hyc_thrift::VmdkHandle> vmdk_handle_{0};
+	hyc::SharedMemory shm_;
 };
 
 static std::shared_ptr<ScopedServerInterfaceThread> StartServer() {
+	boost::interprocess::shared_memory_object::remove(kVmdkId.c_str());
 	auto si = std::make_shared<StorRpcSimpleImpl>();
 	auto ts = std::make_shared<ThriftServer>();
 	ts->setInterface(si);
@@ -217,7 +244,7 @@ TEST(TgtInterfaceImplTest, Read) {
 	EXPECT_EQ(rc, rc);
 
 	::VmdkHandle handle = nullptr;
-	rc = HycOpenVmdk("vmid", "vmdkid", -1, 1ull<<30, 12, &handle);
+	rc = HycOpenVmdk("vmid", kVmdkId.c_str(), -1, 1ull<<30, 12, &handle);
 	EXPECT_EQ(rc, 0);
 	EXPECT_NE(handle, nullptr);
 

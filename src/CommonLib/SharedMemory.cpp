@@ -6,6 +6,9 @@
 #include "SharedMemory.h"
 
 namespace hyc {
+SharedMemory::SharedMemory() noexcept {
+}
+
 SharedMemory::SharedMemory(
 			std::string name
 		) noexcept :
@@ -25,6 +28,15 @@ bool SharedMemory::Destroy() noexcept {
 	return removed;
 }
 
+int SharedMemory::Create(std::string name, size_t size) noexcept {
+	if (hyc_unlikely(attached_ or created_)) {
+		LOG(FATAL) << "SharedMemory: already created or attached";
+		return -EINVAL;
+	}
+	name_ = std::move(name);
+	return Create(size);
+}
+
 int SharedMemory::Create(size_t size) noexcept {
 	if (hyc_unlikely(created_ or attached_)) {
 		return 0;
@@ -33,11 +45,20 @@ int SharedMemory::Create(size_t size) noexcept {
 		segment_ = Segment(bip::create_only, name_.c_str(), size);
 	} catch (const bip::interprocess_exception& e) {
 		LOG(ERROR) << "SharedMemory: creating shm segment (name : "
-			<< name_ << ") failed";
+			<< name_ << ") failed " << e.what();
 		return -EEXIST;
 	}
 	created_ = true;
 	return 0;
+}
+
+int SharedMemory::Attach(std::string name) noexcept {
+	if (hyc_unlikely(attached_ or created_)) {
+		LOG(FATAL) << "SharedMemory: already attached";
+		return -EINVAL;
+	}
+	name_ = std::move(name);
+	return Attach();
 }
 
 int SharedMemory::Attach() noexcept {
@@ -78,6 +99,8 @@ void* SharedMemory::AllocateAligned(const size_t nbytes, const size_t alignment)
 void* SharedMemory::HandleToAddress(const SharedMemory::Handle& handle) const noexcept {
 	void* addrp = segment_.get_address_from_handle(handle);
 	if (hyc_unlikely(not segment_.belongs_to_segment(addrp))) {
+		LOG(ERROR) << "SharedMemory: handle " << handle
+			<< " does not belong to segment";
 		return nullptr;
 	}
 	return addrp;
@@ -85,6 +108,8 @@ void* SharedMemory::HandleToAddress(const SharedMemory::Handle& handle) const no
 
 SharedMemory::Handle SharedMemory::AddressToHandle(void* addrp) const noexcept {
 	if (hyc_unlikely(not segment_.belongs_to_segment(addrp))) {
+		LOG(ERROR) << "SharedMemory: address " << addrp
+			<< " does not belongs to segment";
 		return -EINVAL;
 	}
 	return segment_.get_handle_from_address(addrp);

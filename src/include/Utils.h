@@ -33,7 +33,7 @@ std::vector<std::string> GetLocalIPs() {
 			continue;
 		}
 		int family = ifa->ifa_addr->sa_family;
-		if (family != AF_INET and family != AF_INET6) {
+		if (family != AF_INET) {
 			continue;
 		}
 

@@ -23,12 +23,15 @@ public:
 	using Handle = bip::managed_shared_memory::handle_t;
 
 public:
+	SharedMemory() noexcept;
 	SharedMemory(std::string name) noexcept;
 	~SharedMemory();
 
 	bool Destroy() noexcept;
 	int Create(size_t size) noexcept;
+	int Create(std::string name, size_t size) noexcept;
 	int Attach() noexcept;
+	int Attach(std::string name) noexcept;
 
 	const std::string& GetName() const noexcept;
 	size_t Size() const noexcept;
@@ -42,7 +45,7 @@ public:
 	Handle AddressToHandle(void* addrp) const noexcept;
 
 private:
-	const std::string name_{};
+	std::string name_{};
 	Segment segment_{};
 	bool created_{false};
 	bool attached_{false};
