@@ -56,13 +56,15 @@ RequestID HycScheduleWriteSame(VmdkHandle handle, const void* privatep,
 		char* bufferp, int32_t buf_sz, int32_t write_sz, int64_t offset);
 int32_t HycScheduleAbort(VmdkHandle handle, const void* privatep);
 void HycDumpVmdk(VmdkHandle handle);
-void HycSetExpectedWanLatency(uint32_t latency);
 RequestID HycScheduleTruncate(VmdkHandle handle, const void* privatep,
 	char* bufferp, int32_t buf_sz);
 RequestID HycScheduleSyncCache(VmdkHandle handle, const void* privatep,
 	uint64_t offset, uint64_t length);
 int HycGetVmdkStats(const char* vmdkid, vmdk_stats_t *vmdk_stats);
 int HycGetComponentStats(component_stats_t* g_stats);
+void HycSetBatchingAttributes(uint32_t adaptive_batch, uint32_t wan_latency,
+		uint32_t batch_incr_val, uint32_t batch_decr_pct,
+		uint32_t system_load_factor, uint32_t debug_log);
 #ifdef __cplusplus
 }
 #endif
