@@ -294,6 +294,9 @@ int StordConnection::Connect() {
 					HeaderClientChannel::newChannel(
 						async::TAsyncSocket::newSocket(base.get(),
 							{ip_, port_})));
+				auto channel = dynamic_cast<HeaderClientChannel*>(
+					client->getHeaderChannel());
+				channel->setProtocolId(protocol::T_BINARY_PROTOCOL);
 				{
 					/*
 					 * ping stord
