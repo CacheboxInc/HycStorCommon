@@ -23,8 +23,13 @@ public:
 	using Handle = bip::managed_shared_memory::handle_t;
 
 public:
+	SharedMemory(const SharedMemory&) = delete;
+	SharedMemory(SharedMemory&&) = delete;
+	SharedMemory& operator = (const SharedMemory&) = delete;
+
 	SharedMemory() noexcept;
 	SharedMemory(std::string name) noexcept;
+	SharedMemory& operator = (SharedMemory&&) noexcept;
 	~SharedMemory();
 
 	bool Destroy() noexcept;

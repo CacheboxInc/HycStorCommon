@@ -15,6 +15,16 @@ SharedMemory::SharedMemory(
 			name_(std::move(name)) {
 }
 
+SharedMemory& SharedMemory::operator = (SharedMemory&& rhs) noexcept {
+	this->name_ = std::move(rhs.name_);
+	this->segment_ = std::move(rhs.segment_);
+	this->created_ = rhs.created_;
+	this->attached_ = rhs.attached_;
+
+	rhs.created_ = rhs.attached_ = false;
+	return *this;
+}
+
 SharedMemory::~SharedMemory() {
 	Destroy();
 }
