@@ -12,7 +12,8 @@ const RequestID kInvalidRequestID = 0;
 
 struct OpenResult {
 	1: required VmdkHandle handle;
-	2: required string shm_id;
+	2: required i32 fd;
+	3: required string shm_id;
 }
 
 struct ReadRequest {
@@ -80,22 +81,23 @@ service StorRpc {
 	VmHandle OpenVm(1: string vmid);
 	void CloseVm(1: VmHandle vm);
 
-	OpenResult OpenVmdk(1: string vmid, 2: string vmdkid, 3: bool is_local, 4: i64 max_io_size);
-	i32 CloseVmdk(1: VmdkHandle vmdk);
+	OpenResult OpenVmdk(1: string vmid, 2: string vmdkid, 3: bool is_local,
+		4: i64 max_io_size);
+	i32 CloseVmdk(1: i32 fd);
 
-	oneway void PushVmdkStats(1: VmdkHandle vmdk, 2: VmdkStats stats);
+	oneway void PushVmdkStats(1: i32 fd, 2: VmdkStats stats);
 
-	ReadResult Read(1: VmdkHandle vmdk, 2: ShmHandle shm, 3: RequestID reqid,
+	ReadResult Read(1: i32 fd, 2: ShmHandle shm, 3: RequestID reqid,
 		4: i32 size, 5: i64 offset);
-	WriteResult Write(1: VmdkHandle vmdk, 2: ShmHandle shm, 3: RequestID reqid,
+	WriteResult Write(1: i32 fd, 2: ShmHandle shm, 3: RequestID reqid,
 		4: IOBufPtr data, 5: i32 size, 6: i64 offset);
-	WriteResult WriteSame(1: VmdkHandle vmdk, 2: ShmHandle shm,
+	WriteResult WriteSame(1: i32 fd, 2: ShmHandle shm,
 		3: RequestID reqid, 4: IOBufPtr data, 5: i32 data_size,
 		6: i32 write_size, 7: i64 offset);
-	AbortResult Abort(1: VmdkHandle vmdk, 2: RequestID reqid);
+	AbortResult Abort(1: i32 fd, 2: RequestID reqid);
 
-	list<WriteResult> BulkWrite(1: VmdkHandle vmdk, 2: list<WriteRequest> requests);
-	list<ReadResult> BulkRead(1: VmdkHandle vmdk, 2: list<ReadRequest> requests);
+	list<WriteResult> BulkWrite(1: i32 fd, 2: list<WriteRequest> requests);
+	list<ReadResult> BulkRead(1: i32 fd, 2: list<ReadRequest> requests);
 
-	TruncateResult Truncate(1: VmdkHandle handle, 2: RequestID reqid, 3: list<TruncateReq> requests);
+	TruncateResult Truncate(1: i32 fd, 2: RequestID reqid, 3: list<TruncateReq> requests);
 }

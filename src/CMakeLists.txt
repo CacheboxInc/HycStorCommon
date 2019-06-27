@@ -34,6 +34,7 @@ set(LIBRARY_LIST
 	iberty
 	atomic
 	unwind
+	rt
 	${ThriftLibs}
 )
 

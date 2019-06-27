@@ -33,9 +33,10 @@ public:
 		++nping_;
 	}
 
-	void async_tm_PushVmdkStats(std::unique_ptr<HandlerCallbackBase> cb,
-			::hyc_thrift::VmdkHandle vmdk, std::unique_ptr<VmdkStats> stats)
-			override {
+	void async_tm_PushVmdkStats(
+				std::unique_ptr<HandlerCallbackBase> cb,
+				int32_t fd, std::unique_ptr<VmdkStats> stats
+			) override {
 		++nstats_;
 	}
 
@@ -62,12 +63,15 @@ public:
 		OpenResult result;
 		result.set_handle(++vmdk_handle_);
 		result.set_shm_id(*vmdkid);
+		result.set_fd(0);
 		cb->result(std::move(result));
 		++nopen_vmdk_;
 	}
 
-	void async_tm_CloseVmdk(std::unique_ptr<HandlerCallback<int32_t>> cb,
-			::hyc_thrift::VmdkHandle vmdk) override {
+	void async_tm_CloseVmdk(
+				std::unique_ptr<HandlerCallback<int32_t>> cb,
+				int32_t fd
+			) override {
 		EXPECT_EQ(nclose_vmdk_, 0);
 		EXPECT_TRUE(shm_.Destroy());
 		cb->result(0);
@@ -76,7 +80,7 @@ public:
 
 	void async_tm_Read(
 				std::unique_ptr<HandlerCallback<std::unique_ptr<ReadResult>>> cb,
-				::hyc_thrift::VmdkHandle vmdk,
+				int32_t fd,
 				ShmHandle shm,
 				RequestID reqid,
 				int32_t size,
@@ -94,7 +98,7 @@ public:
 
 	void async_tm_Write(
 				std::unique_ptr<HandlerCallback<std::unique_ptr< WriteResult>>> cb,
-				::hyc_thrift::VmdkHandle vmdk,
+				int32_t fd,
 				::hyc_thrift::ShmHandle shm,
 				::hyc_thrift::RequestID reqid,
 				std::unique_ptr<IOBufPtr> data,
@@ -111,7 +115,7 @@ public:
 
 	void async_tm_WriteSame(
 				std::unique_ptr<HandlerCallback<std::unique_ptr<WriteResult>>> cb,
-				::hyc_thrift::VmdkHandle vmdk,
+				int32_t fd,
 				::hyc_thrift::ShmHandle shm,
 				::hyc_thrift::RequestID reqid,
 				std::unique_ptr<::hyc_thrift::IOBufPtr> data,
@@ -128,8 +132,9 @@ public:
 	}
 
 	folly::Future<std::unique_ptr<std::vector<ReadResult>>> future_BulkRead(
-			::hyc_thrift::VmdkHandle vmdk,
-			std::unique_ptr<std::vector<ReadRequest>> requests) override {
+				int fd,
+				std::unique_ptr<std::vector<ReadRequest>> requests
+			) override {
 		auto results = std::make_unique<std::vector<ReadResult>>();
 		for (const auto& req : *requests) {
 			auto size = req.get_size();
@@ -144,8 +149,9 @@ public:
 	}
 
 	folly::Future<std::unique_ptr<std::vector<WriteResult>>> future_BulkWrite(
-			::hyc_thrift::VmdkHandle vmdk,
-			std::unique_ptr<std::vector<WriteRequest>> requests) override {
+				int32_t fd,
+				std::unique_ptr<std::vector<WriteRequest>> requests
+			) override {
 		auto results = std::make_unique<std::vector<WriteResult>>();
 		for (const auto& req : *requests) {
 			results->emplace_back(apache::thrift::FragileConstructor(),

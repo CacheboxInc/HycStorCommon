@@ -10,6 +10,7 @@ add_library(HycClientLib
 
 target_link_libraries(HycClientLib
 	StorRpcLib
+	rt
 )
 
 add_subdirectory(tests)
