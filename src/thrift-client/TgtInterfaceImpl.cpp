@@ -295,6 +295,12 @@ int StordConnection::Connect() {
 						async::TAsyncSocket::newSocket(base.get(),
 							{ip_, port_})));
 				{
+					auto channel =
+						dynamic_cast<HeaderClientChannel*>(
+							client->getHeaderChannel());
+					channel->setProtocolId(
+							apache::thrift::protocol::T_BINARY_PROTOCOL);
+
 					/*
 					 * ping stord
 					 * - ping sends a response string back to client.
