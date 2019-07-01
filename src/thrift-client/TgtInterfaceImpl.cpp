@@ -40,8 +40,8 @@ static bool StordLocal = true;
  * and max block size
  */
 static constexpr size_t kPageSize = (1ul << 10) * 4;
-static constexpr size_t kMaxBlockSize = (1ul << 10) * 64;
-static constexpr size_t kShmSize = kMaxBlockSize * 128;
+static constexpr size_t kMaxBlockSize = (1ul << 10) * 128;
+static constexpr size_t kShmSize = kMaxBlockSize * 40;
 
 using namespace std::chrono_literals;
 static size_t kExpectedWanLatency = std::chrono::microseconds(20ms).count();
