@@ -9,6 +9,7 @@ typedef binary (cpp.type = "std::unique_ptr<folly::IOBuf>") IOBufPtr
 const VmHandle kInvalidVmHandle = 0;
 const VmdkHandle kInvalidVmdkHandle = 0;
 const RequestID kInvalidRequestID = 0;
+const ShmHandle kInvalidShmHandle = 0;
 
 struct OpenResult {
 	1: required VmdkHandle handle;

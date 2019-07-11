@@ -21,9 +21,11 @@
 #include <gflags/gflags.h>
 #include <folly/init/Init.h>
 
+#include "gen-cpp2/StorRpc.h"
+#include "gen-cpp2/StorRpc_constants.h"
+
 #include "Utils.h"
 #include "TgtTypes.h"
-#include "gen-cpp2/StorRpc.h"
 #include "TgtInterface.h"
 #include "TimePoint.h"
 #include "Common.h"
@@ -764,7 +766,7 @@ int StordVmdk::InitializeSharedMemory() noexcept {
 			LOG(ERROR) << "StordVmdk: incorrect shared memory handle";
 			break;
 		}
-		if (handle == 0) {
+		if (handle == hyc_thrift::StorRpc_constants::kInvalidShmHandle()) {
 			/* do not use handle = 0 */
 			continue;
 		}
