@@ -1,10 +1,7 @@
-#pragma once
-
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
 
-#include <utility>
 #include <vector>
 #include <string>
 
@@ -17,9 +14,7 @@
 #include <unistd.h>
 #include <linux/if_link.h>
 
-
 namespace hyc {
-
 std::vector<std::string> GetLocalIPs() {
 	std::vector<std::string> ips;
 
@@ -33,7 +28,7 @@ std::vector<std::string> GetLocalIPs() {
 			continue;
 		}
 		int family = ifa->ifa_addr->sa_family;
-		if (family != AF_INET) {
+		if (family != AF_INET and family != AF_INET6) {
 			continue;
 		}
 
@@ -50,32 +45,5 @@ std::vector<std::string> GetLocalIPs() {
 	}
 	freeifaddrs(ifaddr);
 	return ips;
-}
-
-template <typename T>
-void MoveLastElements(std::vector<T>& dst, std::vector<T>& src, size_t tomove) {
-	if (src.size() < tomove) {
-		tomove = src.size();
-	}
-
-	auto eit = src.end();
-	auto sit = std::prev(eit, tomove);
-	std::move(sit, eit, std::back_inserter(dst));
-	src.erase(sit, eit);
-}
-
-namespace os {
-
-unsigned int NumberOfCpus(void) {
-	return std::thread::hardware_concurrency();
-}
-
-int GetCurCpuCore(void) {
-	auto core = sched_getcpu();
-	if (core < 0) {
-		return -1;
-	}
-	return core;
-}
 }
 }

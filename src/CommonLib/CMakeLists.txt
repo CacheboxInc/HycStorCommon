@@ -3,6 +3,7 @@ include_directories(include)
 set(HycStorCommonFiles
 	SpinLock.cpp
 	TimePoint.cpp
+	SharedMemory.cpp
 )
 
 add_library(HycStorCommon

@@ -21,17 +21,29 @@
 #include <gflags/gflags.h>
 #include <folly/init/Init.h>
 
+#include "gen-cpp2/StorRpc.h"
+#include "gen-cpp2/StorRpc_constants.h"
+
 #include "Utils.h"
 #include "TgtTypes.h"
-#include "gen-cpp2/StorRpc.h"
 #include "TgtInterface.h"
 #include "TimePoint.h"
 #include "Common.h"
 #include "Serialize.h"
 #include "Request.h"
+#include "SharedMemory.h"
 
 static std::string StordIp = "127.0.0.1";
 static uint16_t StordPort = 9876;
+static bool StordLocal = true;
+
+/*
+ * TODO: use iSCSI negotiation parameters to decide maximum shared memory size
+ * and max block size
+ */
+static constexpr size_t kPageSize = (1ul << 10) * 4;
+static constexpr size_t kMaxBlockSize = (1ul << 10) * 128;
+static constexpr size_t kShmSize = kMaxBlockSize * 40;
 
 using namespace std::chrono_literals;
 static size_t kExpectedWanLatency = std::chrono::microseconds(20ms).count();
@@ -588,6 +600,10 @@ public:
 	mutable std::mutex stats_mutex_;
 
 private:
+	int InitializeSharedMemory() noexcept;
+	std::pair<SharedMemory::Handle, void*> AllocateSharedMemoryHandle() noexcept;
+	void ReleaseSharedMemoryHandle(SharedMemory::Handle) noexcept;
+
 	void ScheduleNow(folly::EventBase* basep);
 	int64_t RpcRequestScheduledCount() const noexcept;
 	uint64_t PendingOperations() const noexcept;
@@ -612,11 +628,14 @@ private:
 
 private:
 	bool SyncRequestComplete(RequestID id, int32_t result);
+	void SyncRequestComplete(SyncRequest* reqp);
+
 	bool RequestComplete(RequestID id, int32_t result);
-	template <typename T>
-	void RequestComplete(T* reqp);
+	void RequestComplete(Request* reqp);
+
 	template <typename T, typename... ErrNo>
 	void RequestComplete(const std::vector<T>& requests, ErrNo&&... no);
+
 	void BulkReadComplete(const std::vector<Request*>& requests,
 		const std::vector<::hyc_thrift::ReadResult>& results);
 
@@ -624,6 +643,7 @@ private:
 	std::string vmid_;
 	std::string vmdkid_;
 	::hyc_thrift::VmdkHandle vmdk_handle_{kInvalidVmdkHandle};
+	int32_t fd_{-EBADF};
 	const uint64_t lun_size_{};
 	const uint32_t lun_blk_shift_{};
 	int eventfd_{-1};
@@ -637,6 +657,17 @@ private:
 		std::vector<std::unique_ptr<RequestBase>> complete_;
 		std::unordered_map<RequestID, std::unique_ptr<SyncRequest>> sync_pending_;
 	} requests_;
+
+	struct {
+		std::string id_;
+		hyc::SharedMemory memory_;
+
+		/*
+		 * Please note: the std::stack is not protected by lock. It should only
+		 * be used in folly::EventBase thread.
+		 */
+		std::stack<SharedMemory::Handle> free_;
+	} shm_;
 
 	mutable std::mutex send_rpc_mutex_;
 	MovingAverage<uint64_t, 128> latency_avg_{};
@@ -719,6 +750,54 @@ void StordVmdk::SetStordConnection(StordConnection* connectp) noexcept {
 	connectp_ = connectp;
 }
 
+int StordVmdk::InitializeSharedMemory() noexcept {
+	int rc = shm_.memory_.Attach(shm_.id_);
+	if (rc < 0) {
+		return rc;
+	}
+
+	while (shm_.memory_.FreeSize() > kMaxBlockSize) {
+		void* addrp = shm_.memory_.AllocateAligned(kMaxBlockSize, kPageSize);
+		if (addrp == nullptr) {
+			break;
+		}
+		auto handle = shm_.memory_.AddressToHandle(addrp);
+		if (handle < 0) {
+			LOG(ERROR) << "StordVmdk: incorrect shared memory handle";
+			break;
+		}
+		if (handle == hyc_thrift::StorRpc_constants::kInvalidShmHandle()) {
+			/* do not use handle = 0 */
+			continue;
+		}
+		shm_.free_.push(handle);
+	}
+	LOG(ERROR) << "StordVmdk: allocated " << shm_.free_.size()
+		<< " shared memory buffers";
+	return 0;
+}
+
+std::pair<SharedMemory::Handle, void*>
+StordVmdk::AllocateSharedMemoryHandle() noexcept {
+	if (hyc_unlikely(shm_.free_.empty())) {
+		return {0, nullptr};
+	}
+	SharedMemory::Handle handle = shm_.free_.top();
+	log_assert(handle > 0);
+	void* addrp = shm_.memory_.HandleToAddress(handle);
+	if (hyc_unlikely(addrp == nullptr)) {
+		return {0, nullptr};
+	}
+	shm_.free_.pop();
+	return {handle, addrp};
+}
+
+void StordVmdk::ReleaseSharedMemoryHandle(SharedMemory::Handle handle) noexcept {
+	if (handle) {
+		shm_.free_.push(handle);
+	}
+}
+
 int32_t StordVmdk::OpenVmdk() {
 	if (hyc_unlikely(vmdk_handle_ != kInvalidVmdkHandle)) {
 		/* already open */
@@ -728,21 +807,29 @@ int32_t StordVmdk::OpenVmdk() {
 	folly::Promise<hyc_thrift::VmdkHandle> promise;
 	connectp_->GetEventBase()->runInEventBaseThread([&] () mutable {
 		auto clientp = connectp_->GetRpcClient();
-		clientp->future_OpenVmdk(vmid_, vmdkid_)
-		.then([&, clientp] (const folly::Try<::hyc_thrift::VmdkHandle>& tri) mutable {
+		clientp->future_OpenVmdk(vmid_, vmdkid_, StordLocal, kShmSize)
+		.then([&, clientp] (const folly::Try<::hyc_thrift::OpenResult>& tri) mutable {
 			if (hyc_unlikely(tri.hasException())) {
 				promise.setValue(kInvalidVmdkHandle);
 				return;
 			}
-			auto vmdk_handle = tri.value();
-			if (hyc_unlikely(vmdk_handle == kInvalidVmdkHandle)) {
+			const auto& result = tri.value();
+			if (hyc_unlikely(result.handle == kInvalidVmdkHandle)) {
 				promise.setValue(kInvalidVmdkHandle);
 				return;
 			}
-			vmdk_handle_ = vmdk_handle;
+			vmdk_handle_ = result.handle;
+			fd_ = result.get_fd();
+			log_assert(fd_ >= 0);
+
+			shm_.id_ = result.shm_id;
 			connectp_->RegisterVmdk(this);
 			clientp_ = clientp;
-			promise.setValue(vmdk_handle);
+
+			if (InitializeSharedMemory() < 0) {
+				LOG(ERROR) << "StordVmdk: not using shared memory";
+			}
+			promise.setValue(vmdk_handle_);
 		});
 	});
 
@@ -768,7 +855,7 @@ int StordVmdk::CloseVmdk() {
 
 	folly::Promise<int> promise;
 	connectp_->GetEventBase()->runInEventBaseThread([&] () mutable {
-		clientp_->future_CloseVmdk(this->vmdk_handle_)
+		clientp_->future_CloseVmdk(fd_)
 		.then([&] (const folly::Try<int>& tri) mutable {
 			if (hyc_unlikely(tri.hasException())) {
 				promise.setValue(-1);
@@ -1151,11 +1238,13 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 }
 
 bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
-	std::unique_lock<std::mutex> lock(requests_.mutex_);
+	SyncRequest* syncp{nullptr};
 	bool post = false;
+
+	std::unique_lock<std::mutex> lock(requests_.mutex_);
 	auto it = requests_.scheduled_.find(id);
 	log_assert(it != requests_.scheduled_.end());
-	if (result) {
+	if (hyc_unlikely(result)) {
 		VLOG(5) << "reqid " << id << " has nonzero res: " << result;
 	}
 
@@ -1168,42 +1257,51 @@ bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
 		UpdateBatchSize(reqp);
 	}
 
+	switch (reqp->type) {
+	default:
+		break;
+	case RequestBase::Type::kWrite:
+	case RequestBase::Type::kWriteSame: {
+		if (hyc_likely(not reqp->sync_req)) {
+			break;
+		}
+		SyncRequest *sync_reqp = reinterpret_cast<SyncRequest *>(reqp->sync_req);
+		--stats_.sync_ongoing_writes_;
+		if (!--sync_reqp->count) {
+			sync_reqp->result = 0;
+			syncp = sync_reqp;
+		}
+		break;
+	}
+	}
+
 	requests_.scheduled_.erase(it);
 	requests_.complete_.emplace_back(std::move(req));
 
-	/* Special handling for sync completion */
-	if ((reqp->type == RequestBase::Type::kWrite ||
-		reqp->type == RequestBase::Type::kWriteSame) && reqp->sync_req) {
-		SyncRequest *sync_reqp = reinterpret_cast<SyncRequest *>(reqp->sync_req);
-
-		--stats_.sync_ongoing_writes_;
-		--sync_reqp->count;
-		if (!sync_reqp->count) {
-			sync_reqp->result = 0;
-			lock.unlock();
-			/* Complete sync request */
-			RequestComplete(sync_reqp);
-			lock.lock();
-		}
-		return false;
-	}
-
 	post = requests_.scheduled_.empty() or
 		requests_.complete_.size() >= bulk_depth_avg_.Average();
+	lock.unlock();
+
+	if (hyc_unlikely(syncp)) {
+		SyncRequestComplete(syncp);
+	}
 
 	return post;
 }
 
-template <typename T>
-void StordVmdk::RequestComplete(T* reqp) {
-	bool post = false;
-
-	if (reqp->type == RequestBase::Type::kSync) {
-		post = SyncRequestComplete(reqp->id, reqp->result);
-	} else {
-		post = RequestComplete(reqp->id, reqp->result);
+void StordVmdk::RequestComplete(Request* reqp) {
+	auto shm = reqp->shm_;
+	reqp->shm_ = 0;
+	bool post = RequestComplete(reqp->id, reqp->result);
+	ReleaseSharedMemoryHandle(shm);
+	if (post) {
+		auto rc = PostRequestCompletion();
+		(void) rc;
 	}
+}
 
+void StordVmdk::SyncRequestComplete(SyncRequest* reqp) {
+	bool post = SyncRequestComplete(reqp->id, reqp->result);
 	if (post) {
 		auto rc = PostRequestCompletion();
 		(void) rc;
@@ -1312,9 +1410,19 @@ uint32_t StordVmdk::GetCompleteRequests(RequestResult* resultsp,
 
 void StordVmdk::ReadDataCopy(Request* reqp, const ReadResult& result) {
 	std::lock_guard<std::mutex> lock(reqp->mutex_);
-	if (reqp->privatep == nullptr) {
+	if (hyc_unlikely(reqp->privatep == nullptr)) {
 		return;
 	}
+	if (reqp->shm_) {
+		void* addrp = shm_.memory_.HandleToAddress(reqp->shm_);
+		if (hyc_unlikely(addrp == nullptr)) {
+			LOG(FATAL) << "StordVmdk: invlid SharedMemory handle " << reqp->shm_;
+			return;
+		}
+		std::memcpy(reqp->bufferp, addrp, reqp->buf_sz);
+		return;
+	}
+
 	log_assert(result.data->computeChainDataLength() ==
 		static_cast<size_t>(reqp->buf_sz));
 	auto bufp = reqp->bufferp;
@@ -1331,10 +1439,23 @@ void StordVmdk::ReadDataCopy(Request* reqp, const ReadResult& result) {
 }
 
 void StordVmdk::ScheduleWriteSame(folly::EventBase* basep, Request* reqp) {
-	auto data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
-		reqp->bufferp, reqp->buf_sz);
+	SharedMemory::Handle shm{0};
+	hyc_thrift::IOBufPtr data;
+	if (hyc_likely(static_cast<size_t>(reqp->buf_sz) <= kMaxBlockSize)) {
+		void* addrp;
+		std::tie(shm, addrp) = AllocateSharedMemoryHandle();
+		if (hyc_unlikely(shm != 0)) {
+			std::memcpy(addrp, reqp->bufferp, reqp->buf_sz);
+		}
+	}
+	if (shm == 0) {
+		data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
+			reqp->bufferp, reqp->buf_sz);
+	}
+	reqp->shm_ = shm;
+
 	++stats_.rpc_requests_scheduled_;
-	clientp_->future_WriteSame(vmdk_handle_, reqp->id, data, reqp->buf_sz,
+	clientp_->future_WriteSame(fd_, shm, reqp->id, data, reqp->buf_sz,
 		reqp->length, reqp->offset)
 	.then([this, reqp, data = std::move(data)]
 			(const WriteResult& result) mutable {
@@ -1351,11 +1472,23 @@ void StordVmdk::ScheduleWriteSame(folly::EventBase* basep, Request* reqp) {
 
 void StordVmdk::ScheduleWrite(folly::EventBase* basep, Request* reqp) {
 	log_assert(reqp && basep->isInEventBaseThread());
+	SharedMemory::Handle shm{0};
+	hyc_thrift::IOBufPtr data;
+	if (hyc_likely(static_cast<size_t>(reqp->buf_sz) <= kMaxBlockSize)) {
+		void* addrp;
+		std::tie(shm, addrp) = AllocateSharedMemoryHandle();
+		if (hyc_unlikely(shm != 0)) {
+			std::memcpy(addrp, reqp->bufferp, reqp->buf_sz);
+		}
+	}
+	if (shm == 0) {
+		data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
+			reqp->bufferp, reqp->buf_sz);
+	}
+	reqp->shm_ = shm;
 
-	auto data = std::make_unique<folly::IOBuf>(folly::IOBuf::WRAP_BUFFER,
-		reqp->bufferp, reqp->buf_sz);
 	++stats_.rpc_requests_scheduled_;
-	clientp_->future_Write(vmdk_handle_, reqp->id, data, reqp->buf_sz, reqp->offset)
+	clientp_->future_Write(fd_, shm, reqp->id, data, reqp->buf_sz, reqp->offset)
 	.then([this, reqp, data = std::move(data)]
 			(const WriteResult& result) mutable {
 		reqp->result = result.get_result();
@@ -1373,7 +1506,7 @@ void StordVmdk::ScheduleBulkWrite(folly::EventBase* basep,
 		std::unique_ptr<std::vector<::hyc_thrift::WriteRequest>> reqs) {
 	log_assert(basep->isInEventBaseThread());
 	++stats_.rpc_requests_scheduled_;
-	clientp_->future_BulkWrite(vmdk_handle_, *reqs.get())
+	clientp_->future_BulkWrite(fd_, *reqs.get())
 	.then([this, reqs = std::move(reqs)]
 			(const folly::Try<std::vector<::hyc_thrift::WriteResult>>& trie)
 			mutable {
@@ -1393,8 +1526,15 @@ void StordVmdk::ScheduleBulkWrite(folly::EventBase* basep,
 void StordVmdk::ScheduleRead(folly::EventBase* basep, Request* reqp) {
 	log_assert(reqp && basep->isInEventBaseThread());
 
+	SharedMemory::Handle shm{0};
+	void* addrp;
+	if (hyc_likely(static_cast<size_t>(reqp->buf_sz) <= kMaxBlockSize)) {
+		std::tie(shm, addrp) = AllocateSharedMemoryHandle();
+		reqp->shm_ = shm;
+	}
+
 	++stats_.rpc_requests_scheduled_;
-	clientp_->future_Read(vmdk_handle_, reqp->id, reqp->buf_sz, reqp->offset)
+	clientp_->future_Read(fd_, shm, reqp->id, reqp->buf_sz, reqp->offset)
 	.then([this, reqp] (const ReadResult& result) mutable {
 		reqp->result = result.get_result();
 		if (hyc_likely(reqp->result == 0)) {
@@ -1440,7 +1580,7 @@ void StordVmdk::ScheduleBulkRead(folly::EventBase* basep,
 	log_assert(basep->isInEventBaseThread());
 
 	++stats_.rpc_requests_scheduled_;
-	clientp_->future_BulkRead(vmdk_handle_, *thrift_requests)
+	clientp_->future_BulkRead(fd_, *thrift_requests)
 	.then([this, thrift_requests = std::move(thrift_requests),
 			requests = std::move(requests)]
 			(const folly::Try<std::vector<::hyc_thrift::ReadResult>>& trie)
@@ -1461,7 +1601,7 @@ void StordVmdk::ScheduleBulkRead(folly::EventBase* basep,
 folly::Future<int> StordVmdk::ScheduleTruncate(RequestID reqid,
 		std::vector<TruncateReq>&& requests) {
 	++stats_.rpc_requests_scheduled_;
-	return clientp_->future_Truncate(vmdk_handle_, reqid,
+	return clientp_->future_Truncate(fd_, reqid,
 		std::forward<std::vector<TruncateReq>>(requests))
 	.then([this] (const TruncateResult& result) {
 		--stats_.rpc_requests_scheduled_;
@@ -1568,10 +1708,18 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep) {
 
 		std::lock_guard<std::mutex> lock(send_rpc_mutex_);
 		for (auto reqp : pending) {
+			SharedMemory::Handle shm{0};
+			void* addrp{};
+			hyc_thrift::IOBufPtr data;
+
 			std::lock_guard<std::mutex> lock(reqp->mutex_);
-			if (reqp->privatep == nullptr) {
+			if (hyc_unlikely(reqp->privatep == nullptr)) {
 				continue;
 			}
+			if (hyc_likely(static_cast<size_t>(reqp->buf_sz) <= kMaxBlockSize)) {
+				std::tie(shm, addrp) = AllocateSharedMemoryHandle();
+			}
+			reqp->shm_ = shm;
 
 			reqp->timer.Start();
 			switch (reqp->type) {
@@ -1579,7 +1727,7 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep) {
 				if (nreads++ == 0) {
 					read = std::make_unique<std::vector<::hyc_thrift::ReadRequest>>();
 				}
-				read->emplace_back(apache::thrift::FragileConstructor(),
+				read->emplace_back(apache::thrift::FragileConstructor(), reqp->shm_,
 					reqp->id, reqp->buf_sz, reqp->offset);
 				read_requests.emplace_back(reqp);
 				break;
@@ -1587,9 +1735,13 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep) {
 				if (nwrites++ == 0) {
 					write = std::make_unique<std::vector<::hyc_thrift::WriteRequest>>();
 				}
-				auto data = std::make_unique<folly::IOBuf>
-					(folly::IOBuf::WRAP_BUFFER, reqp->bufferp, reqp->buf_sz);
-				write->emplace_back(apache::thrift::FragileConstructor(),
+				if (hyc_unlikely(reqp->shm_ != 0)) {
+					std::memcpy(addrp, reqp->bufferp, reqp->buf_sz);
+				} else {
+					data = std::make_unique<folly::IOBuf>
+						(folly::IOBuf::WRAP_BUFFER, reqp->bufferp, reqp->buf_sz);
+				}
+				write->emplace_back(apache::thrift::FragileConstructor(), reqp->shm_,
 					reqp->id, std::move(data), reqp->buf_sz, reqp->offset);
 				break;
 			}
@@ -1720,7 +1872,7 @@ RequestID StordVmdk::ScheduleSyncCache(const void* privatep, uint64_t offset,
 	++stats_.pending_;
 	auto sync_reqp = sync_req.get();
 	if (PrepareRequest(std::move(sync_req))) {
-		RequestComplete(sync_reqp);
+		SyncRequestComplete(sync_reqp);
 	}
 
 	return sync_reqp->id;
@@ -1923,6 +2075,11 @@ void HycStorInitialize(int argc, char *argv[], char *stord_ip,
 
 	StordIp.assign(stord_ip);
 	StordPort = stord_port;
+
+	auto ips = hyc::GetLocalIPs();
+	std::copy(ips.begin(), ips.end(), std::ostream_iterator<std::string>(LOG(INFO), " " ));
+	auto it = std::find(ips.begin(), ips.end(), StordIp);
+	StordLocal = not (it == ips.end());
 }
 
 int32_t HycStorRpcServerConnect(void) {
