@@ -6,6 +6,7 @@
 
 #include "TgtTypes.h"
 #include "TimePoint.h"
+#include "SharedMemory.h"
 
 namespace hyc {
 
@@ -45,6 +46,7 @@ public:
 	TimePoint timer;
 	RequestBase* sync_req;
 	size_t batch_size;
+	SharedMemory::Handle shm_;
 
 public:
 	Request(RequestID id, Type t, const void* privatep, char *bufferp,
