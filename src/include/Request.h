@@ -33,7 +33,7 @@ public:
 public:
 	RequestBase(RequestID id, Type t, const void* privatep, uint64_t length,
 		int64_t offset);
-	~RequestBase();
+	virtual ~RequestBase();
 
 	const RequestBase::Type& GetType() const noexcept;
 	bool IsOverlapped(uint64_t req_offset, uint64_t req_length) const noexcept;
@@ -52,7 +52,7 @@ public:
 	Request(RequestID id, Type t, const void* privatep, char *bufferp,
 		int32_t buf_sz, uint64_t length, int64_t offset, size_t batch_size);
 
-	~Request();
+	virtual ~Request();
 };
 
 class SyncRequest : public RequestBase {
@@ -62,7 +62,7 @@ public:
 
 	SyncRequest(RequestID id, Type t, const void* privatep, uint64_t length,
 		int64_t offset);
-	~SyncRequest();
+	virtual ~SyncRequest();
 };
 
 } // namespace hyc
