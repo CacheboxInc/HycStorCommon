@@ -27,6 +27,11 @@ struct RequestResult {
 	int32_t     result;
 };
 
+struct ScheduledRequest {
+	const void* privatep;
+	RequestID request_id;
+};
+
 #ifdef __cplusplus
 }
 #endif
