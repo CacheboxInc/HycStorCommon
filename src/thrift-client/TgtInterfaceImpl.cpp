@@ -586,6 +586,8 @@ public:
 	RequestID ScheduleTruncate(const void* privatep, char* bufferp,
 		int32_t buf_sz);
 	int32_t AbortScheduledRequest(const void* privatep);
+	int32_t GetAllScheduledRequests(struct ScheduledRequest** requests,
+		uint32_t* nrequests);
 	std::pair<int32_t, Request*> AbortRequest(const void* privatep);
 	RequestID ScheduleSyncCache(const void* privatep, uint64_t offset,
 		uint64_t length);
@@ -602,6 +604,7 @@ public:
 
 	void MarkForClose() noexcept {
 		closed_ = true;
+		eventfd_ = -1;
 	}
 
 	bool IsMarkedForClose() const noexcept {
@@ -613,7 +616,7 @@ public:
 	mutable std::mutex stats_mutex_;
 
 private:
-	int32_t CloseVmdk();
+	void CloseVmdk();
 	int InitializeSharedMemory() noexcept;
 	std::pair<SharedMemory::Handle, void*> AllocateSharedMemoryHandle() noexcept;
 
@@ -821,7 +824,8 @@ int32_t StordVmdk::OpenVmdk() {
 	connectp_->GetEventBase()->runInEventBaseThread([&] () mutable {
 		auto clientp = connectp_->GetRpcClient();
 		clientp->future_OpenVmdk(vmid_, vmdkid_, StordLocal, kShmSize)
-		.then([&, clientp] (const folly::Try<::hyc_thrift::OpenResult>& tri) mutable {
+		.then([&, clientp]
+				(const folly::Try<::hyc_thrift::OpenResult>& tri) mutable {
 			if (hyc_unlikely(tri.hasException())) {
 				promise.setValue(kInvalidVmdkHandle);
 				return;
@@ -855,42 +859,29 @@ int32_t StordVmdk::OpenVmdk() {
 	return 0;
 }
 
-int StordVmdk::CloseVmdk() {
+void StordVmdk::CloseVmdk() {
 	if (vmdk_handle_ == kInvalidVmdkHandle) {
-		return 0;
+		return;
 	}
 
 	std::lock_guard<std::mutex> lock(stats_mutex_);
 	log_assert(PendingOperations() == 0);
+	this->connectp_->UnregisterVmdk(this);
 
-	folly::Promise<int> promise;
-	connectp_->GetEventBase()->runInEventBaseThreadAndWait([&] () mutable {
-		clientp_->future_CloseVmdk(fd_)
-		.then([&] (const folly::Try<int>& tri) mutable {
-			this->connectp_->UnregisterVmdk(this);
-			this->vmdk_handle_ = kInvalidVmdkHandle;
-
-			if (hyc_unlikely(tri.hasException())) {
-				promise.setValue(-1);
+	connectp_->GetEventBase()->runInEventBaseThread(
+			[fd = this->fd_, id = this->GetVmdkId(), clientp = this->clientp_]
+			() mutable {
+		clientp->future_CloseVmdk(fd)
+		.then([id = std::move(id)] (const folly::Try<int>& tri) mutable {
+			if (hyc_unlikely(tri.hasException() or tri.value() < 0)) {
+				LOG(ERROR) << "CloseVmdk: Cleanup of VMDK " << id
+					<< " failed";
 				return;
 			}
-			auto rc = tri.value();
-			if (hyc_unlikely(rc < 0)) {
-				promise.setValue(rc);
-				return;
-			}
-			promise.setValue(rc);
-			return;
+			LOG(ERROR) << "CloseVmdk: VMDK " << id
+				<< " closed successfully";
 		});
 	});
-
-	auto future = promise.getFuture();
-	auto rc = future.get();
-	if (hyc_unlikely(rc < 0)) {
-		LOG(ERROR) << "Close VMDK Failed" << *this;
-		return rc;
-	}
-	return 0;
 }
 
 uint64_t StordVmdk::PendingOperations() const noexcept {
@@ -1181,7 +1172,11 @@ bool StordVmdk::SyncRequestComplete(RequestID id, int32_t result) {
 
 	--stats_.pending_;
 	++stats_.sync_requests_;
-	requests_.complete_.emplace_back(std::move(sync_req));
+	if (hyc_unlikely(not IsMarkedForClose())) {
+		requests_.complete_.emplace_back(std::move(sync_req));
+	} else {
+		LOG(ERROR) << "VMDK already closed " << this->SharedPtr().use_count();
+	}
 
 	lock.unlock();
 	if (pending_ios) {
@@ -1189,7 +1184,7 @@ bool StordVmdk::SyncRequestComplete(RequestID id, int32_t result) {
 		ScheduleNow(basep);
 	}
 
-	return true;
+	return true and not IsMarkedForClose();
 }
 
 void StordVmdk::UpdateBatchSize(Request* reqp) {
@@ -1318,10 +1313,15 @@ bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	}
 
 	requests_.scheduled_.erase(it);
-	requests_.complete_.emplace_back(std::move(req));
+	if (hyc_unlikely(not IsMarkedForClose())) {
+		requests_.complete_.emplace_back(std::move(req));
+	} else {
+		LOG(ERROR) << "VMDK already closed " << this->SharedPtr().use_count();
+	}
 
-	post = requests_.scheduled_.empty() or
-		requests_.complete_.size() >= bulk_depth_avg_.Average();
+	post = (requests_.scheduled_.empty() or
+		requests_.complete_.size() >= bulk_depth_avg_.Average()) and
+		not IsMarkedForClose();
 	lock.unlock();
 
 	if (hyc_unlikely(syncp)) {
@@ -1490,13 +1490,14 @@ void StordVmdk::ScheduleWriteSame(folly::EventBase* basep, Request* reqp) {
 	++stats_.rpc_requests_scheduled_;
 	clientp_->future_WriteSame(fd_, shm, reqp->id, data, reqp->buf_sz,
 		reqp->length, reqp->offset)
-	.then([this, reqp, data = std::move(data)]
+	.then([this, this_sptr = this->SharedPtr(), reqp, data = std::move(data)]
 			(const WriteResult& result) mutable {
 		reqp->result = result.get_result();
 		RequestComplete(reqp);
 		--stats_.rpc_requests_scheduled_;
 	})
-	.onError([this, reqp] (const std::exception& e) mutable {
+	.onError([this, this_sptr = this->SharedPtr(), reqp]
+			(const std::exception& e) mutable {
 		reqp->result = -EIO;
 		RequestComplete(reqp);
 		--stats_.rpc_requests_scheduled_;
@@ -1522,13 +1523,14 @@ void StordVmdk::ScheduleWrite(folly::EventBase* basep, Request* reqp) {
 
 	++stats_.rpc_requests_scheduled_;
 	clientp_->future_Write(fd_, shm, reqp->id, data, reqp->buf_sz, reqp->offset)
-	.then([this, reqp, data = std::move(data)]
+	.then([this, this_sptr = this->SharedPtr(), reqp, data = std::move(data)]
 			(const WriteResult& result) mutable {
 		reqp->result = result.get_result();
 		RequestComplete(reqp);
 		--stats_.rpc_requests_scheduled_;
 	})
-	.onError([this, reqp] (const std::exception& e) mutable {
+	.onError([this, this_sptr = this->SharedPtr(), reqp]
+			(const std::exception& e) mutable {
 		reqp->result = -EIO;
 		RequestComplete(reqp);
 		--stats_.rpc_requests_scheduled_;
@@ -1540,7 +1542,7 @@ void StordVmdk::ScheduleBulkWrite(folly::EventBase* basep,
 	log_assert(basep->isInEventBaseThread());
 	++stats_.rpc_requests_scheduled_;
 	clientp_->future_BulkWrite(fd_, *reqs.get())
-	.then([this, reqs = std::move(reqs)]
+	.then([this, this_sptr = this->SharedPtr(), reqs = std::move(reqs)]
 			(const folly::Try<std::vector<::hyc_thrift::WriteResult>>& trie)
 			mutable {
 		if (hyc_unlikely(trie.hasException())) {
@@ -1568,7 +1570,8 @@ void StordVmdk::ScheduleRead(folly::EventBase* basep, Request* reqp) {
 
 	++stats_.rpc_requests_scheduled_;
 	clientp_->future_Read(fd_, shm, reqp->id, reqp->buf_sz, reqp->offset)
-	.then([this, reqp] (const ReadResult& result) mutable {
+	.then([this, this_sptr = this->SharedPtr(), reqp]
+			(const ReadResult& result) mutable {
 		reqp->result = result.get_result();
 		if (hyc_likely(reqp->result == 0)) {
 			ReadDataCopy(reqp, result);
@@ -1614,7 +1617,8 @@ void StordVmdk::ScheduleBulkRead(folly::EventBase* basep,
 
 	++stats_.rpc_requests_scheduled_;
 	clientp_->future_BulkRead(fd_, *thrift_requests)
-	.then([this, thrift_requests = std::move(thrift_requests),
+	.then([this, this_sptr = this->SharedPtr(),
+			thrift_requests = std::move(thrift_requests),
 			requests = std::move(requests)]
 			(const folly::Try<std::vector<::hyc_thrift::ReadResult>>& trie)
 			mutable {
@@ -1636,7 +1640,8 @@ folly::Future<int> StordVmdk::ScheduleTruncate(RequestID reqid,
 	++stats_.rpc_requests_scheduled_;
 	return clientp_->future_Truncate(fd_, reqid,
 		std::forward<std::vector<TruncateReq>>(requests))
-	.then([this] (const TruncateResult& result) {
+	.then([this, this_sptr = this->SharedPtr()]
+			(const TruncateResult& result) mutable {
 		--stats_.rpc_requests_scheduled_;
 		return result.get_result();
 	})
@@ -1827,6 +1832,31 @@ RequestID StordVmdk::ScheduleRead(const void* privatep, char* bufferp,
 	return reqp->id;
 }
 
+int32_t StordVmdk::GetAllScheduledRequests(
+			struct ScheduledRequest** requests,
+			uint32_t* nrequests
+		) {
+	*requests = nullptr;
+	*nrequests = 0;
+
+	ScheduledRequest* reqs;
+	std::lock_guard<std::mutex> lock(requests_.mutex_);
+	size_t size = requests_.scheduled_.size();
+	reqs = (struct ScheduledRequest *) std::malloc(sizeof(ScheduledRequest) * size);
+	if (requests == nullptr) {
+		throw std::bad_alloc();
+	}
+	int32_t copied = 0;
+	for (const auto& it : requests_.scheduled_) {
+		reqs[copied].privatep = it.second->privatep;
+		reqs[copied].request_id = it.first;
+		++copied;
+	}
+	*nrequests = copied;
+	*requests = reqs;
+	return 0;
+}
+
 int32_t StordVmdk::AbortScheduledRequest(const void* privatep) {
 	auto [rc, reqp] = AbortRequest(privatep);
 	if (hyc_unlikely(rc < 0 or reqp == nullptr)) {
@@ -1954,6 +1984,8 @@ public:
 	RequestID VmdkTruncate(StordVmdk* vmdkp, const void* privatep,
 		char* bufferp, int32_t buf_sz);
 	int32_t AbortVmdkOp(StordVmdk* vmdkp, const void* privatep);
+	int GetAllScheduledRequests(StordVmdk* vmdkp,
+		ScheduledRequest** requests, uint32_t* nrequests);
 	RequestID VmdkSyncCache(StordVmdk* vmdkp, const void* privatep,
 		uint64_t offset, uint64_t length);
 	StordVmdk* FindVmdk(::hyc_thrift::VmdkHandle handle);
@@ -2076,7 +2108,7 @@ int32_t Stord::CloseVmdk(StordVmdk* vmdkp) {
 	vmdk_.ids_.erase(it);
 	lock.unlock();
 
-	if (auto x = vmdk->PendingOperations() != 0) {
+	if (auto x = vmdk->PendingOperations()) {
 		LOG(ERROR) << "VMDK " << id
 			<< " has " << x << " pending operations."
 			<< " Doing lazy cleanup.";
@@ -2097,6 +2129,14 @@ uint32_t Stord::VmdkGetCompleteRequest(StordVmdk* vmdkp,
 
 int32_t Stord::AbortVmdkOp(StordVmdk* vmdkp, const void* privatep) {
 	return vmdkp->AbortScheduledRequest(privatep);
+}
+
+int Stord::GetAllScheduledRequests(
+			StordVmdk* vmdkp,
+			struct ScheduledRequest** requests,
+			uint32_t* nrequests
+		) {
+	return vmdkp->GetAllScheduledRequests(requests, nrequests);
 }
 
 RequestID Stord::VmdkWrite(StordVmdk* vmdkp, const void* privatep,
@@ -2223,6 +2263,15 @@ int32_t HycScheduleAbort(VmdkHandle handle, const void* privatep) {
 	}
 }
 
+int32_t HycGetAllScheduledRequests(VmdkHandle handle,
+		struct ScheduledRequest** requests, uint32_t* nrequests) {
+	try {
+		auto vmdkp = reinterpret_cast<::hyc::StordVmdk*>(handle);
+		return g_stord.GetAllScheduledRequests(vmdkp, requests, nrequests);
+	} catch (std::exception& e) {
+		return -ENOMEM;
+	}
+}
 
 RequestID HycScheduleWrite(VmdkHandle handle, const void* privatep,
 		char* bufferp, int32_t buf_sz, int64_t offset) {
