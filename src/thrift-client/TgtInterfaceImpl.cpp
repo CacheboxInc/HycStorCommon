@@ -585,10 +585,10 @@ public:
 		int32_t buf_sz, int32_t write_sz, int64_t offset);
 	RequestID ScheduleTruncate(const void* privatep, char* bufferp,
 		int32_t buf_sz);
-	int32_t AbortScheduledRequest(const void* privatep);
+	RequestID AbortScheduledRequest(const void* privatep);
 	int32_t GetAllScheduledRequests(struct ScheduledRequest** requests,
 		uint32_t* nrequests);
-	std::pair<int32_t, Request*> AbortRequest(const void* privatep);
+	RequestID AbortRequest(const void* privatep);
 	RequestID ScheduleSyncCache(const void* privatep, uint64_t offset,
 		uint64_t length);
 	uint32_t GetCompleteRequests(RequestResult* resultsp, uint32_t nresults,
@@ -1375,7 +1375,7 @@ int StordVmdk::PostRequestCompletion() const {
 	return 0;
 }
 
-std::pair<int32_t, Request*> StordVmdk::AbortRequest(const void* privatep) {
+RequestID StordVmdk::AbortRequest(const void* privatep) {
 	std::lock_guard<std::mutex> rpc_lock(send_rpc_mutex_);
 	std::lock_guard<std::mutex> requests_lock(requests_.mutex_);
 
@@ -1383,7 +1383,7 @@ std::pair<int32_t, Request*> StordVmdk::AbortRequest(const void* privatep) {
 		std::lock_guard<std::mutex> lock(reqp->mutex_);
 		if (reqp->privatep == privatep) {
 			reqp->privatep = nullptr;
-			break;
+			return reqp->id;
 		}
 	}
 
@@ -1392,7 +1392,7 @@ std::pair<int32_t, Request*> StordVmdk::AbortRequest(const void* privatep) {
 		std::lock_guard<std::mutex> lock(reqp->mutex_);
 		if (reqp->privatep == privatep) {
 			reqp->privatep = nullptr;
-			return {0, reqp};
+			return reqp->id;
 		}
 	}
 
@@ -1400,10 +1400,10 @@ std::pair<int32_t, Request*> StordVmdk::AbortRequest(const void* privatep) {
 		std::lock_guard<std::mutex> lock(reqp->mutex_);
 		if (reqp->privatep == privatep) {
 			reqp->privatep = nullptr;
-			return {0, nullptr};
+			return reqp->id;
 		}
 	}
-	return {-EINVAL, nullptr};
+	return kInvalidRequestID;
 }
 
 
@@ -1853,17 +1853,17 @@ int32_t StordVmdk::GetAllScheduledRequests(
 	return 0;
 }
 
-int32_t StordVmdk::AbortScheduledRequest(const void* privatep) {
-	auto [rc, reqp] = AbortRequest(privatep);
-	if (hyc_unlikely(rc < 0 or reqp == nullptr)) {
-		return rc;
+RequestID StordVmdk::AbortScheduledRequest(const void* privatep) {
+	RequestID id = AbortRequest(privatep);
+	if (hyc_unlikely(id == kInvalidRequestID)) {
+		return id;
 	}
 	auto this_sptr = this->SharedPtr();
 	connectp_->GetEventBase()->runInEventBaseThread(
-		[this, this_sptr, id = reqp->id] () mutable {
+		[this, this_sptr, id] () mutable {
 			clientp_->future_Abort(fd_, id);
 	});
-	return 0;
+	return id;
 }
 
 RequestID StordVmdk::ScheduleWrite(const void* privatep, char* bufferp,
@@ -2123,7 +2123,7 @@ uint32_t Stord::VmdkGetCompleteRequest(StordVmdk* vmdkp,
 	return vmdkp->GetCompleteRequests(resultsp, nresults, has_morep);
 }
 
-int32_t Stord::AbortVmdkOp(StordVmdk* vmdkp, const void* privatep) {
+RequestID Stord::AbortVmdkOp(StordVmdk* vmdkp, const void* privatep) {
 	return vmdkp->AbortScheduledRequest(privatep);
 }
 
@@ -2250,12 +2250,12 @@ uint32_t HycGetCompleteRequests(VmdkHandle handle, RequestResult *resultsp,
 	}
 }
 
-int32_t HycScheduleAbort(VmdkHandle handle, const void* privatep) {
+RequestID HycScheduleAbort(VmdkHandle handle, const void* privatep) {
 	try {
 		auto vmdkp = reinterpret_cast<::hyc::StordVmdk*>(handle);
 		return g_stord.AbortVmdkOp(vmdkp, privatep);
 	} catch(std::exception& e) {
-		return 0;
+		return kInvalidRequestID;
 	}
 }
 
