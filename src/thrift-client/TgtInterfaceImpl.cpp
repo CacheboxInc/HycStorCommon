@@ -788,7 +788,7 @@ int StordVmdk::InitializeSharedMemory() noexcept {
 		}
 		shm_.free_.push(handle);
 	}
-	LOG(ERROR) << "StordVmdk: allocated " << shm_.free_.size()
+	LOG(INFO) << "StordVmdk: allocated " << shm_.free_.size()
 		<< " shared memory buffers";
 	return 0;
 }
@@ -1174,8 +1174,6 @@ bool StordVmdk::SyncRequestComplete(RequestID id, int32_t result) {
 	++stats_.sync_requests_;
 	if (hyc_unlikely(not IsMarkedForClose())) {
 		requests_.complete_.emplace_back(std::move(sync_req));
-	} else {
-		LOG(ERROR) << "VMDK already closed " << this->SharedPtr().use_count();
 	}
 
 	lock.unlock();
@@ -1315,8 +1313,6 @@ bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	requests_.scheduled_.erase(it);
 	if (hyc_unlikely(not IsMarkedForClose())) {
 		requests_.complete_.emplace_back(std::move(req));
-	} else {
-		LOG(ERROR) << "VMDK already closed " << this->SharedPtr().use_count();
 	}
 
 	post = (requests_.scheduled_.empty() or
