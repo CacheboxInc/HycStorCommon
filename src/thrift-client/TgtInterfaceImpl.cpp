@@ -1843,7 +1843,7 @@ int32_t StordVmdk::GetAllScheduledRequests(
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
 	size_t size = requests_.scheduled_.size();
 	reqs = (struct ScheduledRequest *) std::malloc(sizeof(ScheduledRequest) * size);
-	if (requests == nullptr) {
+	if (reqs == nullptr) {
 		throw std::bad_alloc();
 	}
 	int32_t copied = 0;
@@ -2259,7 +2259,7 @@ int32_t HycScheduleAbort(VmdkHandle handle, const void* privatep) {
 		auto vmdkp = reinterpret_cast<::hyc::StordVmdk*>(handle);
 		return g_stord.AbortVmdkOp(vmdkp, privatep);
 	} catch(std::exception& e) {
-		return 0;
+		return -EINVAL;
 	}
 }
 
