@@ -1846,13 +1846,18 @@ int32_t StordVmdk::GetAllScheduledRequests(
 
 	ScheduledRequest* reqs;
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
-	size_t size = requests_.scheduled_.size();
+	size_t size = requests_.scheduled_.size() + requests_.sync_pending_.size();
 	reqs = (struct ScheduledRequest *) std::malloc(sizeof(ScheduledRequest) * size);
 	if (reqs == nullptr) {
 		throw std::bad_alloc();
 	}
 	int32_t copied = 0;
 	for (const auto& it : requests_.scheduled_) {
+		reqs[copied].privatep = it.second->privatep;
+		reqs[copied].request_id = it.first;
+		++copied;
+	}
+	for (const auto& it : requests_.sync_pending_) {
 		reqs[copied].privatep = it.second->privatep;
 		reqs[copied].request_id = it.first;
 		++copied;
