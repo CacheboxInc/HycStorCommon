@@ -1403,6 +1403,15 @@ RequestID StordVmdk::AbortRequest(const void* privatep) {
 			return reqp->id;
 		}
 	}
+
+	for (auto& req_map : requests_.sync_pending_) {
+		auto reqp = req_map.second.get();
+		std::lock_guard<std::mutex> lock(reqp->mutex_);
+		if (reqp->privatep == privatep) {
+			reqp->privatep = nullptr;
+			return reqp->id;
+		}
+	}
 	return kInvalidRequestID;
 }
 
@@ -1979,7 +1988,7 @@ public:
 		char* bufferp, int32_t buf_sz, int32_t write_sz, int64_t offset);
 	RequestID VmdkTruncate(StordVmdk* vmdkp, const void* privatep,
 		char* bufferp, int32_t buf_sz);
-	int32_t AbortVmdkOp(StordVmdk* vmdkp, const void* privatep);
+	RequestID AbortVmdkOp(StordVmdk* vmdkp, const void* privatep);
 	int GetAllScheduledRequests(StordVmdk* vmdkp,
 		ScheduledRequest** requests, uint32_t* nrequests);
 	RequestID VmdkSyncCache(StordVmdk* vmdkp, const void* privatep,
