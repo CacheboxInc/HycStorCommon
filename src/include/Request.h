@@ -22,6 +22,7 @@ public:
 		kSync,
 	};
 
+	std::shared_ptr<StordVmdk> vmdk_;
 	RequestID id;
 	Type type;
 	const void* privatep;
@@ -31,8 +32,8 @@ public:
 	mutable std::mutex mutex_;
 
 public:
-	RequestBase(RequestID id, Type t, const void* privatep, uint64_t length,
-		int64_t offset);
+	RequestBase(std::shared_ptr<StordVmdk> vmdk, RequestID id, Type t,
+		const void* privatep, uint64_t length, int64_t offset) noexcept;
 	virtual ~RequestBase();
 
 	const RequestBase::Type& GetType() const noexcept;
@@ -49,8 +50,9 @@ public:
 	SharedMemory::Handle shm_;
 
 public:
-	Request(RequestID id, Type t, const void* privatep, char *bufferp,
-		int32_t buf_sz, uint64_t length, int64_t offset, size_t batch_size);
+	Request(std::shared_ptr<StordVmdk> vmdk, RequestID id, Type t,
+		const void* privatep, char *bufferp, int32_t buf_sz, uint64_t length,
+		int64_t offset, size_t batch_size) noexcept;
 
 	virtual ~Request();
 };
@@ -60,8 +62,8 @@ public:
 	uint32_t count;
 	std::vector<RequestBase*> write_pending;
 
-	SyncRequest(RequestID id, Type t, const void* privatep, uint64_t length,
-		int64_t offset);
+	SyncRequest(std::shared_ptr<StordVmdk> vmdk, RequestID id, Type t,
+		const void* privatep, uint64_t length, int64_t offset) noexcept;
 	virtual ~SyncRequest();
 };
 

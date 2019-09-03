@@ -43,11 +43,6 @@ struct WriteResult {
 	2: required i32 result;
 }
 
-struct AbortResult {
-	1: required RequestID reqid;
-	2: required i32 result;
-}
-
 exception ServiceException {
 	1: string message;
 	2: i32 error_number;
@@ -95,7 +90,7 @@ service StorRpc {
 	WriteResult WriteSame(1: i32 fd, 2: ShmHandle shm,
 		3: RequestID reqid, 4: IOBufPtr data, 5: i32 data_size,
 		6: i32 write_size, 7: i64 offset);
-	AbortResult Abort(1: i32 fd, 2: RequestID reqid);
+	oneway void Abort(1: i32 fd, 2: RequestID reqid);
 
 	list<WriteResult> BulkWrite(1: i32 fd, 2: list<WriteRequest> requests);
 	list<ReadResult> BulkRead(1: i32 fd, 2: list<ReadRequest> requests);

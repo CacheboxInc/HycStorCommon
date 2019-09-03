@@ -54,7 +54,10 @@ RequestID HycScheduleWrite(VmdkHandle handle, const void* privatep,
 		char* bufferp, int32_t buf_sz, int64_t offset);
 RequestID HycScheduleWriteSame(VmdkHandle handle, const void* privatep,
 		char* bufferp, int32_t buf_sz, int32_t write_sz, int64_t offset);
-int32_t HycScheduleAbort(VmdkHandle handle, const void* privatep);
+RequestID HycScheduleAbort(VmdkHandle handle, const void* privatep);
+int32_t HycGetAllScheduledRequests(VmdkHandle handle,
+	struct ScheduledRequest** requests, uint32_t* nrequests);
+
 void HycDumpVmdk(VmdkHandle handle);
 RequestID HycScheduleTruncate(VmdkHandle handle, const void* privatep,
 	char* bufferp, int32_t buf_sz);
