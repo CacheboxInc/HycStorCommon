@@ -419,7 +419,7 @@ void StordConnection::SetPingTimeout() {
 	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(s).count();
 	ping_.timeout_ = std::make_unique<ReschedulingTimeout>(base_.get(), ms);
 	ping_.timeout_->ScheduleTimeout([this] () {
-		ForEachRegisteredVmdks([] (StordVmdk* vmdkp) {
+		ForEachRegisteredVmdks([] (const StordVmdk* vmdkp) {
 			LOG(INFO) << *vmdkp;
 			return true;
 		});
