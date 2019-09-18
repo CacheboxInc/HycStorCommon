@@ -419,7 +419,7 @@ void StordConnection::SetPingTimeout() {
 	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(s).count();
 	ping_.timeout_ = std::make_unique<ReschedulingTimeout>(base_.get(), ms);
 	ping_.timeout_->ScheduleTimeout([this] () {
-		ForEachRegisteredVmdks([&] (StordVmdk* vmdkp) mutable {
+		ForEachRegisteredVmdks([] (StordVmdk* vmdkp) {
 			LOG(INFO) << *vmdkp;
 			return true;
 		});
@@ -711,7 +711,7 @@ void SchedulePending::runLoopCallback() noexcept {
 	auto basep = connectp_->GetEventBase();
 	basep->runBeforeLoop(this);
 
-	connectp_->ForEachRegisteredVmdks([&] (StordVmdk* vmdkp) mutable {
+	connectp_->ForEachRegisteredVmdks([basep] (StordVmdk* vmdkp) mutable {
 		vmdkp->ScheduleMore(basep);
 		return true;
 	});
