@@ -184,7 +184,8 @@ public:
 	inline StorRpcAsyncClient* GetRpcClient() noexcept;
 	void RegisterVmdk(StordVmdk* vmdkp);
 	void UnregisterVmdk(StordVmdk* vmdkp);
-	void GetRegisteredVmdks(std::vector<StordVmdk*>& vmdks) const noexcept;
+	template <typename Lambda>
+	void ForEachRegisteredVmdks(Lambda&& func);
 
 private:
 	int32_t Disconnect();
@@ -269,11 +270,14 @@ void StordConnection::RegisterVmdk(StordVmdk* vmdkp) {
 	registered_.vmdks_.emplace_back(vmdkp);
 }
 
-void StordConnection::GetRegisteredVmdks(std::vector<StordVmdk*>& vmdks) const noexcept {
+template <typename Lambda>
+void StordConnection::ForEachRegisteredVmdks(Lambda&& func) {
 	std::lock_guard<std::mutex> l(registered_.mutex_);
-	vmdks.reserve(registered_.vmdks_.size());
-	std::copy(registered_.vmdks_.begin(), registered_.vmdks_.end(),
-		std::back_inserter(vmdks));
+	for (auto& vmdkp : registered_.vmdks_) {
+		if (not func(vmdkp)) {
+			break;
+		}
+	}
 }
 
 void StordConnection::UnregisterVmdk(StordVmdk* vmdkp) {
@@ -415,13 +419,10 @@ void StordConnection::SetPingTimeout() {
 	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(s).count();
 	ping_.timeout_ = std::make_unique<ReschedulingTimeout>(base_.get(), ms);
 	ping_.timeout_->ScheduleTimeout([this] () {
-		std::vector<StordVmdk*> vmdks;
-		GetRegisteredVmdks(vmdks);
-		if (not vmdks.empty()) {
-			for (StordVmdk* vmdkp : vmdks) {
-				LOG(INFO) << *vmdkp;
-			}
-		}
+		ForEachRegisteredVmdks([] (const StordVmdk* vmdkp) {
+			LOG(INFO) << *vmdkp;
+			return true;
+		});
 
 		for (auto& client : clients_.list_) {
 			auto fut = client->future_Ping()
@@ -710,15 +711,10 @@ void SchedulePending::runLoopCallback() noexcept {
 	auto basep = connectp_->GetEventBase();
 	basep->runBeforeLoop(this);
 
-	std::vector<StordVmdk*> vmdks;
-	connectp_->GetRegisteredVmdks(vmdks);
-	if (vmdks.empty()) {
-		return;
-	}
-
-	for (auto& vmdkp : vmdks) {
+	connectp_->ForEachRegisteredVmdks([basep] (StordVmdk* vmdkp) mutable {
 		vmdkp->ScheduleMore(basep);
-	}
+		return true;
+	});
 }
 
 std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk) {
