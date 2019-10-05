@@ -679,10 +679,7 @@ private:
 		std::string id_;
 		hyc::SharedMemory memory_;
 
-		/*
-		 * Please note: the std::stack is not protected by lock. It should only
-		 * be used in folly::EventBase thread.
-		 */
+		std::mutex mutex_;
 		std::stack<SharedMemory::Handle> free_;
 	} shm_;
 
@@ -791,6 +788,7 @@ int StordVmdk::InitializeSharedMemory() noexcept {
 
 std::pair<SharedMemory::Handle, void*>
 StordVmdk::AllocateSharedMemoryHandle() noexcept {
+	std::lock_guard<std::mutex> lock(shm_.mutex_);
 	if (hyc_unlikely(shm_.free_.empty())) {
 		return {0, nullptr};
 	}
@@ -805,6 +803,7 @@ StordVmdk::AllocateSharedMemoryHandle() noexcept {
 }
 
 void StordVmdk::ReleaseSharedMemoryHandle(SharedMemory::Handle handle) noexcept {
+	std::lock_guard<std::mutex> lock(shm_.mutex_);
 	if (handle) {
 		shm_.free_.push(handle);
 	}
