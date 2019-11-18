@@ -38,6 +38,8 @@ public:
 
 	const RequestBase::Type& GetType() const noexcept;
 	bool IsOverlapped(uint64_t req_offset, uint64_t req_length) const noexcept;
+
+	bool IsWrite() const noexcept;
 };
 
 class Request : public RequestBase {

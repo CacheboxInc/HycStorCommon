@@ -41,8 +41,9 @@ static bool StordLocal = true;
  * TODO: use iSCSI negotiation parameters to decide maximum shared memory size
  * and max block size
  */
-static constexpr size_t kPageSize = (1ul << 10) * 4;
-static constexpr size_t kMaxBlockSize = (1ul << 10) * 128;
+static constexpr size_t kOneKb{1024};
+static constexpr size_t kPageSize{kOneKb * 4};
+static constexpr size_t kMaxBlockSize{kOneKb * 128};
 static constexpr size_t kShmSize = kMaxBlockSize * 40;
 
 using namespace std::chrono_literals;
@@ -56,6 +57,13 @@ static size_t kBatchDecrPercent = 25;
 static bool kAdaptiveBatching = true;
 static uint32_t kSystemLoadFactor = 6; //system load influence in batch size determination
 static size_t kLogging = 0;
+
+static constexpr int64_t kOneMb{1024 * 1024};
+static int64_t kLimitWriteBw{kOneMb * kOneMb};
+static int64_t kLimitReadBw{kOneMb * kOneMb};
+
+static int64_t kLimitReadIops{kOneMb};
+static int64_t kLimitWriteIops{kOneMb};
 
 namespace hyc {
 using namespace apache::thrift;
@@ -184,12 +192,14 @@ public:
 	inline StorRpcAsyncClient* GetRpcClient() noexcept;
 	void RegisterVmdk(StordVmdk* vmdkp);
 	void UnregisterVmdk(StordVmdk* vmdkp);
+
 	template <typename Lambda>
 	void ForEachRegisteredVmdks(Lambda&& func);
 
 private:
 	int32_t Disconnect();
 	void SetPingTimeout();
+	void SetResetResourceLimitsTimeout();
 	static void SetThreadAffinity(uint16_t cpu, std::thread* threadp);
 	uint64_t PendingOperations() const noexcept;
 private:
@@ -201,6 +211,11 @@ private:
 		uint32_t timeout_secs_{30};
 		std::unique_ptr<ReschedulingTimeout> timeout_;
 	} ping_;
+
+	struct {
+		uint32_t timeout_secs_{1};
+		std::unique_ptr<ReschedulingTimeout> timeout_;
+	} resource_limits_;
 
 	struct {
 		std::atomic<uint64_t> pending_{0};
@@ -254,6 +269,7 @@ int32_t StordConnection::Disconnect() {
 	if (base_) {
 		base_->runInEventBaseThreadAndWait([this] () {
 			ping_.timeout_ = nullptr;
+			resource_limits_.timeout_ = nullptr;
 			sched_pending_.~SchedulePending();
 		});
 		base_->terminateLoopSoon();
@@ -330,6 +346,7 @@ int StordConnection::Connect() {
 			this->base_ = std::move(base);
 			this->clients_.list_ = std::move(clients);
 			SetPingTimeout();
+			SetResetResourceLimitsTimeout();
 
 			{
 				/* notify main thread of success */
@@ -562,7 +579,111 @@ struct StordStats {
 	std::atomic<uint64_t> pending_{0};
 };
 
+template <typename T>
+class ResourceLimit {
+public:
+	ResourceLimit(T default_value) noexcept : default_(default_value) {}
+
+	template <typename Value>
+	const T Consume(const Value& v) noexcept {
+		return value_.fetch_sub(v, std::memory_order_relaxed) - v;
+	}
+
+	const T Get() const noexcept {
+		return value_.load(std::memory_order_relaxed);
+	}
+
+	void Reset() noexcept {
+		value_.store(default_, std::memory_order_relaxed);
+	}
+
+private:
+	T default_;
+	std::atomic<T> value_{0};
+};
+
 class StordVmdk : public std::enable_shared_from_this<StordVmdk> {
+private:
+	class IoLimits {
+	public:
+		IoLimits(int64_t bw, int64_t iops) noexcept : bw_(bw), iops_(iops) {}
+
+		void Reset() noexcept {
+			bw_.Reset();
+			iops_.Reset();
+		}
+
+		void Consume(int64_t bw) noexcept {
+			(void) bw_.Consume(bw);
+			(void) iops_.Consume(1);
+		}
+
+		bool Exhausted() const noexcept {
+			return bw_.Get() <= 0 or iops_.Get() <= 0;
+		}
+
+	private:
+		ResourceLimit<int64_t> bw_{0};
+		ResourceLimit<int64_t> iops_{0};
+	};
+
+	class RpcQueue {
+	public:
+		size_t Size() const noexcept {
+			return write_.size() + read_.size() + truncate_.size();
+		}
+
+		void Append(Request* request) {
+			switch (request->GetType()) {
+			default:
+				LOG(FATAL) << "Unexpected request type";
+				break;
+			case RequestBase::Type::kWrite:
+			case RequestBase::Type::kWriteSame:
+				write_.push(request);
+				break;
+			case RequestBase::Type::kTruncate:
+				truncate_.push(request);
+				break;
+			case RequestBase::Type::kRead:
+				read_.push(request);
+				break;
+			}
+		}
+
+		Request* Pop(const RequestBase::Type type) noexcept {
+			std::queue<Request*>* q;
+			switch (type) {
+			default:
+				LOG(FATAL) <<"Unexpected request type";
+				break;
+			case RequestBase::Type::kWriteSame:
+			case RequestBase::Type::kWrite:
+				q = &write_;
+				break;
+			case RequestBase::Type::kTruncate:
+				q = &truncate_;
+				break;
+			case RequestBase::Type::kRead:
+				q = &read_;
+			}
+
+			Request* req{nullptr};
+			if (q->empty()) {
+				return req;
+			}
+
+			req = q->front();
+			q->pop();
+			return req;
+		}
+
+	private:
+		std::queue<Request*> write_;
+		std::queue<Request*> read_;
+		std::queue<Request*> truncate_;
+	};
+
 public:
 	StordVmdk(const StordVmdk& rhs) = delete;
 	StordVmdk(const StordVmdk&& rhs) = delete;
@@ -612,8 +733,9 @@ public:
 		return closed_;
 	}
 
-	friend std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
+	void ResetResourceLimits() noexcept;
 
+	friend std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
 	mutable std::mutex stats_mutex_;
 
 private:
@@ -670,7 +792,9 @@ private:
 	struct {
 		mutable std::mutex mutex_;
 		std::unordered_map<RequestID, std::unique_ptr<Request>> scheduled_;
-		std::vector<Request*> rpc_pending_;
+
+		RpcQueue rpc_queue_;
+
 		std::vector<std::unique_ptr<RequestBase>> complete_;
 		std::unordered_map<RequestID, std::unique_ptr<SyncRequest>> sync_pending_;
 	} requests_;
@@ -682,6 +806,11 @@ private:
 		std::mutex mutex_;
 		std::stack<SharedMemory::Handle> free_;
 	} shm_;
+
+	struct {
+		IoLimits read_{kLimitReadBw, kLimitReadIops};
+		IoLimits write_{kLimitWriteBw, kLimitWriteIops};
+	} limits_;
 
 	mutable std::mutex send_rpc_mutex_;
 	MovingAverage<uint64_t, 128> latency_avg_{};
@@ -924,41 +1053,39 @@ bool StordVmdk::PrepareRequest(std::unique_ptr<Request> request) {
 
 	/* Effective for new writes overlapping on sync */
 	bool overlapped_write = false;
-	if ((nreqp->type == Request::Type::kWrite or
-		nreqp->type == Request::Type::kWriteSame) &&
-		requests_.sync_pending_.size()) {
+	if (hyc_unlikely(not requests_.sync_pending_.empty() and nreqp->IsWrite())) {
 		for (auto& sync_req : requests_.sync_pending_) {
 			SyncRequest *syncp = sync_req.second.get();
-			if (nreqp->IsOverlapped(syncp->offset, syncp->length)) {
-				syncp->write_pending.emplace_back(nreqp);
-				overlapped_write = true;
-				prepared = false;
-				++stats_.sync_hold_new_writes_;
+			if (not nreqp->IsOverlapped(syncp->offset, syncp->length)) {
+				continue;
 			}
+			syncp->write_pending.emplace_back(nreqp);
+			overlapped_write = true;
+			prepared = false;
+			++stats_.sync_hold_new_writes_;
 		}
 	}
-
 
 	bool scheduled_list_empty = requests_.scheduled_.empty();
 	requests_.scheduled_.emplace(request->id, std::move(request));
 
 	/* Do RPC only if write is not overlapping on sync */
-	if (!overlapped_write) {
-		requests_.rpc_pending_.emplace_back(nreqp);
+	if (hyc_likely(not overlapped_write)) {
+		requests_.rpc_queue_.Append(nreqp);
 	}
 
-	if (prepared) {
-	        prepared = false;
-		if (kAdaptiveBatching) {  
+	if (hyc_likely(prepared)) {
+		prepared = false;
+		if (hyc_likely(kAdaptiveBatching)) {
 			//scheduled early is set if there is atleast one already scheduled IO
 			//and we are attempting to send more due to pending IOs size >= batch_size.
 			//scheduled early indicates that current batch sie is insufficient to
 			//absorb the application parallelism and need a change. IO callback
 			//will look at it and if latency permits, will increase the batch size
-			if (not scheduled_list_empty && requests_.rpc_pending_.size() >= batch_size_) {
-				scheduled_early_ = true;
-				prepared = true;
-			}
+
+			const size_t s = requests_.rpc_queue_.Size();
+			prepared = (not scheduled_list_empty) and (s >= batch_size_);
+			scheduled_early_ = prepared ? true : scheduled_early_;
 		} else if (not scheduled_list_empty) {
 			prepared = latency_avg_.Average() > kExpectedWanLatency;
 		}
@@ -1085,6 +1212,16 @@ bool RequestBase::IsOverlapped(uint64_t req_offset,
 		(req_offset + req_length-1) < offset);
 }
 
+bool RequestBase::IsWrite() const noexcept {
+	switch (GetType()) {
+	default:
+		return false;
+	case RequestBase::Type::kWriteSame:
+	case RequestBase::Type::kWrite:
+		return true;
+	}
+}
+
 Request::Request(
 			std::shared_ptr<StordVmdk> vmdk,
 			RequestID id,
@@ -1161,7 +1298,7 @@ bool StordVmdk::SyncRequestComplete(RequestID id, int32_t result) {
 	for (auto write_req : sync_req->write_pending) {
 		pending_ios = true;
 		Request *reqp = reinterpret_cast<Request *>(write_req);
-		requests_.rpc_pending_.emplace_back(reqp);
+		requests_.rpc_queue_.Append(reqp);
 		--stats_.sync_hold_new_writes_;
 	}
 
@@ -1231,7 +1368,7 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 			" avg_latency " << avg_latency;
 		//new smaller batch_size might have caused pending ios
 		//size to be more than new batch size. Schedule all such IOs
-		if (requests_.rpc_pending_.size() >= batch_size_) {
+		if (requests_.rpc_queue_.Size() >= batch_size_) {
 			kLogging && LOG(ERROR) << "Setting need_schedule_ due to reduced batch size"
 			       << batch_size_;
 			need_schedule_ = true;
@@ -1287,22 +1424,13 @@ bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
 		UpdateBatchSize(reqp);
 	}
 
-	switch (reqp->type) {
-	default:
-		break;
-	case RequestBase::Type::kWrite:
-	case RequestBase::Type::kWriteSame: {
-		if (hyc_likely(not reqp->sync_req)) {
-			break;
-		}
+	if (hyc_unlikely(reqp->sync_req and reqp->IsWrite())) {
 		SyncRequest *sync_reqp = reinterpret_cast<SyncRequest *>(reqp->sync_req);
 		--stats_.sync_ongoing_writes_;
 		if (!--sync_reqp->count) {
 			sync_reqp->result = 0;
 			syncp = sync_reqp;
 		}
-		break;
-	}
 	}
 
 	requests_.scheduled_.erase(it);
@@ -1373,14 +1501,6 @@ int StordVmdk::PostRequestCompletion() const {
 RequestID StordVmdk::AbortRequest(const void* privatep) {
 	std::lock_guard<std::mutex> rpc_lock(send_rpc_mutex_);
 	std::lock_guard<std::mutex> requests_lock(requests_.mutex_);
-
-	for (auto reqp : requests_.rpc_pending_) {
-		std::lock_guard<std::mutex> lock(reqp->mutex_);
-		if (reqp->privatep == privatep) {
-			reqp->privatep = nullptr;
-			return reqp->id;
-		}
-	}
 
 	for (auto& req_map : requests_.scheduled_) {
 		auto reqp = req_map.second.get();
@@ -1719,19 +1839,44 @@ void StordVmdk::ScheduleTruncate(folly::EventBase* basep, Request* reqp) {
 	});
 }
 
+void StordConnection::SetResetResourceLimitsTimeout() {
+	std::chrono::seconds s(resource_limits_.timeout_secs_);
+	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(s).count();
+	resource_limits_.timeout_ = std::make_unique<ReschedulingTimeout>(base_.get(), ms);
+	resource_limits_.timeout_->ScheduleTimeout([this] () {
+		ForEachRegisteredVmdks([] (StordVmdk* vmdkp) mutable {
+			vmdkp->ResetResourceLimits();
+			return true;
+		});
+		return true;
+	});
+}
+
+void StordVmdk::ResetResourceLimits() noexcept {
+	limits_.read_.Reset();
+	limits_.write_.Reset();
+}
+
 void StordVmdk::ScheduleNow(folly::EventBase* basep) {
-	auto GetPending = [this] (std::vector<Request*>& pending) mutable {
-		pending.clear();
-		std::lock_guard<std::mutex> lock(requests_.mutex_);
-		requests_.rpc_pending_.swap(pending);
-		requests_.rpc_pending_.reserve(32);
-		if (not pending.empty()) {
-			bulk_depth_avg_.Add(pending.size());
+	auto GetPending = [this] (std::vector<Request*>& pending, RequestBase::Type type) mutable {
+		RpcQueue* q = &requests_.rpc_queue_;
+		IoLimits* limits = (type == RequestBase::Type::kRead) ?
+			&limits_.read_ : &limits_.write_;
+
+		Request* req;
+		while (not limits->Exhausted() and ((req = q->Pop(type)) != nullptr)) {
+			pending.emplace_back(req);
+			limits->Consume(req->length);
+			req = nullptr;
 		}
 	};
 
 	std::vector<Request*> pending;
-	GetPending(pending);
+
+	std::lock_guard lock(requests_.mutex_);
+	GetPending(pending, RequestBase::Type::kWrite);
+	GetPending(pending, RequestBase::Type::kTruncate);
+	GetPending(pending, RequestBase::Type::kRead);
 
 	if (pending.empty()) {
 		return;
@@ -1745,6 +1890,8 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep) {
 		uint32_t nreads = 0;
 
 		std::lock_guard<std::mutex> lock(send_rpc_mutex_);
+		bulk_depth_avg_.Add(pending.size());
+
 		for (auto reqp : pending) {
 			SharedMemory::Handle shm{0};
 			void* addrp{};
@@ -1761,6 +1908,8 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep) {
 
 			reqp->timer.Start();
 			switch (reqp->type) {
+			case Request::Type::kSync:
+				break;
 			case Request::Type::kRead:
 				if (nreads++ == 0) {
 					read = std::make_unique<std::vector<::hyc_thrift::ReadRequest>>();
@@ -1788,8 +1937,6 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep) {
 				break;
 			case Request::Type::kTruncate:
 				ScheduleTruncate(basep, reqp);
-				break;
-			case Request::Type::kSync:
 				break;
 			}
 		}
@@ -2335,6 +2482,25 @@ void HycSetBatchingAttributes(uint32_t adaptive_batch, uint32_t wan_latency,
 	kBatchDecrPercent = batch_decr_pct;
 	kSystemLoadFactor = system_load_factor;
 	kLogging = debug_log;
+}
+
+void HycSetDeploymentTarget(enum HycDeploymentTarget target) {
+	switch (target) {
+	case kDeploymentTest:
+		kLimitReadBw = 20 * kOneMb;
+		kLimitWriteIops = 4 * kOneKb;
+		kLimitWriteBw = 5 * kOneMb;
+		kLimitWriteIops = kOneKb;
+		LOG(INFO) << "Setting BW limits for TEST deployment";
+		break;
+	case kDeploymentCustomer:
+		kLimitReadBw = kOneMb * kOneMb;
+		kLimitWriteIops = kOneMb;
+		kLimitWriteBw = kOneMb * kOneMb;
+		kLimitWriteIops = kOneMb;
+		LOG(INFO) << "Setting BW limits for Production deployment";
+		break;
+	}
 }
 
 RequestID HycScheduleTruncate(VmdkHandle handle, const void* privatep,
