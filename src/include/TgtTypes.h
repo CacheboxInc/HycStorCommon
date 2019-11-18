@@ -32,6 +32,11 @@ struct ScheduledRequest {
 	RequestID request_id;
 };
 
+enum HycDeploymentTarget {
+	kDeploymentTest,
+	kDeploymentCustomer
+};
+
 #ifdef __cplusplus
 }
 #endif

@@ -59,11 +59,11 @@ static uint32_t kSystemLoadFactor = 6; //system load influence in batch size det
 static size_t kLogging = 0;
 
 static constexpr int64_t kOneMb{1024 * 1024};
-static constexpr int64_t kLimitWriteBw{5 * kOneMb};
-static constexpr int64_t kLimitReadBw{20 * kOneMb};
+static int64_t kLimitWriteBw{kOneMb * kOneMb};
+static int64_t kLimitReadBw{kOneMb * kOneMb};
 
-static constexpr int64_t kLimitReadIops{4 * kOneKb};
-static constexpr int64_t kLimitWriteIops{kOneKb};
+static int64_t kLimitReadIops{kOneMb};
+static int64_t kLimitWriteIops{kOneMb};
 
 namespace hyc {
 using namespace apache::thrift;
@@ -2482,6 +2482,23 @@ void HycSetBatchingAttributes(uint32_t adaptive_batch, uint32_t wan_latency,
 	kBatchDecrPercent = batch_decr_pct;
 	kSystemLoadFactor = system_load_factor;
 	kLogging = debug_log;
+}
+
+void HycSetDeploymentTarget(enum HycDeploymentTarget target) {
+	switch (target) {
+	case kDeploymentTest:
+		kLimitReadBw = 20 * kOneMb;
+		kLimitWriteIops = 4 * kOneKb;
+		kLimitWriteBw = 5 * kOneMb;
+		kLimitWriteIops = kOneKb;
+		break;
+	case kDeploymentCustomer:
+		kLimitReadBw = kOneMb * kOneMb;
+		kLimitWriteIops = kOneMb;
+		kLimitWriteBw = kOneMb * kOneMb;
+		kLimitWriteIops = kOneMb;
+		break;
+	}
 }
 
 RequestID HycScheduleTruncate(VmdkHandle handle, const void* privatep,

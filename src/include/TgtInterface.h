@@ -68,6 +68,8 @@ int HycGetComponentStats(component_stats_t* g_stats);
 void HycSetBatchingAttributes(uint32_t adaptive_batch, uint32_t wan_latency,
 		uint32_t batch_incr_val, uint32_t batch_decr_pct,
 		uint32_t system_load_factor, uint32_t debug_log);
+
+void HycSetDeploymentTarget(enum HycDeploymentTarget target);
 #ifdef __cplusplus
 }
 #endif
