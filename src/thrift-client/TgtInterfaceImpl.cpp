@@ -2491,12 +2491,14 @@ void HycSetDeploymentTarget(enum HycDeploymentTarget target) {
 		kLimitWriteIops = 4 * kOneKb;
 		kLimitWriteBw = 5 * kOneMb;
 		kLimitWriteIops = kOneKb;
+		LOG(INFO) << "Setting BW limits for TEST deployment";
 		break;
 	case kDeploymentCustomer:
 		kLimitReadBw = kOneMb * kOneMb;
 		kLimitWriteIops = kOneMb;
 		kLimitWriteBw = kOneMb * kOneMb;
 		kLimitWriteIops = kOneMb;
+		LOG(INFO) << "Setting BW limits for Production deployment";
 		break;
 	}
 }
