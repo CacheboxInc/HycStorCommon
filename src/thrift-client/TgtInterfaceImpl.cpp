@@ -859,6 +859,10 @@ std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk) {
 		<< " requestid " << vmdk.requestid_
 		<< " latency avg " << vmdk.latency_avg_.Average()
 		<< " Bulk IODepth avg " << vmdk.bulk_depth_avg_.Average()
+		<< " Requests " << vmdk.requests_.scheduled_.size()
+			<< ',' << vmdk.requests_.rpc_queue_.Size()
+			<< ',' << vmdk.requests_.complete_.size()
+			<< ',' << vmdk.requests_.sync_pending_.size()
 		;
 	return os;
 }
