@@ -1877,10 +1877,11 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep) {
 
 	std::vector<Request*> pending;
 
-	std::lock_guard lock(requests_.mutex_);
+	std::unique_lock<std::mutex> lock(requests_.mutex_);
 	GetPending(pending, RequestBase::Type::kWrite);
 	GetPending(pending, RequestBase::Type::kTruncate);
 	GetPending(pending, RequestBase::Type::kRead);
+	lock.unlock();
 
 	if (pending.empty()) {
 		return;
