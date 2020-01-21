@@ -573,6 +573,9 @@ struct VmdkStats {
 	std::atomic<int64_t> batchsize_same_{0};
 	std::atomic<int64_t> need_schedule_count_{0};
 	MovingAverage<uint64_t, 128> avg_batchsize_{};
+
+	std::atomic<int64_t> abort_requests_{0};
+	std::atomic<int64_t> latency_bucket_[9] = {};
 };
 
 struct StordStats {
@@ -749,6 +752,8 @@ private:
 	bool PrepareRequest(std::unique_ptr<Request> request);
 	void UpdateStats(Request* reqp);
 	void UpdateBatchSize(Request* reqp);
+	void UpdateLatencyBucket(int64_t& ulat);
+	void UpdateAbortStats(Request* reqp);
 	int PostRequestCompletion() const;
 	void ReadDataCopy(Request* reqp, const ReadResult& result);
 
@@ -858,6 +863,9 @@ std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk) {
 		<< " avg_batchsize " << vmdk.stats_.avg_batchsize_.Average()
 		<< " requestid " << vmdk.requestid_
 		<< " latency avg " << vmdk.latency_avg_.Average()
+		<< " latency bucket(>32) " << vmdk.stats_.latency_bucket_[6]
+		<< " latency bucket(>64) " << vmdk.stats_.latency_bucket_[7]
+		<< " latency bucket(>128) " << vmdk.stats_.latency_bucket_[8]
 		<< " Bulk IODepth avg " << vmdk.bulk_depth_avg_.Average()
 		<< " Requests " << vmdk.requests_.scheduled_.size()
 			<< ',' << vmdk.requests_.rpc_queue_.Size()
@@ -1097,6 +1105,23 @@ bool StordVmdk::PrepareRequest(std::unique_ptr<Request> request) {
 	return prepared | scheduled_list_empty;
 }
 
+void StordVmdk::UpdateLatencyBucket(int64_t& ulat) {
+	auto lat = ulat/100000;
+	unsigned int r = 0;
+
+	while (lat >>= 1) {
+		  r++;
+	}
+	if (r > 8) {r = 8;}
+	++stats_.latency_bucket_[r];
+}
+
+void StordVmdk::UpdateAbortStats(Request* reqp) {
+	++stats_.abort_requests_;
+	auto latency = reqp->timer.GetMicroSec();
+	UpdateLatencyBucket(latency);
+}
+
 void StordVmdk::UpdateStats(Request* reqp) {
 	--stats_.pending_;
 	--stord_stats_.pending_;
@@ -1105,6 +1130,7 @@ void StordVmdk::UpdateStats(Request* reqp) {
 	if (not kAdaptiveBatching || reqp->batch_size == batch_size_) {
 		latency_avg_.Add(latency);
 	}
+	UpdateLatencyBucket(latency);
 	switch (reqp->type) {
 	case Request::Type::kRead:
 		++stats_.read_requests_;
@@ -1508,6 +1534,7 @@ RequestID StordVmdk::AbortRequest(const void* privatep) {
 
 	for (auto& req_map : requests_.scheduled_) {
 		auto reqp = req_map.second.get();
+		UpdateAbortStats(reqp);
 		std::lock_guard<std::mutex> lock(reqp->mutex_);
 		if (reqp->privatep == privatep) {
 			reqp->privatep = nullptr;
@@ -2016,6 +2043,8 @@ int32_t StordVmdk::GetAllScheduledRequests(
 
 RequestID StordVmdk::AbortScheduledRequest(const void* privatep) {
 	RequestID id = AbortRequest(privatep);
+	LOG(INFO) << "VmID:" << vmid_ << " VmdkID:" << vmdkid_ <<
+		" aborts:" << stats_.abort_requests_;
 	if (hyc_unlikely(id == kInvalidRequestID)) {
 		return id;
 	}
