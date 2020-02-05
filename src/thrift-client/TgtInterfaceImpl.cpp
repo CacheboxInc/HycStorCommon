@@ -2327,6 +2327,7 @@ static hyc::Stord g_stord;
 void HycStorInitialize(int argc, char *argv[], char *stord_ip,
 		uint16_t stord_port) {
 	FLAGS_v = 2;
+	fLI::FLAGS_max_log_size = 200;
 	folly::init(&argc, &argv);
 
 	StordIp.assign(stord_ip);
