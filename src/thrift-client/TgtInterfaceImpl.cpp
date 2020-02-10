@@ -47,6 +47,7 @@ static constexpr size_t kMaxBlockSize{kOneKb * 128};
 static constexpr size_t kShmSize = kMaxBlockSize * 40;
 
 using namespace std::chrono_literals;
+static auto kRequestTimeoutSeconds = 120s;
 static size_t kExpectedWanLatency = std::chrono::microseconds(20ms).count();
 static size_t kMaxBatchSize = 32; //tgt limit of outstanding IOs
 static size_t kMinBatchSize = 4;
@@ -756,10 +757,10 @@ private:
 	void ScheduleWrite(folly::EventBase* basep, Request* reqp);
 	void ScheduleWriteSame(folly::EventBase* basep, Request* reqp);
 	void ScheduleBulkWrite(folly::EventBase* basep,
-		std::unique_ptr<std::vector<::hyc_thrift::WriteRequest>> reqs);
+		std::shared_ptr<std::vector<::hyc_thrift::WriteRequest>> reqs);
 	void ScheduleBulkRead(folly::EventBase* basep,
 		std::vector<Request*> requests,
-		std::unique_ptr<std::vector<::hyc_thrift::ReadRequest>> thrift_requests);
+		std::shared_ptr<std::vector<::hyc_thrift::ReadRequest>> thrift_requests);
 	folly::Future<int> ScheduleTruncate( RequestID reqid,
 		std::vector<TruncateReq>&& requests);
 	void ScheduleTruncate(folly::EventBase* basep, Request* reqp);
@@ -1412,11 +1413,14 @@ bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	SyncRequest* syncp{nullptr};
 	bool post = false;
 
-	std::unique_lock<std::mutex> lock(requests_.mutex_);
-	auto it = requests_.scheduled_.find(id);
-	log_assert(it != requests_.scheduled_.end());
 	if (hyc_unlikely(result)) {
 		VLOG(5) << "reqid " << id << " has nonzero res: " << result;
+	}
+
+	std::unique_lock<std::mutex> lock(requests_.mutex_);
+	auto it = requests_.scheduled_.find(id);
+	if (hyc_unlikely(it == requests_.scheduled_.end())) {
+		return false;
 	}
 
 	auto req = std::move(it->second);
@@ -1662,13 +1666,19 @@ void StordVmdk::ScheduleWrite(folly::EventBase* basep, Request* reqp) {
 }
 
 void StordVmdk::ScheduleBulkWrite(folly::EventBase* basep,
-		std::unique_ptr<std::vector<::hyc_thrift::WriteRequest>> reqs) {
+		std::shared_ptr<std::vector<::hyc_thrift::WriteRequest>> reqs) {
 	log_assert(basep->isInEventBaseThread());
+
+	auto complete = std::make_shared<std::atomic_flag>();
+
 	++stats_.rpc_requests_scheduled_;
 	clientp_->future_BulkWrite(fd_, *reqs.get())
-	.then([this, this_sptr = this->SharedPtr(), reqs = std::move(reqs)]
+	.then([this, this_sptr = this->SharedPtr(), reqs, complete]
 			(const folly::Try<std::vector<::hyc_thrift::WriteResult>>& trie)
 			mutable {
+		if (complete->test_and_set()) {
+			return;
+		}
 		if (hyc_unlikely(trie.hasException())) {
 			LOG(ERROR) << __func__ << " STORD sent exception";
 			RequestComplete(*reqs, -ENOMEM);
@@ -1678,6 +1688,19 @@ void StordVmdk::ScheduleBulkWrite(folly::EventBase* basep,
 
 		const auto& results = trie.value();
 		RequestComplete(results);
+		--stats_.rpc_requests_scheduled_;
+	})
+	.onTimeout(kRequestTimeoutSeconds, [this, reqs, complete] () mutable {
+		if (complete->test_and_set()) {
+			return;
+		}
+		std::ostringstream os;
+		os << "Write requests timedout";
+		for (const auto& req : *reqs) {
+			os << ' ' << req.get_reqid();
+		}
+		LOG(ERROR) << os.str();
+		RequestComplete(*reqs, -EIO);
 		--stats_.rpc_requests_scheduled_;
 	});
 }
@@ -1722,30 +1745,35 @@ void StordVmdk::BulkReadComplete(const std::vector<Request*>& requests,
 	};
 	for (const auto& result : results) {
 		auto reqp = RequestFind(result.reqid);
+		if (hyc_unlikely(reqp == nullptr)) {
+			continue;
+		}
 		reqp->result = result.result;
 		if (hyc_likely(result.result == 0)) {
 			log_assert(reqp != nullptr);
 			ReadDataCopy(reqp, result);
 		}
-	}
-
-	for (auto reqp : requests) {
 		RequestComplete(reqp);
 	}
 }
 
 void StordVmdk::ScheduleBulkRead(folly::EventBase* basep,
 		std::vector<Request*> requests,
-		std::unique_ptr<std::vector<::hyc_thrift::ReadRequest>> thrift_requests) {
+		std::shared_ptr<std::vector<::hyc_thrift::ReadRequest>> thrift_requests) {
 	log_assert(basep->isInEventBaseThread());
+
+	auto complete = std::make_shared<std::atomic_flag>();
 
 	++stats_.rpc_requests_scheduled_;
 	clientp_->future_BulkRead(fd_, *thrift_requests)
-	.then([this, this_sptr = this->SharedPtr(),
-			thrift_requests = std::move(thrift_requests),
+	.then([this, this_sptr = this->SharedPtr(), thrift_requests,
+			complete,
 			requests = std::move(requests)]
 			(const folly::Try<std::vector<::hyc_thrift::ReadResult>>& trie)
 			mutable {
+		if (complete->test_and_set()) {
+			return;
+		}
 		if (hyc_unlikely(trie.hasException())) {
 			LOG(ERROR) << __func__ << " STORD sent exception";
 			RequestComplete(*thrift_requests, -ENOMEM);
@@ -1755,6 +1783,19 @@ void StordVmdk::ScheduleBulkRead(folly::EventBase* basep,
 
 		const auto& result = trie.value();
 		BulkReadComplete(requests, result);
+		--stats_.rpc_requests_scheduled_;
+	})
+	.onTimeout(kRequestTimeoutSeconds, [this, thrift_requests, complete] () mutable {
+		if (complete->test_and_set()) {
+			return;
+		}
+		std::ostringstream os;
+		os << "Read requests timedout";
+		for (const auto& req : *thrift_requests) {
+			os << ' ' << req.get_reqid();
+		}
+		LOG(ERROR) << os.str();
+		RequestComplete(*thrift_requests, -EIO);
 		--stats_.rpc_requests_scheduled_;
 	});
 }
@@ -1888,8 +1929,8 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep) {
 	}
 
 	basep->runInEventBaseThread([this, basep, pending = std::move(pending)] () {
-		std::unique_ptr<std::vector<::hyc_thrift::WriteRequest>> write;
-		std::unique_ptr<std::vector<::hyc_thrift::ReadRequest>> read;
+		std::shared_ptr<std::vector<::hyc_thrift::WriteRequest>> write;
+		std::shared_ptr<std::vector<::hyc_thrift::ReadRequest>> read;
 		std::vector<Request*> read_requests;
 		uint32_t nwrites = 0;
 		uint32_t nreads = 0;
@@ -1917,7 +1958,7 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep) {
 				break;
 			case Request::Type::kRead:
 				if (nreads++ == 0) {
-					read = std::make_unique<std::vector<::hyc_thrift::ReadRequest>>();
+					read = std::make_shared<std::vector<::hyc_thrift::ReadRequest>>();
 				}
 				read->emplace_back(apache::thrift::FragileConstructor(), reqp->shm_,
 					reqp->id, reqp->buf_sz, reqp->offset);
@@ -1925,7 +1966,7 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep) {
 				break;
 			case Request::Type::kWrite: {
 				if (nwrites++ == 0) {
-					write = std::make_unique<std::vector<::hyc_thrift::WriteRequest>>();
+					write = std::make_shared<std::vector<::hyc_thrift::WriteRequest>>();
 				}
 				if (hyc_unlikely(reqp->shm_ != 0)) {
 					std::memcpy(addrp, reqp->bufferp, reqp->buf_sz);
