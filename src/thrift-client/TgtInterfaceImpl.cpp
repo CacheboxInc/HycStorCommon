@@ -561,9 +561,9 @@ struct VmdkStats {
 	std::atomic<int64_t> truncate_failed_{0};
 	std::atomic<int64_t> truncate_latency_{0};
 
-	std::atomic<int64_t> sync_requests_;
-	std::atomic<int64_t> sync_ongoing_writes_;
-	std::atomic<int64_t> sync_hold_new_writes_;
+	std::atomic<int64_t> sync_requests_{0};
+	std::atomic<int64_t> sync_ongoing_writes_{0};
+	std::atomic<int64_t> sync_hold_new_writes_{0};
 
 	std::atomic<int64_t> pending_{0};
 	std::atomic<int64_t> rpc_requests_scheduled_{0};
