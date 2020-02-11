@@ -562,9 +562,9 @@ struct VmdkStats {
 	std::atomic<int64_t> truncate_failed_{0};
 	std::atomic<int64_t> truncate_latency_{0};
 
-	std::atomic<int64_t> sync_requests_;
-	std::atomic<int64_t> sync_ongoing_writes_;
-	std::atomic<int64_t> sync_hold_new_writes_;
+	std::atomic<int64_t> sync_requests_{0};
+	std::atomic<int64_t> sync_ongoing_writes_{0};
+	std::atomic<int64_t> sync_hold_new_writes_{0};
 
 	std::atomic<int64_t> pending_{0};
 	std::atomic<int64_t> rpc_requests_scheduled_{0};
@@ -845,25 +845,19 @@ void SchedulePending::runLoopCallback() noexcept {
 }
 
 std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk) {
-	os << " VmID " << vmdk.vmid_
-		<< " VmdkID " << vmdk.vmdkid_
-		<< " VmdkHandle " << vmdk.vmdk_handle_
-		<< " Lun Size " << vmdk.lun_size_
-		<< " Lun BlkShift " << vmdk.lun_blk_shift_
-		<< " eventfd " << vmdk.eventfd_
-		<< " pending " << vmdk.stats_.pending_
-		<< " batchsize_decr " << vmdk.stats_.batchsize_decr_
-		<< " batchsize_incr " << vmdk.stats_.batchsize_incr_
-		<< " batchsize_same " << vmdk.stats_.batchsize_same_
-		<< " need_schedule_count " << vmdk.stats_.need_schedule_count_
-		<< " avg_batchsize " << vmdk.stats_.avg_batchsize_.Average()
-		<< " requestid " << vmdk.requestid_
-		<< " latency avg " << vmdk.latency_avg_.Average()
-		<< " Bulk IODepth avg " << vmdk.bulk_depth_avg_.Average()
-		<< " Requests " << vmdk.requests_.scheduled_.size()
-			<< ',' << vmdk.requests_.rpc_queue_.Size()
-			<< ',' << vmdk.requests_.complete_.size()
-			<< ',' << vmdk.requests_.sync_pending_.size()
+	os << "VmID=" << vmdk.vmid_ << ' '
+		<< "VmdkID=" << vmdk.vmdkid_ << ' '
+		<< "VmdkHandle=" << vmdk.vmdk_handle_ << ' '
+		<< "eventfd=" << vmdk.eventfd_ << ' '
+		<< "requestid=" << vmdk.requestid_ << ' '
+		<< "pending=" << vmdk.stats_.pending_ << ' '
+		<< "batchsize-avg=" << vmdk.stats_.avg_batchsize_.Average() << ' '
+		<< "latency-avg=" << vmdk.latency_avg_.Average() << ' '
+		<< "Bulk-IODepth-avg=" << vmdk.bulk_depth_avg_.Average() << ' '
+		<< "Req-Sched=" << vmdk.requests_.scheduled_.size() << ' '
+		<< "Req-Rpc-Qed=" << vmdk.requests_.rpc_queue_.Size() << ' '
+		<< "Req-Sync-Pending=" << vmdk.requests_.sync_pending_.size() << ' '
+		<< "Req-Pending-On-Sync=" << vmdk.stats_.sync_hold_new_writes_ << ' ';
 		;
 	return os;
 }
@@ -1753,8 +1747,8 @@ void StordVmdk::BulkReadComplete(const std::vector<Request*>& requests,
 			log_assert(reqp != nullptr);
 			ReadDataCopy(reqp, result);
 		}
-		RequestComplete(reqp);
 	}
+	RequestComplete(results);
 }
 
 void StordVmdk::ScheduleBulkRead(folly::EventBase* basep,
