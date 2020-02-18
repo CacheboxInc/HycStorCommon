@@ -47,7 +47,7 @@ static constexpr size_t kMaxBlockSize{kOneKb * 128};
 static constexpr size_t kShmSize = kMaxBlockSize * 40;
 
 using namespace std::chrono_literals;
-static auto kRequestTimeoutSeconds = 120s;
+static auto kRequestTimeoutSeconds = 60s;
 static size_t kExpectedWanLatency = std::chrono::microseconds(20ms).count();
 static size_t kMaxBatchSize = 32; //tgt limit of outstanding IOs
 static size_t kMinBatchSize = 4;
@@ -1694,7 +1694,7 @@ void StordVmdk::ScheduleBulkWrite(folly::EventBase* basep,
 			os << ' ' << req.get_reqid();
 		}
 		LOG(ERROR) << os.str();
-		RequestComplete(*reqs, -EIO);
+		RequestComplete(*reqs, -EAGAIN);
 		--stats_.rpc_requests_scheduled_;
 	});
 }
@@ -1789,7 +1789,7 @@ void StordVmdk::ScheduleBulkRead(folly::EventBase* basep,
 			os << ' ' << req.get_reqid();
 		}
 		LOG(ERROR) << os.str();
-		RequestComplete(*thrift_requests, -EIO);
+		RequestComplete(*thrift_requests, -EAGAIN);
 		--stats_.rpc_requests_scheduled_;
 	});
 }
