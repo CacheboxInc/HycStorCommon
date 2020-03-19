@@ -2259,6 +2259,17 @@ StordVmdk* Stord::FindVmdk(const std::string& vmdkid) {
 
 int32_t Stord::OpenVmdk(const char* vmid, const char* vmdkid, uint64_t lun_size,
 		uint32_t lun_blk_shift, int eventfd, StordVmdk** vmdkpp) {
+	auto rpcp = stord_.rpcp_;
+	if (not rpcp) {
+		LOG(ERROR) << "Stord: cannot open vmdk. Not connected to STORD.";
+		return -EINVAL;
+	}
+	StordConnection* conn = rpcp->GetStordConnection();
+	if (not conn) {
+		LOG(ERROR) << "Stord: cannot open vmdk. Not connected to STORD.";
+		return -EINVAL;
+	}
+
 	*vmdkpp = nullptr;
 	auto vmdkp = FindVmdk(vmdkid);
 	if (hyc_unlikely(vmdkp)) {
@@ -2271,11 +2282,7 @@ int32_t Stord::OpenVmdk(const char* vmid, const char* vmdkid, uint64_t lun_size,
 		return -ENOMEM;
 	}
 	vmdkp = vmdk.get();
-
-	auto rpcp = stord_.rpcp_;
-	log_assert(rpcp);
-	vmdkp->SetStordConnection(rpcp->GetStordConnection());
-
+	vmdkp->SetStordConnection(conn);
 	auto rc = vmdk->OpenVmdk();
 	if (hyc_unlikely(rc < 0)) {
 		return rc;
