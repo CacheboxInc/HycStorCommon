@@ -769,6 +769,7 @@ private:
 	bool SyncRequestComplete(RequestID id, int32_t result);
 	void SyncRequestComplete(SyncRequest* reqp);
 
+	bool UpdateSyncRequest(Request* request, SyncRequest* sync) noexcept;
 	bool RequestComplete(RequestID id, int32_t result);
 	void RequestComplete(Request* reqp);
 
@@ -1062,6 +1063,7 @@ bool StordVmdk::PrepareRequest(std::unique_ptr<Request> request) {
 			overlapped_write = true;
 			prepared = false;
 			++stats_.sync_hold_new_writes_;
+			break;
 		}
 	}
 
@@ -1403,6 +1405,16 @@ void StordVmdk::UpdateBatchSize(Request* reqp) {
 	}
 }
 
+/*
+ * Handle Sync Request for completed Write request
+ */
+bool StordVmdk::UpdateSyncRequest(Request* request, SyncRequest* sync) noexcept {
+	request->sync_req = nullptr;
+	--stats_.sync_ongoing_writes_;
+	sync->result = 0;
+	return --sync->count == 0;
+}
+
 bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	SyncRequest* syncp{nullptr};
 	bool post = false;
@@ -1427,12 +1439,8 @@ bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
 	}
 
 	if (hyc_unlikely(reqp->sync_req and reqp->IsWrite())) {
-		SyncRequest *sync_reqp = reinterpret_cast<SyncRequest *>(reqp->sync_req);
-		--stats_.sync_ongoing_writes_;
-		if (!--sync_reqp->count) {
-			sync_reqp->result = 0;
-			syncp = sync_reqp;
-		}
+		SyncRequest *sync_req = reinterpret_cast<SyncRequest *>(reqp->sync_req);
+		syncp = UpdateSyncRequest(reqp, sync_req) ? sync_req : nullptr;
 	}
 
 	requests_.scheduled_.erase(it);
@@ -1939,6 +1947,16 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep) {
 
 			std::lock_guard<std::mutex> lock(reqp->mutex_);
 			if (hyc_unlikely(reqp->privatep == nullptr)) {
+				if (reqp->IsWrite() and reqp->sync_req) {
+					auto sync = reinterpret_cast<SyncRequest *>(reqp->sync_req);
+					const bool complete = [this, reqp, sync] () mutable {
+							std::unique_lock<std::mutex> lock(requests_.mutex_);
+							return UpdateSyncRequest(reqp, sync);
+						} ();
+					if (complete) {
+						SyncRequestComplete(sync);
+					}
+				}
 				continue;
 			}
 			if (hyc_likely(static_cast<size_t>(reqp->buf_sz) <= kMaxBlockSize)) {
