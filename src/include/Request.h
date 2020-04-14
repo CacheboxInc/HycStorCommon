@@ -47,7 +47,7 @@ public:
 	char* bufferp;
 	int32_t buf_sz;
 	TimePoint timer;
-	RequestBase* sync_req;
+	RequestBase* sync_req{};
 	size_t batch_size;
 	SharedMemory::Handle shm_;
 

@@ -746,7 +746,7 @@ private:
 
 	void ScheduleNow(folly::EventBase* basep);
 	int64_t RpcRequestScheduledCount() const noexcept;
-	bool PrepareRequest(std::unique_ptr<SyncRequest> request);
+	bool PrepareSyncRequest(std::unique_ptr<SyncRequest> request);
 	bool PrepareRequest(std::unique_ptr<Request> request);
 	void UpdateStats(Request* reqp);
 	void UpdateBatchSize(Request* reqp);
@@ -1016,7 +1016,7 @@ int64_t StordVmdk::RpcRequestScheduledCount() const noexcept {
 }
 
 /* Prepare a sync request for completion */
-bool StordVmdk::PrepareRequest(std::unique_ptr<SyncRequest> request) {
+bool StordVmdk::PrepareSyncRequest(std::unique_ptr<SyncRequest> request) {
 	bool complete = true;
 	auto nreqp = request.get();
 
@@ -1028,7 +1028,7 @@ bool StordVmdk::PrepareRequest(std::unique_ptr<SyncRequest> request) {
 			continue;
 		case Request::Type::kWrite:
 		case Request::Type::kWriteSame:
-			if (not req_ptr->IsOverlapped(nreqp->offset, nreqp->length)) {
+			if (not req_ptr->IsOverlapped(nreqp->offset, nreqp->length) or req_ptr->sync_req) {
 				continue;
 			}
 			req_ptr->sync_req = nreqp;
@@ -2146,7 +2146,7 @@ RequestID StordVmdk::ScheduleSyncCache(const void* privatep, uint64_t offset,
 
 	++stats_.pending_;
 	auto sync_reqp = sync_req.get();
-	if (PrepareRequest(std::move(sync_req))) {
+	if (PrepareSyncRequest(std::move(sync_req))) {
 		SyncRequestComplete(sync_reqp);
 	}
 
