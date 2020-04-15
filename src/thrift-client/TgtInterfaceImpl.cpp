@@ -1947,16 +1947,8 @@ void StordVmdk::ScheduleNow(folly::EventBase* basep) {
 
 			std::lock_guard<std::mutex> lock(reqp->mutex_);
 			if (hyc_unlikely(reqp->privatep == nullptr)) {
-				if (reqp->IsWrite() and reqp->sync_req) {
-					auto sync = reinterpret_cast<SyncRequest *>(reqp->sync_req);
-					const bool complete = [this, reqp, sync] () mutable {
-							std::unique_lock<std::mutex> lock(requests_.mutex_);
-							return UpdateSyncRequest(reqp, sync);
-						} ();
-					if (complete) {
-						SyncRequestComplete(sync);
-					}
-				}
+				reqp->result = -EIO;
+				RequestComplete(reqp);
 				continue;
 			}
 			if (hyc_likely(static_cast<size_t>(reqp->buf_sz) <= kMaxBlockSize)) {
