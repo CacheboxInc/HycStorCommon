@@ -49,7 +49,7 @@ public:
 	TimePoint timer;
 	RequestBase* sync_req{};
 	size_t batch_size;
-	SharedMemory::Handle shm_;
+	SharedMemory::Handle shm_{};
 
 public:
 	Request(std::shared_ptr<StordVmdk> vmdk, RequestID id, Type t,
