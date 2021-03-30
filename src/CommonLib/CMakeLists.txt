@@ -4,6 +4,7 @@ set(HycStorCommonFiles
 	SpinLock.cpp
 	TimePoint.cpp
 	SharedMemory.cpp
+	IOTrack.cpp
 )
 
 add_library(HycStorCommon
