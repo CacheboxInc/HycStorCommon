@@ -1,19 +1,23 @@
+#include <iostream>
+
+#include <glog/logging.h>
+#include <gflags/gflags.h>
 
 #include "IOTrack.h"
 
 namespace hyc {
 
-void ReqTrack::Print(TrackClock now) {
-	auto dur_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_at_);
+void ReqTrack::Print(TrackTimePoint now) {
+	auto dur_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_at);
 	LOG(ERROR) << "req_id " << req_id <<
 		      " req_offset " << req_offset <<
 		      " req_size " << req_size <<
-		      " elapsed_time(ms) " << (now - start_at) << 
+		      " elapsed_time(ms) " << dur_ms.count() << 
 		      std::endl;
 }
 
 uint64_t ReqTrack::GetLatency() {
-	return std::chrono::duration_cast<std::chrono::milliseconds>(TrackClock::now() - start_at_);
+	return std::chrono::duration_cast<std::chrono::milliseconds>(TrackClock::now() - start_at).count();
 }
 
 ReqTrack* DiskTrack::AddReq(uint64_t reqid) {
@@ -25,7 +29,7 @@ ReqTrack* DiskTrack::AddReq(uint64_t reqid) {
 	auto rtrack = std::make_unique<ReqTrack>();
 	rtrack->req_id = reqid;
 	rtrack->start_at = TrackClock::now();
-	tracked_reqs_[reqid] = rtrack;
+	tracked_reqs_[reqid] = std::move(rtrack);
 	++rstats_.n_arrived;
 	return rtrack.get();
 }
@@ -38,7 +42,7 @@ int DiskTrack::DelReq(uint64_t reqid) {
 		return -1;
 	}
 	++rstats_.n_completed;
-	rstats_.avg_latency.Add(reqi.second->GetLatency());	
+	rstats_.avg_latency.Add(reqi->second->GetLatency());	
 	tracked_reqs_.erase(reqi);
 	return 0;
 }
@@ -77,7 +81,7 @@ DiskTrack* IoTrack::AddDisk(uint64_t diskid) {
 		LOG(ERROR) << "diskid " << diskid << " is getting reinserted" << std::endl;
 	}
 	auto vtrack = std::make_unique<DiskTrack>();
-	tracked_disks_[diskid] = vtrack;
+	tracked_disks_[diskid] = std::move(vtrack);
 	return vtrack.get();
 }
 

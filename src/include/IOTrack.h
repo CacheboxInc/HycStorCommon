@@ -4,6 +4,11 @@
 #include <memory>
 #include <thread>
 
+#include <atomic>
+#include <unordered_map>
+
+#include "MovingAverage.h"
+
 using TrackClock = std::chrono::high_resolution_clock;
 using TrackTimePoint = TrackClock::time_point;
 
@@ -22,13 +27,20 @@ public:
 
 struct ReqTrack {
 public:
+	ReqTrack() = default;
+	~ReqTrack() = default;
+ 
+	ReqTrack(const ReqTrack& rhs) = delete;
+	ReqTrack(ReqTrack&& rhs) = delete;
+
+public:
 	uint64_t req_id{0};
-	TrackTimePoint start_at{0};	
+	TrackTimePoint start_at;	
 	uint64_t req_offset{0};
 	uint64_t req_size{0};
 
 public:
-	void Print(uint64_t now);
+	void Print(TrackTimePoint now);
 	uint64_t GetLatency();
 };
 
