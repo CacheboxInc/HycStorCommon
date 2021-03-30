@@ -46,9 +46,13 @@ public:
 
 class DiskTrack {
 public:
+	DiskTrack(uint64_t diskid) : id_(diskid) {}
+	~DiskTrack() = default;
+
 	ReqTrack* AddReq(uint64_t reqid);
 	int DelReq(uint64_t reqid);
 	ReqTrack* GetReq(uint64_t reqid);
+	uint64_t GetId() { return id_; }
 
 	void Monitor();
 
@@ -56,6 +60,7 @@ private:
 	mutable std::mutex mutex_;
 	std::unordered_map<uint64_t, std::unique_ptr<ReqTrack>> tracked_reqs_;
 	ReqStats rstats_;
+	uint64_t id_{0};
 };
 
 class IoTrack {

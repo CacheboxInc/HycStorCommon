@@ -33,6 +33,7 @@
 #include "Request.h"
 #include "SharedMemory.h"
 #include "MovingAverage.h"
+#include "IOTrack.h"
 
 static std::string StordIp = "127.0.0.1";
 static uint16_t StordPort = 9876;
@@ -189,6 +190,8 @@ private:
 	std::unique_ptr<folly::EventBase> base_;
 	folly::EventBase* basep_;
 	std::unique_ptr<std::thread> runner_;
+
+	IoTrack *iotrack_{nullptr};	
 };
 
 StordConnection::StordConnection(std::string ip, uint16_t port, uint16_t cpu,
@@ -777,6 +780,8 @@ private:
 	bool scheduled_early_{false};
 	bool need_schedule_{false};
 	VmdkStats stats_;
+
+	DiskTrack *dtrack_{nullptr};
 
 	static StordStats stord_stats_;
 	static MovingAverage<uint64_t, 128> stord_load_avg_;

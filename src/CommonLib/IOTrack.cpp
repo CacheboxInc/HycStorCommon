@@ -80,9 +80,9 @@ DiskTrack* IoTrack::AddDisk(uint64_t diskid) {
 	if (diski != tracked_disks_.end()) {
 		LOG(ERROR) << "diskid " << diskid << " is getting reinserted" << std::endl;
 	}
-	auto vtrack = std::make_unique<DiskTrack>();
-	tracked_disks_[diskid] = std::move(vtrack);
-	return vtrack.get();
+	auto dtrack = std::make_unique<DiskTrack>(diskid);
+	tracked_disks_[diskid] = std::move(dtrack);
+	return dtrack.get();
 }
 
 int IoTrack::DelDisk(uint64_t diskid) {
