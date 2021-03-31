@@ -1,9 +1,16 @@
+#include <unistd.h>
+
 #include <iostream>
 
 #include <glog/logging.h>
 #include <gflags/gflags.h>
 
 #include "IOTrack.h"
+
+#define IOLOG_FREQUENCY    60 //seconds
+
+uint64_t g_iolog_frequency = IOLOG_FREQUENCY;
+bool g_iolog_enabled = false;
 
 namespace hyc {
 
@@ -124,12 +131,16 @@ DiskTrack* IoTrack::GetDisk(std::string diskid) {
 
 void IoTrack::IoMonitorLoop() {
 	LOG(ERROR) << "Iotrack monitor thread starting" << std::endl;
+	const char *debug_file = "/root/hyc/io_debug";
 	while (!shutdown_) {
-		{
+		if (access(debug_file, F_OK) == 0) {
+			g_iolog_enabled = true;
 			std::lock_guard<std::mutex> lock(mutex_);
 			for (auto & diski : tracked_disks_) {
 				diski.second->Monitor();
 			}	
+		} else {
+			g_iolog_enabled = false;
 		}
 		std::this_thread::sleep_for(std::chrono::seconds(monitor_freq_));
 	}

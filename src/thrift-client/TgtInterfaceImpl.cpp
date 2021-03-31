@@ -35,10 +35,8 @@
 #include "MovingAverage.h"
 #include "IOTrack.h"
 
-#define IOLOG_FREQUENCY    30 //seconds
-
-static uint64_t iolog_frequency = IOLOG_FREQUENCY;
-static bool iolog_enabled = true;
+extern uint64_t g_iolog_frequency;
+extern bool g_iolog_enabled;
 
 static std::string StordIp = "127.0.0.1";
 static uint16_t StordPort = 9876;
@@ -984,7 +982,7 @@ bool StordVmdk::PrepareSyncRequest(std::unique_ptr<SyncRequest> request) {
 	bool complete = true;
 	auto nreqp = request.get();
 
-	if (dtrack_ and iolog_enabled) {
+	if (dtrack_ and g_iolog_enabled) {
 		auto rtrack = dtrack_->AddReq(request->id);
 		rtrack->req_offset = request->offset;
 		rtrack->req_size = request->length;
@@ -1034,7 +1032,7 @@ bool StordVmdk::PrepareRequest(std::unique_ptr<Request> request) {
 	bool prepared = true;
 	auto nreqp = request.get();
 
-	if (dtrack_ and iolog_enabled) {
+	if (dtrack_ and g_iolog_enabled) {
 		auto rtrack = dtrack_->AddReq(request->id);
 		rtrack->req_offset = request->offset;
 		rtrack->req_size = request->length;
@@ -1279,7 +1277,7 @@ constexpr T GetErrNo(T arg1, Args... args) {
 bool StordVmdk::SyncRequestComplete(RequestID id, int32_t result) {
 	bool pending_ios = false;
 
-	if (dtrack_ and iolog_enabled) {
+	if (dtrack_ and g_iolog_enabled) {
 		dtrack_->DelReq(id);
 	}
 
@@ -1420,7 +1418,7 @@ bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
 		VLOG(5) << "reqid " << id << " has nonzero res: " << result;
 	}
 
-	if (dtrack_ and iolog_enabled) {
+	if (dtrack_ and g_iolog_enabled) {
 		dtrack_->DelReq(id);
 	}
 
@@ -2209,7 +2207,7 @@ private:
 };
 
 Stord::Stord() {
-	iotrack_ = std::make_unique<IoTrack>(iolog_frequency);
+	iotrack_ = std::make_unique<IoTrack>(g_iolog_frequency);
 }
 
 Stord::~Stord() {
