@@ -12,6 +12,7 @@ void ReqTrack::Print(TrackTimePoint now) {
 	LOG(ERROR) << "req_id " << req_id <<
 		      " req_offset " << req_offset <<
 		      " req_size " << req_size <<
+		      " req_type " << req_type <<
 		      " elapsed_time(ms) " << dur_ms.count() << 
 		      std::endl;
 }
@@ -26,11 +27,13 @@ ReqTrack* DiskTrack::AddReq(uint64_t reqid) {
 	if (reqi != tracked_reqs_.end()) {
 		LOG(ERROR) << "reqid " << reqid << " is getting reinserted" << std::endl;
 	}
-	auto rtrack = std::make_unique<ReqTrack>();
-	rtrack->req_id = reqid;
+	auto rtrack = std::make_unique<ReqTrack>(reqid);
 	rtrack->start_at = TrackClock::now();
 	tracked_reqs_[reqid] = std::move(rtrack);
 	++rstats_.n_arrived;
+	if (not is_changed_) {
+		is_changed_ = true;
+	}
 	return rtrack.get();
 }
 
@@ -44,6 +47,9 @@ int DiskTrack::DelReq(uint64_t reqid) {
 	++rstats_.n_completed;
 	rstats_.avg_latency.Add(reqi->second->GetLatency());	
 	tracked_reqs_.erase(reqi);
+	if (not is_changed_) {
+		is_changed_ = true;
+	}
 	return 0;
 }
 
@@ -59,10 +65,20 @@ ReqTrack* DiskTrack::GetReq(uint64_t reqid) {
 
 void DiskTrack::Monitor() {
 	std::lock_guard<std::mutex> lock(mutex_);
+	if (not is_changed_) {
+		LOG(ERROR) << "no change for disk " << id_ << std::endl;
+		return;
+	}
+	LOG(ERROR) << "iolog for disk " << id_ << std::endl;
 	auto now = std::chrono::high_resolution_clock::now();
 	for (auto & reqi : tracked_reqs_) {
 		reqi.second->Print(now);
-	}	
+	}
+	LOG(ERROR) << "req_arrived " << rstats_.n_arrived <<
+		      "req_completed " << rstats_.n_completed <<
+		      "avg_latency " << rstats_.avg_latency.Average() <<
+		      std::endl;
+	is_changed_ = false;
 }
 
 IoTrack::IoTrack(uint64_t freq) : monitor_freq_(freq) {
@@ -74,7 +90,7 @@ IoTrack::~IoTrack() {
 	monitor_.join();
 }
 
-DiskTrack* IoTrack::AddDisk(uint64_t diskid) {
+DiskTrack* IoTrack::AddDisk(std::string diskid) {
 	std::lock_guard<std::mutex> lock(mutex_);
 	auto diski = tracked_disks_.find(diskid);
 	if (diski != tracked_disks_.end()) {
@@ -85,7 +101,7 @@ DiskTrack* IoTrack::AddDisk(uint64_t diskid) {
 	return dtrack.get();
 }
 
-int IoTrack::DelDisk(uint64_t diskid) {
+int IoTrack::DelDisk(std::string diskid) {
 	std::lock_guard<std::mutex> lock(mutex_);
 	auto diski = tracked_disks_.find(diskid);
 	if (diski == tracked_disks_.end()) {
@@ -96,7 +112,7 @@ int IoTrack::DelDisk(uint64_t diskid) {
 	return 0;
 }
 
-DiskTrack* IoTrack::GetDisk(uint64_t diskid) {
+DiskTrack* IoTrack::GetDisk(std::string diskid) {
 	std::lock_guard<std::mutex> lock(mutex_);
 	auto diski = tracked_disks_.find(diskid);
 	if (diski != tracked_disks_.end()) {

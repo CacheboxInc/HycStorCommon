@@ -25,9 +25,16 @@ struct DiskStats {
 public:
 };
 
+#define  REQ_UNKNOWN      0
+#define  REQ_READ         1
+#define  REQ_WRITE        2
+#define  REQ_WRITESAME    3
+#define  REQ_TRUNCATE     4
+#define  REQ_SYNC         5
+
 struct ReqTrack {
 public:
-	ReqTrack() = default;
+	ReqTrack(uint64_t reqid) : req_id(reqid) {};
 	~ReqTrack() = default;
  
 	ReqTrack(const ReqTrack& rhs) = delete;
@@ -38,6 +45,7 @@ public:
 	TrackTimePoint start_at;	
 	uint64_t req_offset{0};
 	uint64_t req_size{0};
+	uint32_t req_type{0};
 
 public:
 	void Print(TrackTimePoint now);
@@ -46,13 +54,13 @@ public:
 
 class DiskTrack {
 public:
-	DiskTrack(uint64_t diskid) : id_(diskid) {}
+	DiskTrack(std::string diskid) : id_(diskid) {}
 	~DiskTrack() = default;
 
 	ReqTrack* AddReq(uint64_t reqid);
 	int DelReq(uint64_t reqid);
 	ReqTrack* GetReq(uint64_t reqid);
-	uint64_t GetId() { return id_; }
+	std::string GetId() { return id_; }
 
 	void Monitor();
 
@@ -60,7 +68,8 @@ private:
 	mutable std::mutex mutex_;
 	std::unordered_map<uint64_t, std::unique_ptr<ReqTrack>> tracked_reqs_;
 	ReqStats rstats_;
-	uint64_t id_{0};
+	bool is_changed_{false};
+	std::string id_{0};
 };
 
 class IoTrack {
@@ -68,16 +77,16 @@ public:
 	IoTrack(uint64_t freq);
 	~IoTrack();
 
-	DiskTrack* AddDisk(uint64_t diskid);
-	int DelDisk(uint64_t diskid);
-	DiskTrack* GetDisk(uint64_t diskid);
+	DiskTrack* AddDisk(std::string diskid);
+	int DelDisk(std::string diskid);
+	DiskTrack* GetDisk(std::string diskid);
 
 	static void IoMonitor(IoTrack *itrack);
 	void IoMonitorLoop();
 
 private:
 	mutable std::mutex mutex_;
-	std::unordered_map<uint64_t, std::unique_ptr<DiskTrack>> tracked_disks_;
+	std::unordered_map<std::string, std::unique_ptr<DiskTrack>> tracked_disks_;
 	std::thread monitor_;
 	uint64_t monitor_freq_{0};
 	bool shutdown_{false};

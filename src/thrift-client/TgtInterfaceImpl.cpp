@@ -35,6 +35,11 @@
 #include "MovingAverage.h"
 #include "IOTrack.h"
 
+#define IOLOG_FREQUENCY    30 //seconds
+
+static uint64_t iolog_frequency = IOLOG_FREQUENCY;
+static bool iolog_enabled = true;
+
 static std::string StordIp = "127.0.0.1";
 static uint16_t StordPort = 9876;
 static bool StordLocal = true;
@@ -190,8 +195,6 @@ private:
 	std::unique_ptr<folly::EventBase> base_;
 	folly::EventBase* basep_;
 	std::unique_ptr<std::thread> runner_;
-
-	IoTrack *iotrack_{nullptr};	
 };
 
 StordConnection::StordConnection(std::string ip, uint16_t port, uint16_t cpu,
@@ -691,6 +694,9 @@ public:
 
 	void ResetResourceLimits() noexcept;
 
+	void SetDiskTrack(DiskTrack *dtrack) { dtrack_ = dtrack; }
+	uint32_t _GetReqType(Request *reqp);
+
 	friend std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
 	mutable std::mutex stats_mutex_;
 
@@ -978,6 +984,13 @@ bool StordVmdk::PrepareSyncRequest(std::unique_ptr<SyncRequest> request) {
 	bool complete = true;
 	auto nreqp = request.get();
 
+	if (dtrack_ and iolog_enabled) {
+		auto rtrack = dtrack_->AddReq(request->id);
+		rtrack->req_offset = request->offset;
+		rtrack->req_size = request->length;
+		rtrack->req_type = REQ_SYNC;
+	}
+
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
 	for (auto& req_map : requests_.scheduled_) {
 		auto req_ptr = req_map.second.get();
@@ -1000,10 +1013,33 @@ bool StordVmdk::PrepareSyncRequest(std::unique_ptr<SyncRequest> request) {
 	return complete;
 }
 
+uint32_t StordVmdk::_GetReqType(Request *reqp) {
+	switch (reqp->type) {
+	case Request::Type::kRead:
+		return REQ_READ;
+	case Request::Type::kWrite:
+		return REQ_WRITE;
+	case Request::Type::kWriteSame:
+		return REQ_WRITESAME;
+	case Request::Type::kTruncate:
+		return REQ_TRUNCATE;
+	case Request::Type::kSync:
+		return REQ_SYNC;
+	}
+	return REQ_UNKNOWN;
+}
+
 /* Prepare a request for RPC */
 bool StordVmdk::PrepareRequest(std::unique_ptr<Request> request) {
 	bool prepared = true;
 	auto nreqp = request.get();
+
+	if (dtrack_ and iolog_enabled) {
+		auto rtrack = dtrack_->AddReq(request->id);
+		rtrack->req_offset = request->offset;
+		rtrack->req_size = request->length;
+		rtrack->req_type = _GetReqType(nreqp);
+	}
 
 	++stats_.pending_;
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
@@ -1243,6 +1279,10 @@ constexpr T GetErrNo(T arg1, Args... args) {
 bool StordVmdk::SyncRequestComplete(RequestID id, int32_t result) {
 	bool pending_ios = false;
 
+	if (dtrack_ and iolog_enabled) {
+		dtrack_->DelReq(id);
+	}
+
 	std::unique_lock<std::mutex> lock(requests_.mutex_);
 	auto sync_it = requests_.sync_pending_.find(id);
 	log_assert(sync_it != requests_.sync_pending_.end());
@@ -1378,6 +1418,10 @@ bool StordVmdk::RequestComplete(RequestID id, int32_t result) {
 
 	if (hyc_unlikely(result)) {
 		VLOG(5) << "reqid " << id << " has nonzero res: " << result;
+	}
+
+	if (dtrack_ and iolog_enabled) {
+		dtrack_->DelReq(id);
 	}
 
 	std::unique_lock<std::mutex> lock(requests_.mutex_);
@@ -2126,6 +2170,7 @@ const VmdkStats& StordVmdk::GetVmdkStats() const noexcept {
 
 class Stord {
 public:
+	Stord(); 
 	~Stord();
 	int32_t Connect(uint32_t ping_secs = 30);
 	int32_t Disconnect(bool force = false);
@@ -2159,8 +2204,13 @@ private:
 		mutable std::mutex mutex_;
 		std::unordered_map<std::string, std::shared_ptr<StordVmdk>> ids_;
 	} vmdk_;
+
+	std::unique_ptr<IoTrack> iotrack_{nullptr};
 };
 
+Stord::Stord() {
+	iotrack_ = std::make_unique<IoTrack>(iolog_frequency);
+}
 
 Stord::~Stord() {
 	auto rc = Disconnect();
@@ -2255,6 +2305,8 @@ int32_t Stord::OpenVmdk(const char* vmid, const char* vmdkid, uint64_t lun_size,
 		return rc;
 	}
 
+	vmdkp->SetDiskTrack(iotrack_->AddDisk(vmdkid));
+
 	*vmdkpp = vmdkp;
 	std::lock_guard<std::mutex> lock(vmdk_.mutex_);
 	vmdk_.ids_.emplace(vmdkid, std::move(vmdk));
@@ -2270,7 +2322,11 @@ int32_t Stord::CloseVmdk(StordVmdk* vmdkp) {
 		return -ENODEV;
 	}
 
+	iotrack_->DelDisk(id);
+	vmdkp->SetDiskTrack(nullptr);
+
 	auto vmdk = std::move(it->second);
+
 	vmdk_.ids_.erase(it);
 	lock.unlock();
 
