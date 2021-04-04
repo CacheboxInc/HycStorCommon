@@ -692,7 +692,10 @@ public:
 
 	void ResetResourceLimits() noexcept;
 
-	void SetDiskTrack(DiskTrack *dtrack) { dtrack_ = dtrack; }
+	void SetDiskTrack(DiskTrack *dtrack) { 
+		dtrack_ = dtrack;
+		LOG(ERROR) << "setting disktrack " << dtrack << std::endl;
+	}
 	uint32_t _GetReqType(Request *reqp);
 
 	friend std::ostream& operator << (std::ostream& os, const StordVmdk& vmdk);
@@ -987,6 +990,10 @@ bool StordVmdk::PrepareSyncRequest(std::unique_ptr<SyncRequest> request) {
 		rtrack->req_offset = request->offset;
 		rtrack->req_size = request->length;
 		rtrack->req_type = REQ_SYNC;
+		LOG(ERROR) << "iolog enabled. Adding syncreq " << request->id << " reqtype " <<
+			 rtrack->req_type << " req_offset " << rtrack->req_offset << " req_size " << rtrack->req_size << std::endl;
+	} else {
+		LOG(ERROR) << "iolog enabled is false or dtrack is not inited for syncreq" << g_iolog_enabled << "\n";
 	}
 
 	std::lock_guard<std::mutex> lock(requests_.mutex_);
@@ -1037,6 +1044,10 @@ bool StordVmdk::PrepareRequest(std::unique_ptr<Request> request) {
 		rtrack->req_offset = request->offset;
 		rtrack->req_size = request->length;
 		rtrack->req_type = _GetReqType(nreqp);
+		LOG(ERROR) << "iolog enabled. Adding req " << request->id << " reqtype " <<
+			 rtrack->req_type << " req_offset " << rtrack->req_offset << " req_size " << rtrack->req_size << std::endl;
+	} else {
+		LOG(ERROR) << "iolog enabled is false or dtrack is not inited " << g_iolog_enabled << "\n";
 	}
 
 	++stats_.pending_;
@@ -2208,6 +2219,7 @@ private:
 
 Stord::Stord() {
 	iotrack_ = std::make_unique<IoTrack>(g_iolog_frequency);
+	LOG(ERROR) << "inited stord" << std::endl;
 }
 
 Stord::~Stord() {
@@ -2303,6 +2315,7 @@ int32_t Stord::OpenVmdk(const char* vmid, const char* vmdkid, uint64_t lun_size,
 		return rc;
 	}
 
+	LOG(ERROR) << "calling setdisktrack\n";
 	vmdkp->SetDiskTrack(iotrack_->AddDisk(vmdkid));
 
 	*vmdkpp = vmdkp;
@@ -2320,6 +2333,7 @@ int32_t Stord::CloseVmdk(StordVmdk* vmdkp) {
 		return -ENODEV;
 	}
 
+	LOG(ERROR) << "calling deldisktrack\n";
 	iotrack_->DelDisk(id);
 	vmdkp->SetDiskTrack(nullptr);
 

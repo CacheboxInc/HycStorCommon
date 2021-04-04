@@ -10,7 +10,7 @@
 #define IOLOG_FREQUENCY    60 //seconds
 
 uint64_t g_iolog_frequency = IOLOG_FREQUENCY;
-bool g_iolog_enabled = false;
+bool g_iolog_enabled = true;
 
 namespace hyc {
 
@@ -41,7 +41,7 @@ ReqTrack* DiskTrack::AddReq(uint64_t reqid) {
 	if (not is_changed_) {
 		is_changed_ = true;
 	}
-	return rtrack.get();
+	return tracked_reqs_[reqid].get();
 }
 
 int DiskTrack::DelReq(uint64_t reqid) {
@@ -50,6 +50,8 @@ int DiskTrack::DelReq(uint64_t reqid) {
 	if (reqi == tracked_reqs_.end()) {
 		LOG(ERROR) << "reqid " << reqid << " not found in DelReq" << std::endl;
 		return -1;
+	} else {
+		LOG(ERROR) << "reqid " << reqid << " is deleted\n";
 	}
 	++rstats_.n_completed;
 	rstats_.avg_latency.Add(reqi->second->GetLatency());	
@@ -81,15 +83,16 @@ void DiskTrack::Monitor() {
 	for (auto & reqi : tracked_reqs_) {
 		reqi.second->Print(now);
 	}
-	LOG(ERROR) << "req_arrived " << rstats_.n_arrived <<
-		      "req_completed " << rstats_.n_completed <<
-		      "avg_latency " << rstats_.avg_latency.Average() <<
+	LOG(ERROR) << " req_arrived " << rstats_.n_arrived <<
+		      " req_completed " << rstats_.n_completed <<
+		      " avg_latency " << rstats_.avg_latency.Average() <<
 		      std::endl;
 	is_changed_ = false;
 }
 
 IoTrack::IoTrack(uint64_t freq) : monitor_freq_(freq) {
 	monitor_ = std::thread(&IoMonitor, this);
+	LOG(ERROR) << "iotrack inited" << std::endl;
 }
 
 IoTrack::~IoTrack() {
@@ -102,10 +105,12 @@ DiskTrack* IoTrack::AddDisk(std::string diskid) {
 	auto diski = tracked_disks_.find(diskid);
 	if (diski != tracked_disks_.end()) {
 		LOG(ERROR) << "diskid " << diskid << " is getting reinserted" << std::endl;
+	} else {
+		LOG(ERROR) << "diskid " << diskid << " is getting added\n";
 	}
 	auto dtrack = std::make_unique<DiskTrack>(diskid);
 	tracked_disks_[diskid] = std::move(dtrack);
-	return dtrack.get();
+	return tracked_disks_[diskid].get();
 }
 
 int IoTrack::DelDisk(std::string diskid) {
@@ -114,6 +119,8 @@ int IoTrack::DelDisk(std::string diskid) {
 	if (diski == tracked_disks_.end()) {
 		LOG(ERROR) << "diskid " << diskid << " not found in DelDisk" << std::endl;
 		return -1;
+	} else {
+		LOG(ERROR) << "diskid " << diskid << " found for deldisk\n";
 	}
 	tracked_disks_.erase(diski);
 	return 0;
@@ -131,18 +138,22 @@ DiskTrack* IoTrack::GetDisk(std::string diskid) {
 
 void IoTrack::IoMonitorLoop() {
 	LOG(ERROR) << "Iotrack monitor thread starting" << std::endl;
-	const char *debug_file = "/root/hyc/io_debug";
+	//const char *debug_file = "/root/hyc/io_debug";
 	while (!shutdown_) {
-		if (access(debug_file, F_OK) == 0) {
+		//if (access(debug_file, F_OK) == 0) {
+		if (1) {
+			LOG(ERROR) << "loop over disk monitor\n";
 			g_iolog_enabled = true;
 			std::lock_guard<std::mutex> lock(mutex_);
 			for (auto & diski : tracked_disks_) {
 				diski.second->Monitor();
 			}	
 		} else {
+			LOG(ERROR) << "iolog_enabled is false\n";
 			g_iolog_enabled = false;
 		}
 		std::this_thread::sleep_for(std::chrono::seconds(monitor_freq_));
+		LOG(ERROR) << "wake up after sleep\n";
 	}
 	LOG(ERROR) << "Iotrack monitor thread exiting" << std::endl;
 }
