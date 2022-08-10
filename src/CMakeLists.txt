@@ -1,11 +1,8 @@
 set(ThriftLibs
 	thrift-core
-	protocol
 	concurrency
 	transport
 	async
-	security
-	server
 	thriftfrozen2
 	thriftprotocol
 	thriftcpp2
@@ -21,6 +18,7 @@ set(COMPRESSION_LIBS
 )
 
 set(LIBRARY_LIST
+	fmt
 	gflags
 	glog
 	folly

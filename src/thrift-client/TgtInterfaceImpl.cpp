@@ -11,11 +11,12 @@
 #include <cerrno>
 
 #include <sys/eventfd.h>
-#include <thrift/lib/cpp/async/TAsyncSocket.h>
+#include <thrift/lib/cpp/async/TAsyncSSLSocket.h>
 #include <thrift/lib/cpp2/async/HeaderClientChannel.h>
 #include <folly/io/async/AsyncTimeout.h>
 #include <folly/io/async/EventBase.h>
 #include <folly/io/async/EventHandler.h>
+#include <folly/io/async/SSLContext.h>
 
 #include <glog/logging.h>
 #include <gflags/gflags.h>
@@ -301,14 +302,15 @@ int StordConnection::Connect() {
 			std::this_thread::yield();
 
 			auto base = std::make_unique<folly::EventBase>();
+			auto ctx = std::make_shared<folly::SSLContext>();
 			for (size_t i = 0; i < kNumberOfClients; ++i) {
 				auto client = std::make_unique<StorRpcAsyncClient>(
 					HeaderClientChannel::newChannel(
-						async::TAsyncSocket::newSocket(base.get(),
-							{ip_, port_})));
-				auto channel = dynamic_cast<HeaderClientChannel*>(
-					client->getHeaderChannel());
-				channel->setProtocolId(protocol::T_BINARY_PROTOCOL);
+						async::TAsyncSSLSocket::newSocket(ctx,
+							base.get())));
+				// auto channel = dynamic_cast<HeaderClientChannel*>(
+				// 	client->getHeaderChannel());
+				// channel->setProtocolId(protocol::T_BINARY_PROTOCOL);
 				{
 					/*
 					 * ping stord
@@ -425,7 +427,7 @@ void StordConnection::SetPingTimeout() {
 
 		for (auto& client : clients_.list_) {
 			auto fut = client->future_Ping()
-			.then([] (const std::string& result) {
+			.thenValue([] (const std::string& result) {
 				return 0;
 			})
 			.onError([] (const std::exception& e) {
