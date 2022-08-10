@@ -77,7 +77,8 @@ set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=${CXX_STANDARD} -Wnon-virtual-dtor
 add_compile_options(
   -Wall
   -Wextra
-  -Werror
+  # -Werror
+  -Wfatal-errors
   -Wstrict-aliasing
   -Wno-unused-parameter
   -Wno-missing-field-initializers
