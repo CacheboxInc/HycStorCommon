@@ -6,7 +6,12 @@ set(ThriftLibs
 	thriftfrozen2
 	thriftprotocol
 	thriftcpp2
-	wangle
+	rpcmetadata
+	thriftannotation
+	thriftanyrep
+	thriftmetadata
+	thrifttype
+	thrifttyperep
 )
 
 set(COMPRESSION_LIBS
@@ -19,9 +24,12 @@ set(COMPRESSION_LIBS
 
 set(LIBRARY_LIST
 	fmt
+	folly
+	sodium
+	fizz
+	wangle
 	gflags
 	glog
-	folly
 	pthread
 	boost_system
 	boost_context

@@ -17,6 +17,7 @@
 #include <folly/io/async/EventBase.h>
 #include <folly/io/async/EventHandler.h>
 #include <folly/io/async/SSLContext.h>
+#include <folly/executors/ThreadedExecutor.h>
 
 #include <glog/logging.h>
 #include <gflags/gflags.h>
@@ -430,7 +431,7 @@ void StordConnection::SetPingTimeout() {
 			.thenValue([] (const std::string& result) {
 				return 0;
 			})
-			.onError([] (const std::exception& e) {
+			.thenError(folly::tag_t<std::exception>{}, [] (const std::exception& e) {
 				return -ENODEV;
 			});
 		}
@@ -816,15 +817,15 @@ int32_t StordVmdk::OpenVmdk() {
 				return;
 			}
 			const auto& result = tri.value();
-			if (hyc_unlikely(result.handle == kInvalidVmdkHandle)) {
+			if (hyc_unlikely(result.get_handle() == kInvalidVmdkHandle)) {
 				promise.setValue(kInvalidVmdkHandle);
 				return;
 			}
-			vmdk_handle_ = result.handle;
+			vmdk_handle_ = result.get_handle();
 			fd_ = result.get_fd();
 			log_assert(fd_ >= 0);
 
-			shm_.id_ = result.shm_id;
+			shm_.id_ = result.get_shm_id();
 			connectp_->RegisterVmdk(this);
 			clientp_ = clientp;
 
@@ -836,7 +837,7 @@ int32_t StordVmdk::OpenVmdk() {
 	});
 
 	auto future = promise.getFuture();
-	auto vmdk_handle = future.get();
+	auto vmdk_handle = std::move(future).get();
 	if (hyc_unlikely(vmdk_handle == kInvalidVmHandle)) {
 		LOG(ERROR) << "Open VMDK Failed" << *this;
 		return -ENODEV;
@@ -876,7 +877,7 @@ int StordVmdk::CloseVmdk() {
 	});
 
 	auto future = promise.getFuture();
-	auto rc = future.get();
+	auto rc = std::move(future).get();
 	if (hyc_unlikely(rc < 0)) {
 		LOG(ERROR) << "Close VMDK Failed" << *this;
 		return rc;
@@ -1316,12 +1317,13 @@ void StordVmdk::RequestComplete(const std::vector<T>& requests, ErrNo&&... no) {
 
 	for (const auto& req : requests) {
 		if constexpr (HasResult<T>()) {
-			post = RequestComplete(req.reqid, req.result);
+			post = RequestComplete(req.get_reqid(), req.result);
 		} else if constexpr (sizeof...(no) == 1)  {
-			post = RequestComplete(req.reqid, GetErrNo(std::forward<ErrNo>(no)...));
+			post = RequestComplete(req.get_reqid(), GetErrNo(std::forward<ErrNo>(no)...));
 		} else {
-			static_assert(not std::is_same<T, T>::value,
-					"Not sure what to set result");
+			// static_assert(not std::is_same<T, T>::value,
+			// 		"Not sure what to set result");
+			assert((not std::is_same<T, T>::value));
 		}
 	}
 
@@ -1459,13 +1461,13 @@ void StordVmdk::ScheduleWriteSame(folly::EventBase* basep, Request* reqp) {
 	++stats_.rpc_requests_scheduled_;
 	clientp_->future_WriteSame(fd_, shm, reqp->id, data, reqp->buf_sz,
 		reqp->length, reqp->offset)
-	.then([this, reqp, data = std::move(data)]
+	.thenValue([this, reqp, data = std::move(data)]
 			(const WriteResult& result) mutable {
 		reqp->result = result.get_result();
 		RequestComplete(reqp);
 		--stats_.rpc_requests_scheduled_;
 	})
-	.onError([this, reqp] (const std::exception& e) mutable {
+	.thenError(folly::tag_t<std::exception>{}, [this, reqp] (const std::exception& e) mutable {
 		reqp->result = -EIO;
 		RequestComplete(reqp);
 		--stats_.rpc_requests_scheduled_;
@@ -1491,13 +1493,13 @@ void StordVmdk::ScheduleWrite(folly::EventBase* basep, Request* reqp) {
 
 	++stats_.rpc_requests_scheduled_;
 	clientp_->future_Write(fd_, shm, reqp->id, data, reqp->buf_sz, reqp->offset)
-	.then([this, reqp, data = std::move(data)]
+	.thenValue([this, reqp, data = std::move(data)]
 			(const WriteResult& result) mutable {
 		reqp->result = result.get_result();
 		RequestComplete(reqp);
 		--stats_.rpc_requests_scheduled_;
 	})
-	.onError([this, reqp] (const std::exception& e) mutable {
+	.thenError(folly::tag_t<std::exception>{}, [this, reqp] (const std::exception& e) mutable {
 		reqp->result = -EIO;
 		RequestComplete(reqp);
 		--stats_.rpc_requests_scheduled_;
@@ -1519,7 +1521,7 @@ void StordVmdk::ScheduleBulkWrite(folly::EventBase* basep,
 			return;
 		}
 
-		const auto& results = trie.value();
+		auto results = trie.value();
 		RequestComplete(results);
 		--stats_.rpc_requests_scheduled_;
 	});
@@ -1537,7 +1539,7 @@ void StordVmdk::ScheduleRead(folly::EventBase* basep, Request* reqp) {
 
 	++stats_.rpc_requests_scheduled_;
 	clientp_->future_Read(fd_, shm, reqp->id, reqp->buf_sz, reqp->offset)
-	.then([this, reqp] (const ReadResult& result) mutable {
+	.thenValue([this, reqp] (const ReadResult& result) mutable {
 		reqp->result = result.get_result();
 		if (hyc_likely(reqp->result == 0)) {
 			ReadDataCopy(reqp, result);
@@ -1545,7 +1547,7 @@ void StordVmdk::ScheduleRead(folly::EventBase* basep, Request* reqp) {
 		RequestComplete(reqp);
 		--stats_.rpc_requests_scheduled_;
 	})
-	.onError([this, reqp] (const std::exception& e) mutable {
+	.thenError(folly::tag_t<std::exception>{}, [this, reqp] (const std::exception& e) mutable {
 		reqp->result = -EIO;
 		RequestComplete(reqp);
 		--stats_.rpc_requests_scheduled_;
@@ -1563,9 +1565,9 @@ void StordVmdk::BulkReadComplete(const std::vector<Request*>& requests,
 		return nullptr;
 	};
 	for (const auto& result : results) {
-		auto reqp = RequestFind(result.reqid);
-		reqp->result = result.result;
-		if (hyc_likely(result.result == 0)) {
+		auto reqp = RequestFind(result.get_reqid());
+		reqp->result = result.get_result();
+		if (hyc_likely(result.get_result() == 0)) {
 			log_assert(reqp != nullptr);
 			ReadDataCopy(reqp, result);
 		}
@@ -1605,11 +1607,11 @@ folly::Future<int> StordVmdk::ScheduleTruncate(RequestID reqid,
 	++stats_.rpc_requests_scheduled_;
 	return clientp_->future_Truncate(fd_, reqid,
 		std::forward<std::vector<TruncateReq>>(requests))
-	.then([this] (const TruncateResult& result) {
+	.thenValue([this] (const TruncateResult& result) {
 		--stats_.rpc_requests_scheduled_;
 		return result.get_result();
 	})
-	.onError([this] (const std::exception& e) {
+	.thenError(folly::tag_t<std::exception>{}, [this] (const std::exception& e) {
 		--stats_.rpc_requests_scheduled_;
 		return -EIO;
 	});
@@ -1662,8 +1664,10 @@ void StordVmdk::ScheduleTruncate(folly::EventBase* basep, Request* reqp) {
 		return;
 	}
 
-	folly::collectAll(std::move(futures))
-	.then([this, reqp] (const folly::Try<std::vector<folly::Try<int>>>& tries) {
+	folly::ThreadedExecutor executor;
+	auto semiFuture = folly::collectAll(futures.begin(), futures.end());
+	std::move(semiFuture).via(&executor)
+	.thenTry([this, reqp] (const folly::Try<std::vector<folly::Try<int>>>& tries) {
 		if (hyc_unlikely(tries.hasException())) {
 			reqp->result = -EIO;
 			RequestComplete(reqp);

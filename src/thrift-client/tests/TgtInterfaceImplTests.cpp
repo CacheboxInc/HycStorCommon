@@ -11,7 +11,6 @@
 #include "SharedMemory.h"
 
 using namespace apache::thrift;
-using namespace apache::thrift::async;
 using namespace ::hyc_thrift;
 
 static constexpr int32_t kServerPort = 9876;
@@ -142,7 +141,7 @@ public:
 			::memset(iobuf->writableTail(), 'A', size);
 			iobuf->append(size);
 			results->emplace_back(apache::thrift::FragileConstructor(),
-				req.reqid, 0, std::move(iobuf));
+				req.get_reqid(), 0, std::move(iobuf));
 			++nread_;
 		}
 		return std::move(results);
@@ -155,7 +154,7 @@ public:
 		auto results = std::make_unique<std::vector<WriteResult>>();
 		for (const auto& req : *requests) {
 			results->emplace_back(apache::thrift::FragileConstructor(),
-				req.reqid, 0);
+				req.get_reqid(), 0);
 			++nwrite_;
 		}
 		return std::move(results);
@@ -311,8 +310,8 @@ TEST(TgtInterfaceImplTest, PingFailure) {
 				std::unique_ptr<HandlerCallback<std::unique_ptr<std::string>>> cb)
 				override {
 			ServiceException e;
-			e.message = "No memory";
-			e.error_number = ENOMEM;
+			e.message() = "No memory";
+			e.error_number() = ENOMEM;
 			cb->exception(e);
 		}
 	};

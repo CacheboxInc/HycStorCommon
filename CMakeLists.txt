@@ -3,7 +3,7 @@
 # https://cmake.org/cmake/help/v3.0/manual/cmake-commands.7.html
 # http://www.slideshare.net/DanielPfeifer1/cmake-48475415
 #
-cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
 
 # Project(<name> VERSION <version> LANGUAGES CXX)
 project(HycStorCommon C CXX ASM)
